@@ -700,6 +700,28 @@ main { max-width: 480px; margin: 0 auto; padding: 0 0.75rem; }
     box-shadow: 0 0 12px hsla(210, 80%, 55%, 0.3);
 }
 
+.status-indicator.status-on.vent {
+    background: hsla(145, 63%, 49%, 0.15);
+    color: #2ecc71;
+}
+
+.status-indicator.status-on.aer {
+    background: hsla(187, 100%, 42%, 0.15);
+    color: #00bcd4;
+}
+
+.ctrl-btn.vent-on {
+    background: #2ecc71;
+    color: #fff;
+    box-shadow: 0 0 12px hsla(145, 63%, 49%, 0.3);
+}
+
+.ctrl-btn.aer-on {
+    background: #00bcd4;
+    color: #fff;
+    box-shadow: 0 0 12px hsla(187, 100%, 42%, 0.3);
+}
+
 .ctrl-btn-mode.manual {
     border-color: var(--warning);
     color: var(--warning);

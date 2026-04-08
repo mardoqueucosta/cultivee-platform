@@ -9,7 +9,7 @@
 
 // ===================== FASES =====================
 
-#define HYDRO_CONFIG_VERSION 2  // Incrementar quando defaults mudarem
+#define HYDRO_CONFIG_VERSION 3  // Incrementar quando defaults mudarem
 
 void loadDefaultPhases() {
   numPhases = 3;
@@ -20,6 +20,10 @@ void loadDefaultPhases() {
   phases[0].lightOffHour = 18; phases[0].lightOffMin = 0;
   phases[0].pumpOnDay = 15; phases[0].pumpOffDay = 15;
   phases[0].pumpOnNight = 15; phases[0].pumpOffNight = 45;
+  phases[0].ventOnHour = 8; phases[0].ventOnMin = 0;
+  phases[0].ventOffHour = 18; phases[0].ventOffMin = 0;
+  phases[0].aerOnDay = 5; phases[0].aerOffDay = 10;
+  phases[0].aerOnNight = 5; phases[0].aerOffNight = 30;
 
   strcpy(phases[1].name, "Bercario");
   phases[1].days = 17;
@@ -27,6 +31,10 @@ void loadDefaultPhases() {
   phases[1].lightOffHour = 19; phases[1].lightOffMin = 0;
   phases[1].pumpOnDay = 15; phases[1].pumpOffDay = 15;
   phases[1].pumpOnNight = 15; phases[1].pumpOffNight = 45;
+  phases[1].ventOnHour = 7; phases[1].ventOnMin = 0;
+  phases[1].ventOffHour = 21; phases[1].ventOffMin = 0;
+  phases[1].aerOnDay = 10; phases[1].aerOffDay = 10;
+  phases[1].aerOnNight = 5; phases[1].aerOffNight = 30;
 
   strcpy(phases[2].name, "Engorda");
   phases[2].days = 0;  // infinito
@@ -34,6 +42,10 @@ void loadDefaultPhases() {
   phases[2].lightOffHour = 20; phases[2].lightOffMin = 0;
   phases[2].pumpOnDay = 15; phases[2].pumpOffDay = 15;
   phases[2].pumpOnNight = 15; phases[2].pumpOffNight = 45;
+  phases[2].ventOnHour = 6; phases[2].ventOnMin = 0;
+  phases[2].ventOffHour = 22; phases[2].ventOffMin = 0;
+  phases[2].aerOnDay = 10; phases[2].aerOffDay = 10;
+  phases[2].aerOnNight = 10; phases[2].aerOffNight = 30;
 }
 
 void savePhases() {
@@ -55,6 +67,14 @@ void savePhases() {
     prefs.putInt((prefix + "pfd").c_str(), phases[i].pumpOffDay);
     prefs.putInt((prefix + "pon").c_str(), phases[i].pumpOnNight);
     prefs.putInt((prefix + "pfn").c_str(), phases[i].pumpOffNight);
+    prefs.putInt((prefix + "voh").c_str(), phases[i].ventOnHour);
+    prefs.putInt((prefix + "vom").c_str(), phases[i].ventOnMin);
+    prefs.putInt((prefix + "vfh").c_str(), phases[i].ventOffHour);
+    prefs.putInt((prefix + "vfm").c_str(), phases[i].ventOffMin);
+    prefs.putInt((prefix + "aod").c_str(), phases[i].aerOnDay);
+    prefs.putInt((prefix + "afd").c_str(), phases[i].aerOffDay);
+    prefs.putInt((prefix + "aon").c_str(), phases[i].aerOnNight);
+    prefs.putInt((prefix + "afn").c_str(), phases[i].aerOffNight);
   }
   prefs.end();
   Serial.println("Fases salvas no flash");
@@ -91,6 +111,14 @@ void loadPhases() {
     phases[i].pumpOffDay = prefs.getInt((prefix + "pfd").c_str(), 15);
     phases[i].pumpOnNight = prefs.getInt((prefix + "pon").c_str(), 15);
     phases[i].pumpOffNight = prefs.getInt((prefix + "pfn").c_str(), 45);
+    phases[i].ventOnHour = prefs.getInt((prefix + "voh").c_str(), 8);
+    phases[i].ventOnMin = prefs.getInt((prefix + "vom").c_str(), 0);
+    phases[i].ventOffHour = prefs.getInt((prefix + "vfh").c_str(), 20);
+    phases[i].ventOffMin = prefs.getInt((prefix + "vfm").c_str(), 0);
+    phases[i].aerOnDay = prefs.getInt((prefix + "aod").c_str(), 10);
+    phases[i].aerOffDay = prefs.getInt((prefix + "afd").c_str(), 10);
+    phases[i].aerOnNight = prefs.getInt((prefix + "aon").c_str(), 5);
+    phases[i].aerOffNight = prefs.getInt((prefix + "afn").c_str(), 30);
   }
   prefs.end();
   Serial.printf("Fases carregadas: %d fases, inicio: %s\n", numPhases, startDate);
@@ -146,6 +174,19 @@ bool isLightTime(Phase *p) {
   }
 }
 
+bool isVentTime(Phase *p) {
+  struct tm t;
+  if (!getCurrentTime(&t)) return false;
+  int nowMin = t.tm_hour * 60 + t.tm_min;
+  int onMin = p->ventOnHour * 60 + p->ventOnMin;
+  int offMin = p->ventOffHour * 60 + p->ventOffMin;
+  if (onMin <= offMin) {
+    return nowMin >= onMin && nowMin < offMin;
+  } else {
+    return nowMin >= onMin || nowMin < offMin;
+  }
+}
+
 bool isDayTime(Phase *p) {
   return isLightTime(p);
 }
@@ -192,6 +233,33 @@ void hidro_loop() {
         pumpState ? "ON" : "OFF", isDay ? "dia" : "noite", pumpOn, pumpOff);
     }
   }
+
+  // Ventilacao (horario — como luz)
+  bool shouldVent = isVentTime(p);
+  if (shouldVent != ventilationState) {
+    ventilationState = shouldVent;
+    setRelay(RELE_VENTILACAO, ventilationState);
+    Serial.printf("Auto: Ventilacao %s (fase: %s)\n", ventilationState ? "ON" : "OFF", p->name);
+  }
+
+  // Aeracao (ciclo — como bomba)
+  unsigned long aerOn = isDay ? p->aerOnDay : p->aerOnNight;
+  unsigned long aerOff = isDay ? p->aerOffDay : p->aerOffNight;
+  if (aerOn == 0) aerOn = 5;
+  if (aerOff == 0) aerOff = 10;
+  if (getCurrentTime(&ct)) {
+    unsigned long secsMid = ct.tm_hour * 3600UL + ct.tm_min * 60UL + ct.tm_sec;
+    unsigned long aerCycleSec = (aerOn + aerOff) * 60UL;
+    unsigned long aerPos = (secsMid % aerCycleSec) * 1000UL;
+    unsigned long aerOnTime = aerOn * 60UL * 1000UL;
+    bool shouldAer = aerPos < aerOnTime;
+    if (shouldAer != aerationState) {
+      aerationState = shouldAer;
+      setRelay(RELE_AERACAO, aerationState);
+      Serial.printf("Auto: Aeracao %s (%s, %lumin/%lumin)\n",
+        aerationState ? "ON" : "OFF", isDay ? "dia" : "noite", aerOn, aerOff);
+    }
+  }
 }
 
 // ===================== LED STATUS =====================
@@ -232,6 +300,8 @@ String hidro_status_json() {
   json += "\"mode\":\"" + String(modeAuto ? "auto" : "manual") + "\",";
   json += "\"light\":" + String(lightState ? "true" : "false") + ",";
   json += "\"pump\":" + String(pumpState ? "true" : "false") + ",";
+  json += "\"ventilation\":" + String(ventilationState ? "true" : "false") + ",";
+  json += "\"aeration\":" + String(aerationState ? "true" : "false") + ",";
   json += "\"cycle_day\":" + String(cycleDay) + ",";
   json += "\"phase\":\"" + String(p->name) + "\",";
   json += "\"phase_index\":" + String(phaseIdx) + ",";
@@ -258,6 +328,14 @@ String hidro_status_json() {
     json += ",\"pumpOffDay\":" + String(phases[i].pumpOffDay);
     json += ",\"pumpOnNight\":" + String(phases[i].pumpOnNight);
     json += ",\"pumpOffNight\":" + String(phases[i].pumpOffNight);
+    json += ",\"ventOnHour\":" + String(phases[i].ventOnHour);
+    json += ",\"ventOnMin\":" + String(phases[i].ventOnMin);
+    json += ",\"ventOffHour\":" + String(phases[i].ventOffHour);
+    json += ",\"ventOffMin\":" + String(phases[i].ventOffMin);
+    json += ",\"aerOnDay\":" + String(phases[i].aerOnDay);
+    json += ",\"aerOffDay\":" + String(phases[i].aerOffDay);
+    json += ",\"aerOnNight\":" + String(phases[i].aerOnNight);
+    json += ",\"aerOffNight\":" + String(phases[i].aerOffNight);
     json += "}";
   }
   json += "]";
@@ -289,6 +367,14 @@ String hidro_register_json() {
     phasesJson += ",\"pumpOffDay\":" + String(phases[i].pumpOffDay);
     phasesJson += ",\"pumpOnNight\":" + String(phases[i].pumpOnNight);
     phasesJson += ",\"pumpOffNight\":" + String(phases[i].pumpOffNight);
+    phasesJson += ",\"ventOnHour\":" + String(phases[i].ventOnHour);
+    phasesJson += ",\"ventOnMin\":" + String(phases[i].ventOnMin);
+    phasesJson += ",\"ventOffHour\":" + String(phases[i].ventOffHour);
+    phasesJson += ",\"ventOffMin\":" + String(phases[i].ventOffMin);
+    phasesJson += ",\"aerOnDay\":" + String(phases[i].aerOnDay);
+    phasesJson += ",\"aerOffDay\":" + String(phases[i].aerOffDay);
+    phasesJson += ",\"aerOnNight\":" + String(phases[i].aerOnNight);
+    phasesJson += ",\"aerOffNight\":" + String(phases[i].aerOffNight);
     phasesJson += "}";
   }
   phasesJson += "]";
@@ -296,6 +382,8 @@ String hidro_register_json() {
   String json = "";
   json += "\"light\":" + String(lightState ? "true" : "false") + ",";
   json += "\"pump\":" + String(pumpState ? "true" : "false") + ",";
+  json += "\"ventilation\":" + String(ventilationState ? "true" : "false") + ",";
+  json += "\"aeration\":" + String(aerationState ? "true" : "false") + ",";
   json += "\"mode\":\"" + String(modeAuto ? "auto" : "manual") + "\",";
   json += "\"phase\":\"" + String(p->name) + "\",";
   json += "\"phase_index\":" + String(phaseIdx) + ",";
@@ -328,6 +416,20 @@ void handleGpio() {
       setRelay(RELE_BOMBA, pumpState);
       if (modeAuto) { modeAuto = false; }
       Serial.printf("GPIO: Bomba %s\n", pumpState ? "ON" : "OFF");
+    }
+  } else if (name == "ventilation") {
+    if (!modeAuto || action == "toggle") {
+      ventilationState = !ventilationState;
+      setRelay(RELE_VENTILACAO, ventilationState);
+      if (modeAuto) { modeAuto = false; }
+      Serial.printf("GPIO: Ventilacao %s\n", ventilationState ? "ON" : "OFF");
+    }
+  } else if (name == "aeration") {
+    if (!modeAuto || action == "toggle") {
+      aerationState = !aerationState;
+      setRelay(RELE_AERACAO, aerationState);
+      if (modeAuto) { modeAuto = false; }
+      Serial.printf("GPIO: Aeracao %s\n", aerationState ? "ON" : "OFF");
     }
   } else if (name == "mode") {
     modeAuto = !modeAuto;
@@ -373,6 +475,20 @@ void handleRelay() {
       if (!modeAuto) modeAuto = false;
       Serial.printf("Manual: Bomba %s\n", pumpState ? "ON" : "OFF");
     }
+  } else if (device == "ventilation") {
+    if (!modeAuto || action == "toggle") {
+      ventilationState = !ventilationState;
+      setRelay(RELE_VENTILACAO, ventilationState);
+      if (!modeAuto) modeAuto = false;
+      Serial.printf("Manual: Ventilacao %s\n", ventilationState ? "ON" : "OFF");
+    }
+  } else if (device == "aeration") {
+    if (!modeAuto || action == "toggle") {
+      aerationState = !aerationState;
+      setRelay(RELE_AERACAO, aerationState);
+      if (!modeAuto) modeAuto = false;
+      Serial.printf("Manual: Aeracao %s\n", aerationState ? "ON" : "OFF");
+    }
   }
 
   sendCORS();
@@ -392,6 +508,10 @@ void handleAddPhase() {
     phases[numPhases].lightOffHour = 18; phases[numPhases].lightOffMin = 0;
     phases[numPhases].pumpOnDay = 15; phases[numPhases].pumpOffDay = 15;
     phases[numPhases].pumpOnNight = 15; phases[numPhases].pumpOffNight = 45;
+    phases[numPhases].ventOnHour = 8; phases[numPhases].ventOnMin = 0;
+    phases[numPhases].ventOffHour = 20; phases[numPhases].ventOffMin = 0;
+    phases[numPhases].aerOnDay = 5; phases[numPhases].aerOffDay = 10;
+    phases[numPhases].aerOnNight = 5; phases[numPhases].aerOffNight = 30;
     numPhases++;
     savePhases();
   }
@@ -448,6 +568,25 @@ void handleSaveConfig() {
     phases[i].pumpOffDay = pfd > 0 ? pfd : 15;
     phases[i].pumpOnNight = pon > 0 ? pon : 15;
     phases[i].pumpOffNight = pfn > 0 ? pfn : 45;
+
+    String von = server.arg("von" + String(i));
+    if (von.length() >= 5) {
+      phases[i].ventOnHour = von.substring(0, 2).toInt();
+      phases[i].ventOnMin = von.substring(3, 5).toInt();
+    }
+    String voff = server.arg("voff" + String(i));
+    if (voff.length() >= 5) {
+      phases[i].ventOffHour = voff.substring(0, 2).toInt();
+      phases[i].ventOffMin = voff.substring(3, 5).toInt();
+    }
+    int aod = server.arg("aod" + String(i)).toInt();
+    int afd = server.arg("afd" + String(i)).toInt();
+    int aon = server.arg("aon" + String(i)).toInt();
+    int afn = server.arg("afn" + String(i)).toInt();
+    phases[i].aerOnDay = aod > 0 ? aod : 5;
+    phases[i].aerOffDay = afd > 0 ? afd : 10;
+    phases[i].aerOnNight = aon > 0 ? aon : 5;
+    phases[i].aerOffNight = afn > 0 ? afn : 30;
   }
   numPhases = np;
   savePhases();
@@ -464,6 +603,8 @@ void handleConfig() {
     Phase *p = &phases[i];
     String lonVal = (p->lightOnHour < 10 ? "0" : "") + String(p->lightOnHour) + ":" + (p->lightOnMin < 10 ? "0" : "") + String(p->lightOnMin);
     String loffVal = (p->lightOffHour < 10 ? "0" : "") + String(p->lightOffHour) + ":" + (p->lightOffMin < 10 ? "0" : "") + String(p->lightOffMin);
+    String vonVal = (p->ventOnHour < 10 ? "0" : "") + String(p->ventOnHour) + ":" + (p->ventOnMin < 10 ? "0" : "") + String(p->ventOnMin);
+    String voffVal = (p->ventOffHour < 10 ? "0" : "") + String(p->ventOffHour) + ":" + (p->ventOffMin < 10 ? "0" : "") + String(p->ventOffMin);
 
     phaseForms += "<div class='ph'>";
     phaseForms += "<div class='ph-hdr'><span class='ph-t'>Fase " + String(i + 1) + "</span>";
@@ -484,6 +625,18 @@ void handleConfig() {
     phaseForms += "<div class='sl'>&#127769; Irriga&ccedil;&atilde;o Noite</div>";
     phaseForms += "<div class='gr'><div class='fd'><label>ON (min)</label><input type='number' name='pon" + String(i) + "' value='" + String(p->pumpOnNight) + "' min='1'></div>";
     phaseForms += "<div class='fd'><label>OFF (min)</label><input type='number' name='pfn" + String(i) + "' value='" + String(p->pumpOffNight) + "' min='1'></div></div>";
+
+    phaseForms += "<div class='sl'>&#127744; Ventila&ccedil;&atilde;o</div>";
+    phaseForms += "<div class='gr'><div class='fd'><label>Liga</label><input type='time' name='von" + String(i) + "' value='" + vonVal + "'></div>";
+    phaseForms += "<div class='fd'><label>Desliga</label><input type='time' name='voff" + String(i) + "' value='" + voffVal + "'></div></div>";
+
+    phaseForms += "<div class='sl'>&#129707; Aera&ccedil;&atilde;o Dia</div>";
+    phaseForms += "<div class='gr'><div class='fd'><label>ON (min)</label><input type='number' name='aod" + String(i) + "' value='" + String(p->aerOnDay) + "' min='1'></div>";
+    phaseForms += "<div class='fd'><label>OFF (min)</label><input type='number' name='afd" + String(i) + "' value='" + String(p->aerOffDay) + "' min='1'></div></div>";
+
+    phaseForms += "<div class='sl'>&#127769; Aera&ccedil;&atilde;o Noite</div>";
+    phaseForms += "<div class='gr'><div class='fd'><label>ON (min)</label><input type='number' name='aon" + String(i) + "' value='" + String(p->aerOnNight) + "' min='1'></div>";
+    phaseForms += "<div class='fd'><label>OFF (min)</label><input type='number' name='afn" + String(i) + "' value='" + String(p->aerOffNight) + "' min='1'></div></div>";
     phaseForms += "</div>";
   }
 
@@ -571,14 +724,20 @@ String hidro_dashboard_html() {
 
   String lightIndicator = lightState ? "<span id='il' style='color:#27ae60'>&#9679; Luz Ligada</span>" : "<span id='il' style='color:#666'>&#9679; Luz Desligada</span>";
   String pumpIndicator = pumpState ? "<span id='ip' style='color:#3498db'>&#9679; Bomba Ligada</span>" : "<span id='ip' style='color:#666'>&#9679; Bomba Desligada</span>";
+  String ventIndicator = ventilationState ? "<span id='iv' style='color:#2ecc71'>&#9679; Vent Ligada</span>" : "<span id='iv' style='color:#666'>&#9679; Vent Desligada</span>";
+  String aerIndicator = aerationState ? "<span id='ia' style='color:#00bcd4'>&#9679; Aera Ligada</span>" : "<span id='ia' style='color:#666'>&#9679; Aera Desligada</span>";
 
   String manualBtns = "";
   if (!modeAuto) {
-    manualBtns = "<div id='mb' style='display:flex;gap:8px;margin-top:10px'>"
-      "<button id='bl' onclick=\"cmd('light','toggle')\" style='flex:1;padding:12px;border-radius:10px;border:none;font-weight:700;font-size:0.9rem;cursor:pointer;"
+    manualBtns = "<div id='mb' style='display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px'>"
+      "<button id='bl' onclick=\"cmd('light','toggle')\" style='padding:12px;border-radius:10px;border:none;font-weight:700;font-size:0.9rem;cursor:pointer;"
       + String(lightState ? "background:#27ae60;color:#fff'" : "background:#2a2d35;color:#aaa;border:1px solid #3a3d45'") + ">LUZ " + (lightState ? "ON" : "OFF") + "</button>"
-      "<button id='bp' onclick=\"cmd('pump','toggle')\" style='flex:1;padding:12px;border-radius:10px;border:none;font-weight:700;font-size:0.9rem;cursor:pointer;"
-      + String(pumpState ? "background:#3498db;color:#fff'" : "background:#2a2d35;color:#aaa;border:1px solid #3a3d45'") + ">BOMBA " + (pumpState ? "ON" : "OFF") + "</button></div>";
+      "<button id='bp' onclick=\"cmd('pump','toggle')\" style='padding:12px;border-radius:10px;border:none;font-weight:700;font-size:0.9rem;cursor:pointer;"
+      + String(pumpState ? "background:#3498db;color:#fff'" : "background:#2a2d35;color:#aaa;border:1px solid #3a3d45'") + ">BOMBA " + (pumpState ? "ON" : "OFF") + "</button>"
+      "<button id='bv' onclick=\"cmd('ventilation','toggle')\" style='padding:12px;border-radius:10px;border:none;font-weight:700;font-size:0.9rem;cursor:pointer;"
+      + String(ventilationState ? "background:#2ecc71;color:#fff'" : "background:#2a2d35;color:#aaa;border:1px solid #3a3d45'") + ">VENT " + (ventilationState ? "ON" : "OFF") + "</button>"
+      "<button id='ba' onclick=\"cmd('aeration','toggle')\" style='padding:12px;border-radius:10px;border:none;font-weight:700;font-size:0.9rem;cursor:pointer;"
+      + String(aerationState ? "background:#00bcd4;color:#fff'" : "background:#2a2d35;color:#aaa;border:1px solid #3a3d45'") + ">AERA " + (aerationState ? "ON" : "OFF") + "</button></div>";
   }
 
   String modeBtn = modeAuto
@@ -619,7 +778,11 @@ String hidro_dashboard_html() {
     phasesHtml += "&#128161; " + String(ph->lightOnHour) + ":" + (ph->lightOnMin < 10 ? "0" : "") + String(ph->lightOnMin);
     phasesHtml += " - " + String(ph->lightOffHour) + ":" + (ph->lightOffMin < 10 ? "0" : "") + String(ph->lightOffMin) + "<br>";
     phasesHtml += "&#128167; Dia: " + String(ph->pumpOnDay) + "/" + String(ph->pumpOffDay) + "min";
-    phasesHtml += " | Noite: " + String(ph->pumpOnNight) + "/" + String(ph->pumpOffNight) + "min";
+    phasesHtml += " | Noite: " + String(ph->pumpOnNight) + "/" + String(ph->pumpOffNight) + "min<br>";
+    phasesHtml += "&#127744; " + String(ph->ventOnHour) + ":" + (ph->ventOnMin < 10 ? "0" : "") + String(ph->ventOnMin);
+    phasesHtml += " - " + String(ph->ventOffHour) + ":" + (ph->ventOffMin < 10 ? "0" : "") + String(ph->ventOffMin) + "<br>";
+    phasesHtml += "&#129707; Dia: " + String(ph->aerOnDay) + "/" + String(ph->aerOffDay) + "min";
+    phasesHtml += " | Noite: " + String(ph->aerOnNight) + "/" + String(ph->aerOffNight) + "min";
     phasesHtml += "</div></div>";
   }
 
@@ -631,7 +794,7 @@ String hidro_dashboard_html() {
   html += "<div class='stat'><div class='lb'>Inicio</div><div class='vl' style='font-size:0.9rem'>" + String(startDateFmt) + "</div></div>";
   html += "<div class='stat'><div class='lb'>Hoje</div><div class='vl' style='font-size:0.9rem'>" + String(todayStr) + "</div></div>";
   html += "</div>";
-  html += "<div class='ind'>" + lightIndicator + pumpIndicator + "</div>";
+  html += "<div class='ind'>" + lightIndicator + pumpIndicator + "</div><div class='ind'>" + ventIndicator + aerIndicator + "</div>";
   html += modeBtn + manualBtns;
   html += "</div>";
 
@@ -653,6 +816,12 @@ if(il){il.style.color=s.light?'#27ae60':'#666';il.innerHTML=s.light?'&#9679; Luz
 if(ip){ip.style.color=s.pump?'#3498db':'#666';ip.innerHTML=s.pump?'&#9679; Bomba Ligada':'&#9679; Bomba Desligada'}
 if(bl){bl.style.background=s.light?'#27ae60':'#2a2d35';bl.style.color=s.light?'#fff':'#aaa';bl.textContent='LUZ '+(s.light?'ON':'OFF')}
 if(bp){bp.style.background=s.pump?'#3498db':'#2a2d35';bp.style.color=s.pump?'#fff':'#aaa';bp.textContent='BOMBA '+(s.pump?'ON':'OFF')}
+var iv=document.getElementById('iv'),ia=document.getElementById('ia'),
+bv=document.getElementById('bv'),ba=document.getElementById('ba');
+if(iv){iv.style.color=s.ventilation?'#2ecc71':'#666';iv.innerHTML=s.ventilation?'&#9679; Vent Ligada':'&#9679; Vent Desligada'}
+if(ia){ia.style.color=s.aeration?'#00bcd4':'#666';ia.innerHTML=s.aeration?'&#9679; Aera Ligada':'&#9679; Aera Desligada'}
+if(bv){bv.style.background=s.ventilation?'#2ecc71':'#2a2d35';bv.style.color=s.ventilation?'#fff':'#aaa';bv.textContent='VENT '+(s.ventilation?'ON':'OFF')}
+if(ba){ba.style.background=s.aeration?'#00bcd4':'#2a2d35';ba.style.color=s.aeration?'#fff':'#aaa';ba.textContent='AERA '+(s.aeration?'ON':'OFF')}
 var isAuto=s.mode==='auto';
 if(bm){bm.style.borderColor=isAuto?'#27ae60':'#e67e22';bm.style.background=isAuto?'rgba(39,174,96,0.1)':'rgba(230,126,34,0.1)';bm.style.color=isAuto?'#27ae60':'#e67e22';bm.innerHTML=isAuto?'&#9881; Modo Automatico':'&#9995; Modo Manual'}
 if(isAuto&&mb){mb.remove()}
@@ -680,6 +849,16 @@ bool hidro_process_command(String cmd, String obj) {
       setRelay(RELE_BOMBA, pumpState);
       if (modeAuto) modeAuto = false;
       Serial.printf("Remoto: Bomba %s\n", pumpState ? "ON" : "OFF");
+    } else if (device == "ventilation") {
+      ventilationState = !ventilationState;
+      setRelay(RELE_VENTILACAO, ventilationState);
+      if (modeAuto) modeAuto = false;
+      Serial.printf("Remoto: Ventilacao %s\n", ventilationState ? "ON" : "OFF");
+    } else if (device == "aeration") {
+      aerationState = !aerationState;
+      setRelay(RELE_AERACAO, aerationState);
+      if (modeAuto) modeAuto = false;
+      Serial.printf("Remoto: Aeracao %s\n", aerationState ? "ON" : "OFF");
     }
     return true;
   } else if (cmd == "add-phase") {
@@ -690,6 +869,10 @@ bool hidro_process_command(String cmd, String obj) {
       phases[numPhases].lightOffHour = 18; phases[numPhases].lightOffMin = 0;
       phases[numPhases].pumpOnDay = 15; phases[numPhases].pumpOffDay = 15;
       phases[numPhases].pumpOnNight = 15; phases[numPhases].pumpOffNight = 45;
+      phases[numPhases].ventOnHour = 8; phases[numPhases].ventOnMin = 0;
+      phases[numPhases].ventOffHour = 20; phases[numPhases].ventOffMin = 0;
+      phases[numPhases].aerOnDay = 5; phases[numPhases].aerOffDay = 10;
+      phases[numPhases].aerOnNight = 5; phases[numPhases].aerOffNight = 30;
       numPhases++;
       savePhases();
       Serial.println("Remoto: Fase adicionada");
@@ -739,6 +922,25 @@ bool hidro_process_command(String cmd, String obj) {
         phases[i].pumpOffDay = pfd > 0 ? pfd : 15;
         phases[i].pumpOnNight = pon > 0 ? pon : 15;
         phases[i].pumpOffNight = pfn > 0 ? pfn : 45;
+
+        String von = jsonVal(obj, "von" + String(i));
+        if (von.length() >= 5) {
+          phases[i].ventOnHour = von.substring(0, 2).toInt();
+          phases[i].ventOnMin = von.substring(3, 5).toInt();
+        }
+        String voff = jsonVal(obj, "voff" + String(i));
+        if (voff.length() >= 5) {
+          phases[i].ventOffHour = voff.substring(0, 2).toInt();
+          phases[i].ventOffMin = voff.substring(3, 5).toInt();
+        }
+        int aod = jsonInt(obj, "aod" + String(i));
+        int afd = jsonInt(obj, "afd" + String(i));
+        int aon = jsonInt(obj, "aon" + String(i));
+        int afn = jsonInt(obj, "afn" + String(i));
+        phases[i].aerOnDay = aod > 0 ? aod : 5;
+        phases[i].aerOffDay = afd > 0 ? afd : 10;
+        phases[i].aerOnNight = aon > 0 ? aon : 5;
+        phases[i].aerOffNight = afn > 0 ? afn : 30;
       }
       numPhases = np;
     }
@@ -756,6 +958,10 @@ void hidro_setup() {
   pinMode(RELE_BOMBA, OUTPUT);
   setRelay(RELE_LAMPADA, false);
   setRelay(RELE_BOMBA, false);
+  pinMode(RELE_VENTILACAO, OUTPUT);
+  pinMode(RELE_AERACAO, OUTPUT);
+  setRelay(RELE_VENTILACAO, false);
+  setRelay(RELE_AERACAO, false);
 
   loadPhases();
 }
@@ -784,11 +990,23 @@ void hidro_serial_command(String cmd) {
   } else if (cmd == "P0") {
     pumpState = false; setRelay(RELE_BOMBA, false); modeAuto = false;
     Serial.println("OK:P0");
+  } else if (cmd == "V1") {
+    ventilationState = true; setRelay(RELE_VENTILACAO, true); modeAuto = false;
+    Serial.println("OK:V1");
+  } else if (cmd == "V0") {
+    ventilationState = false; setRelay(RELE_VENTILACAO, false); modeAuto = false;
+    Serial.println("OK:V0");
+  } else if (cmd == "A1") {
+    aerationState = true; setRelay(RELE_AERACAO, true); modeAuto = false;
+    Serial.println("OK:A1");
+  } else if (cmd == "A0") {
+    aerationState = false; setRelay(RELE_AERACAO, false); modeAuto = false;
+    Serial.println("OK:A0");
   } else if (cmd == "AUTO") {
     modeAuto = true;
     Serial.println("OK:AUTO");
   } else if (cmd == "STATUS") {
-    Serial.printf("L:%d P:%d M:%s\n", lightState, pumpState, modeAuto ? "auto" : "manual");
+    Serial.printf("L:%d P:%d V:%d A:%d M:%s\n", lightState, pumpState, ventilationState, aerationState, modeAuto ? "auto" : "manual");
   }
 }
 

@@ -172,6 +172,20 @@ def save_config(chip_id):
                 parts = str(loff).split(":")
                 phase["lightOffHour"] = int(parts[0])
                 phase["lightOffMin"] = int(parts[1])
+            von = data.get(f"von{i}", "08:00")
+            voff = data.get(f"voff{i}", "20:00")
+            if ":" in str(von):
+                parts = str(von).split(":")
+                phase["ventOnHour"] = int(parts[0])
+                phase["ventOnMin"] = int(parts[1])
+            if ":" in str(voff):
+                parts = str(voff).split(":")
+                phase["ventOffHour"] = int(parts[0])
+                phase["ventOffMin"] = int(parts[1])
+            phase["aerOnDay"] = int(data.get(f"aod{i}", 5))
+            phase["aerOffDay"] = int(data.get(f"afd{i}", 10))
+            phase["aerOnNight"] = int(data.get(f"aon{i}", 5))
+            phase["aerOffNight"] = int(data.get(f"afn{i}", 30))
             phases_list.append(phase)
         updates["phases"] = phases_list
         updates["num_phases"] = np
@@ -217,7 +231,9 @@ def add_phase(chip_id):
     phases_list.append({
         "name": "Nova Fase", "days": 7,
         "lightOnHour": 6, "lightOnMin": 0, "lightOffHour": 18, "lightOffMin": 0,
-        "pumpOnDay": 15, "pumpOffDay": 15, "pumpOnNight": 15, "pumpOffNight": 45
+        "pumpOnDay": 15, "pumpOffDay": 15, "pumpOnNight": 15, "pumpOffNight": 45,
+        "ventOnHour": 8, "ventOnMin": 0, "ventOffHour": 20, "ventOffMin": 0,
+        "aerOnDay": 5, "aerOffDay": 10, "aerOnNight": 5, "aerOffNight": 30
     })
     models.update_ctrl_data(chip_id, {"phases": phases_list, "num_phases": len(phases_list)})
 
@@ -276,9 +292,9 @@ def reset_phases(chip_id):
         return jsonify({"error": "Modulo nao encontrado"}), 404
 
     default_phases = [
-        {"name": "Muda", "days": 3, "lightOnHour": 6, "lightOnMin": 0, "lightOffHour": 18, "lightOffMin": 0, "pumpOnDay": 15, "pumpOffDay": 15, "pumpOnNight": 15, "pumpOffNight": 45},
-        {"name": "Berçário", "days": 17, "lightOnHour": 6, "lightOnMin": 0, "lightOffHour": 19, "lightOffMin": 0, "pumpOnDay": 15, "pumpOffDay": 15, "pumpOnNight": 15, "pumpOffNight": 45},
-        {"name": "Engorda", "days": 0, "lightOnHour": 6, "lightOnMin": 0, "lightOffHour": 20, "lightOffMin": 0, "pumpOnDay": 15, "pumpOffDay": 15, "pumpOnNight": 15, "pumpOffNight": 45}
+        {"name": "Muda", "days": 3, "lightOnHour": 6, "lightOnMin": 0, "lightOffHour": 18, "lightOffMin": 0, "pumpOnDay": 15, "pumpOffDay": 15, "pumpOnNight": 15, "pumpOffNight": 45, "ventOnHour": 8, "ventOnMin": 0, "ventOffHour": 18, "ventOffMin": 0, "aerOnDay": 5, "aerOffDay": 10, "aerOnNight": 5, "aerOffNight": 30},
+        {"name": "Berçário", "days": 17, "lightOnHour": 6, "lightOnMin": 0, "lightOffHour": 19, "lightOffMin": 0, "pumpOnDay": 15, "pumpOffDay": 15, "pumpOnNight": 15, "pumpOffNight": 45, "ventOnHour": 7, "ventOnMin": 0, "ventOffHour": 21, "ventOffMin": 0, "aerOnDay": 10, "aerOffDay": 10, "aerOnNight": 5, "aerOffNight": 30},
+        {"name": "Engorda", "days": 0, "lightOnHour": 6, "lightOnMin": 0, "lightOffHour": 20, "lightOffMin": 0, "pumpOnDay": 15, "pumpOffDay": 15, "pumpOnNight": 15, "pumpOffNight": 45, "ventOnHour": 6, "ventOnMin": 0, "ventOffHour": 22, "ventOffMin": 0, "aerOnDay": 10, "aerOffDay": 10, "aerOnNight": 10, "aerOffNight": 30}
     ]
     models.update_ctrl_data(chip_id, {"phases": default_phases, "num_phases": 3})
 

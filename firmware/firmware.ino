@@ -34,6 +34,14 @@ struct Phase {
   int pumpOffDay;
   int pumpOnNight;
   int pumpOffNight;
+  int ventOnHour;
+  int ventOnMin;
+  int ventOffHour;
+  int ventOffMin;
+  int aerOnDay;
+  int aerOffDay;
+  int aerOnNight;
+  int aerOffNight;
 };
 #endif
 
@@ -72,6 +80,8 @@ bool manualLight = false;
 bool manualPump = false;
 bool lightState = false;
 bool pumpState = false;
+bool ventilationState = false;
+bool aerationState = false;
 unsigned long lastAutoCheck = 0;
 #endif
 

@@ -43,7 +43,9 @@ const moduleRenderers = {
             if (!data) return '';
             const l = data.light ? 'Luz ON' : 'Luz OFF';
             const p = data.pump ? 'Bomba ON' : 'Bomba OFF';
-            return `${l} · ${p}`;
+            const v = data.ventilation ? 'Vent ON' : 'Vent OFF';
+            const a = data.aeration ? 'Aera ON' : 'Aera OFF';
+            return `${l} · ${p} · ${v} · ${a}`;
         }
     },
     cam: {
@@ -273,7 +275,7 @@ let _lastModulesKey = "";
 function modulesVisualKey() {
     return modules.map(m => {
         const c = m.ctrl_data || {};
-        return `${m.chip_id}:${m.online}:${m.name}:${c.light}:${c.pump}:${c.mode}:${c.phase}:${c.camera_ready}`;
+        return `${m.chip_id}:${m.online}:${m.name}:${c.light}:${c.pump}:${c.ventilation}:${c.aeration}:${c.mode}:${c.phase}:${c.camera_ready}`;
     }).join("|");
 }
 
@@ -461,6 +463,8 @@ async function loadCtrlStatus(chipId, moduleType, container) {
         if (localState && (Date.now() - lastToggleTime < TOGGLE_COOLDOWN)) {
             data.light = localState.light;
             data.pump = localState.pump;
+            data.ventilation = localState.ventilation;
+            data.aeration = localState.aeration;
             data.mode = localState.mode;
         }
         const key = `${data.light}:${data.pump}:${data.mode}:${data.phase}:${data.phase_index}:${data.cycle_day}:${data.start_date}`;
@@ -479,6 +483,8 @@ function renderDashboard(container, chipId, moduleType, data) {
     const phaseIndex = data.phase_index || 0;
     const lightOn = data.light || false;
     const pumpOn = data.pump || false;
+    const ventOn = data.ventilation || false;
+    const aerOn = data.aeration || false;
     const modeAuto = data.mode === "auto";
     const startDateRaw = data.start_date || "---";
     let startDate = startDateRaw;
@@ -513,13 +519,15 @@ function renderDashboard(container, chipId, moduleType, data) {
             return `<div class="phase-item ${isActive ? 'active' : ''} ${isPast ? 'past' : ''}">
                 <div class="phase-item-header"><span class="phase-item-name">${p.name} ${isActive ? '<span class="phase-badge">ATIVA</span>' : ''}</span>${diasInfo}</div>
                 ${progressBar}
-                <div class="phase-item-details">&#128161; ${lOn} - ${lOff}<br>&#128167; Dia: ${p.pumpOnDay}/${p.pumpOffDay}min | Noite: ${p.pumpOnNight}/${p.pumpOffNight}min</div>
+                <div class="phase-item-details">&#128161; ${lOn} - ${lOff}<br>&#128167; Dia: ${p.pumpOnDay}/${p.pumpOffDay}min | Noite: ${p.pumpOnNight}/${p.pumpOffNight}min<br>&#127744; ${String(p.ventOnHour||0).padStart(2,'0')}:${String(p.ventOnMin||0).padStart(2,'0')} - ${String(p.ventOffHour||0).padStart(2,'0')}:${String(p.ventOffMin||0).padStart(2,'0')}<br>&#128168; Dia: ${p.aerOnDay||15}/${p.aerOffDay||15}min | Noite: ${p.aerOnNight||15}/${p.aerOffNight||45}min</div>
             </div>`;
         }).join("");
     }
 
     const lightPending = pendingCommands.has('light');
     const pumpPending = pendingCommands.has('pump');
+    const ventPending = pendingCommands.has('ventilation');
+    const aerPending = pendingCommands.has('aeration');
     const modePending = pendingCommands.has('mode');
 
     let controlsHtml = '';
@@ -532,6 +540,16 @@ function renderDashboard(container, chipId, moduleType, data) {
             <button class="ctrl-btn ${pumpOn ? 'on pump-on' : 'off'} ${pumpPending ? 'pending' : ''}" onclick="toggleRelay('${chipId}','${moduleType}','pump')" ${pumpPending ? 'disabled' : ''}>
                 ${pumpPending ? '<span class="btn-spinner"></span>' : `<span class="ctrl-btn-icon">${pumpOn ? '&#128167;' : '&#9899;'}</span>`}
                 <span>${pumpPending ? 'Enviando...' : `BOMBA ${pumpOn ? 'ON' : 'OFF'}`}</span>
+            </button>
+        </div>
+        <div class="controls-row">
+            <button class="ctrl-btn ${ventOn ? 'on' : 'off'} ${ventPending ? 'pending' : ''}" style="${ventOn ? 'border-color:#2ecc71;background:rgba(46,204,113,0.1)' : ''}" onclick="toggleRelay('${chipId}','${moduleType}','ventilation')" ${ventPending ? 'disabled' : ''}>
+                ${ventPending ? '<span class="btn-spinner"></span>' : `<span class="ctrl-btn-icon">${ventOn ? '&#127744;' : '&#9899;'}</span>`}
+                <span>${ventPending ? 'Enviando...' : `VENT ${ventOn ? 'ON' : 'OFF'}`}</span>
+            </button>
+            <button class="ctrl-btn ${aerOn ? 'on' : 'off'} ${aerPending ? 'pending' : ''}" style="${aerOn ? 'border-color:#00bcd4;background:rgba(0,188,212,0.1)' : ''}" onclick="toggleRelay('${chipId}','${moduleType}','aeration')" ${aerPending ? 'disabled' : ''}>
+                ${aerPending ? '<span class="btn-spinner"></span>' : `<span class="ctrl-btn-icon">${aerOn ? '&#128168;' : '&#9899;'}</span>`}
+                <span>${aerPending ? 'Enviando...' : `AERA ${aerOn ? 'ON' : 'OFF'}`}</span>
             </button>
         </div>`;
     }
@@ -550,6 +568,8 @@ function renderDashboard(container, chipId, moduleType, data) {
             <div class="status-indicators">
                 <div class="status-indicator ${lightOn ? 'status-on' : 'status-off'}"><span class="status-indicator-dot"></span><span>Luz ${lightOn ? 'Ligada' : 'Desligada'}</span></div>
                 <div class="status-indicator ${pumpOn ? 'status-on pump' : 'status-off'}"><span class="status-indicator-dot"></span><span>Bomba ${pumpOn ? 'Ligada' : 'Desligada'}</span></div>
+                <div class="status-indicator ${ventOn ? 'status-on' : 'status-off'}" style="${ventOn ? 'border-color:#2ecc71;color:#2ecc71' : ''}"><span class="status-indicator-dot" style="${ventOn ? 'background:#2ecc71' : ''}"></span><span>Vent ${ventOn ? 'Ligada' : 'Desligada'}</span></div>
+                <div class="status-indicator ${aerOn ? 'status-on' : 'status-off'}" style="${aerOn ? 'border-color:#00bcd4;color:#00bcd4' : ''}"><span class="status-indicator-dot" style="${aerOn ? 'background:#00bcd4' : ''}"></span><span>Aera ${aerOn ? 'Ligada' : 'Desligada'}</span></div>
             </div>
             <button class="ctrl-btn-mode ${modeAuto ? 'auto' : 'manual'} ${modePending ? 'pending' : ''}" onclick="toggleRelay('${chipId}','${moduleType}','mode')" ${modePending ? 'disabled' : ''}>
                 ${modePending ? '<span class="btn-spinner"></span> Alterando...' : (modeAuto ? '&#9881; Modo Automatico' : '&#9995; Modo Manual')}
@@ -569,6 +589,8 @@ async function toggleRelay(chipId, moduleType, device) {
     if (localState) {
         if (device === "light") localState.light = !localState.light;
         else if (device === "pump") localState.pump = !localState.pump;
+        else if (device === "ventilation") localState.ventilation = !localState.ventilation;
+        else if (device === "aeration") localState.aeration = !localState.aeration;
         else if (device === "mode") localState.mode = localState.mode === "auto" ? "manual" : "auto";
         lastToggleTime = Date.now();
         pendingCommands.add(device);
@@ -586,6 +608,8 @@ async function toggleRelay(chipId, moduleType, device) {
             const data = await api(`${apiFor(moduleType)}/${chipId}/status`);
             if (device === "light" && data.light === localState.light) { confirmed = true; break; }
             if (device === "pump" && data.pump === localState.pump) { confirmed = true; break; }
+            if (device === "ventilation" && data.ventilation === localState.ventilation) { confirmed = true; break; }
+            if (device === "aeration" && data.aeration === localState.aeration) { confirmed = true; break; }
             if (device === "mode" && data.mode === localState.mode) { confirmed = true; break; }
         } catch (e) { break; }
     }
@@ -629,6 +653,8 @@ function renderConfigModal(data) {
     let phasesHtml = phases.map((p, i) => {
         const lOn = `${String(p.lightOnHour||6).padStart(2,'0')}:${String(p.lightOnMin||0).padStart(2,'0')}`;
         const lOff = `${String(p.lightOffHour||18).padStart(2,'0')}:${String(p.lightOffMin||0).padStart(2,'0')}`;
+        const vOn = `${String(p.ventOnHour||0).padStart(2,'0')}:${String(p.ventOnMin||0).padStart(2,'0')}`;
+        const vOff = `${String(p.ventOffHour||0).padStart(2,'0')}:${String(p.ventOffMin||0).padStart(2,'0')}`;
         return `<div class="config-phase">
             <div class="config-phase-header"><span class="config-phase-title">Fase ${i+1}</span>${phases.length > 1 ? `<button class="config-remove" onclick="removePhase(${i})">&#10005;</button>` : ''}</div>
             <div class="config-grid">
@@ -649,6 +675,21 @@ function renderConfigModal(data) {
             <div class="config-grid">
                 <div class="config-field"><label>ON (min)</label><input type="number" id="cfg-pon${i}" value="${p.pumpOnNight||15}" min="1"></div>
                 <div class="config-field"><label>OFF (min)</label><input type="number" id="cfg-pfn${i}" value="${p.pumpOffNight||45}" min="1"></div>
+            </div>
+            <div class="config-section-label">&#127744; Ventilacao</div>
+            <div class="config-grid">
+                <div class="config-field"><label>Liga</label><input type="time" id="cfg-von${i}" value="${vOn}"></div>
+                <div class="config-field"><label>Desliga</label><input type="time" id="cfg-voff${i}" value="${vOff}"></div>
+            </div>
+            <div class="config-section-label">&#128168; Aeracao Dia</div>
+            <div class="config-grid">
+                <div class="config-field"><label>ON (min)</label><input type="number" id="cfg-aod${i}" value="${p.aerOnDay||15}" min="1"></div>
+                <div class="config-field"><label>OFF (min)</label><input type="number" id="cfg-afd${i}" value="${p.aerOffDay||15}" min="1"></div>
+            </div>
+            <div class="config-section-label">&#127769; Aeracao Noite</div>
+            <div class="config-grid">
+                <div class="config-field"><label>ON (min)</label><input type="number" id="cfg-aon${i}" value="${p.aerOnNight||15}" min="1"></div>
+                <div class="config-field"><label>OFF (min)</label><input type="number" id="cfg-afn${i}" value="${p.aerOffNight||45}" min="1"></div>
             </div>
         </div>`;
     }).join("");
@@ -675,6 +716,12 @@ async function saveConfig() {
         data[`pfd${i}`] = document.getElementById(`cfg-pfd${i}`).value;
         data[`pon${i}`] = document.getElementById(`cfg-pon${i}`).value;
         data[`pfn${i}`] = document.getElementById(`cfg-pfn${i}`).value;
+        data[`von${i}`] = document.getElementById(`cfg-von${i}`).value;
+        data[`voff${i}`] = document.getElementById(`cfg-voff${i}`).value;
+        data[`aod${i}`] = document.getElementById(`cfg-aod${i}`).value;
+        data[`afd${i}`] = document.getElementById(`cfg-afd${i}`).value;
+        data[`aon${i}`] = document.getElementById(`cfg-aon${i}`).value;
+        data[`afn${i}`] = document.getElementById(`cfg-afn${i}`).value;
     });
     try {
         await api(`${apiFor(configModuleType)}/${configChipId}/save-config`, { method: "POST", body: data });

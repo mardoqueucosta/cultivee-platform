@@ -1,7 +1,7 @@
 /*
   Cultivee - Produto: Hidro
-  ESP32-WROOM-32D + Modulo Rele 2 canais
-  Apenas controle hidroponico (sem camera)
+  ESP32-WROOM-32D + Modulo Rele 4 canais
+  Controle hidroponico: luz, bomba, ventilacao, aeracao
 */
 
 #ifndef PRODUCT_HIDRO_H
@@ -32,12 +32,14 @@
 #endif
 
 // ===== HARDWARE (ESP32-WROOM-32D) =====
-#define RELE_LAMPADA  4    // IN1 do modulo rele (GPIO4)
-#define RELE_BOMBA    5    // IN2 do modulo rele (GPIO5)
-#define LED_ONBOARD   2    // LED azul da placa
-#define RESET_BTN     0    // Botao BOOT (GPIO0) - segurar 3s = reset WiFi
-#define RELE_ON       LOW    // Modulo rele ativa em LOW
-#define RELE_OFF      HIGH
+#define RELE_LAMPADA     4    // IN1 do modulo rele (GPIO4)
+#define RELE_BOMBA       5    // IN2 do modulo rele (GPIO5)
+#define RELE_VENTILACAO  18   // IN3 do modulo rele (GPIO18)
+#define RELE_AERACAO     19   // IN4 do modulo rele (GPIO19)
+#define LED_ONBOARD      2    // LED azul da placa
+#define RESET_BTN        0    // Botao BOOT (GPIO0) - segurar 3s = reset WiFi
+#define RELE_ON          LOW    // Modulo rele ativa em LOW
+#define RELE_OFF         HIGH
 
 // ===== NTP =====
 #define NTP_SERVER     "pool.ntp.org"
