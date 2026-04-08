@@ -147,12 +147,12 @@ ESP32 boot → connectWiFi → registerOnServer (POST /api/modules/register)
 ```bash
 # 1. Editar config.h — selecionar produto e ambiente
 # 2. Compilar
-"C:/Users/user/arduino-cli/arduino-cli.exe" compile --fqbn esp32:esp32:esp32doit-devkit-v1 "D:/01-projetos-claude/cultivee/firmware"   # WROOM
-"C:/Users/user/arduino-cli/arduino-cli.exe" compile --fqbn esp32:esp32:esp32wroverkit "D:/01-projetos-claude/cultivee/firmware"        # WROVER
+"C:/Users/user/arduino-cli/arduino-cli.exe" compile --fqbn esp32:esp32:esp32doit-devkit-v1 "D:/01-projetos-claude/00-Sites/cultivee-platform/firmware"   # WROOM
+"C:/Users/user/arduino-cli/arduino-cli.exe" compile --fqbn esp32:esp32:esp32wroverkit "D:/01-projetos-claude/00-Sites/cultivee-platform/firmware"        # WROVER
 
 # 3. Gravar
-"C:/Users/user/arduino-cli/arduino-cli.exe" upload --fqbn esp32:esp32:esp32doit-devkit-v1 -p COM7 "D:/01-projetos-claude/cultivee/firmware"  # WROOM
-"C:/Users/user/arduino-cli/arduino-cli.exe" upload --fqbn esp32:esp32:esp32wroverkit -p COM9 "D:/01-projetos-claude/cultivee/firmware"       # WROVER
+"C:/Users/user/arduino-cli/arduino-cli.exe" upload --fqbn esp32:esp32:esp32doit-devkit-v1 -p COM7 "D:/01-projetos-claude/00-Sites/cultivee-platform/firmware"  # WROOM
+"C:/Users/user/arduino-cli/arduino-cli.exe" upload --fqbn esp32:esp32:esp32wroverkit -p COM9 "D:/01-projetos-claude/00-Sites/cultivee-platform/firmware"       # WROVER
 ```
 
 ---

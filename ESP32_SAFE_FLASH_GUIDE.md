@@ -94,12 +94,12 @@ build_flags =
 
 ```bash
 # Compilar (seguro, roda no host)
-arduino-cli compile --fqbn esp32:esp32:esp32cam "D:/01-projetos-claude/cultivee/firmware-cam"
+arduino-cli compile --fqbn esp32:esp32:esp32cam "D:/01-projetos-claude/00-Sites/cultivee-platform/firmware"
 
 # Upload com parametros conservadores
 arduino-cli upload --fqbn esp32:esp32:esp32cam -p COM9 \
     --board-options "UploadSpeed=230400,FlashMode=dio,FlashFreq=40" \
-    "D:/01-projetos-claude/cultivee/firmware-cam"
+    "D:/01-projetos-claude/00-Sites/cultivee-platform/firmware"
 ```
 
 Portas do projeto Cultivee:
@@ -166,7 +166,7 @@ python -m esptool \
 
 ```bash
 # Arduino CLI (projeto Cultivee)
-arduino-cli compile --fqbn esp32:esp32:esp32cam "D:/01-projetos-claude/cultivee/firmware-cam"
+arduino-cli compile --fqbn esp32:esp32:esp32cam "D:/01-projetos-claude/00-Sites/cultivee-platform/firmware"
 
 # ESP-IDF
 idf.py build
@@ -187,7 +187,7 @@ pio run              # Apenas compila, sem upload
 # Arduino CLI (projeto Cultivee)
 arduino-cli upload --fqbn esp32:esp32:esp32cam -p COM9 \
     --board-options "UploadSpeed=230400,FlashMode=dio,FlashFreq=40" \
-    "D:/01-projetos-claude/cultivee/firmware-cam"
+    "D:/01-projetos-claude/00-Sites/cultivee-platform/firmware"
 
 # ESP-IDF
 idf.py -b 230400 flash
