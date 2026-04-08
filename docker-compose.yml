@@ -1,0 +1,32 @@
+services:
+  app:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: cultivee-app
+    restart: unless-stopped
+    environment:
+      - PORT=5002
+      - DB_PATH=/app/data/cultivee.db
+      - DATA_DIR=/app/data
+    volumes:
+      - cultivee-data:/app/data
+    networks:
+      - web
+    labels:
+      - "traefik.enable=true"
+      # HTTPS — PWA e navegadores
+      - "traefik.http.routers.cultivee-app.rule=Host(`app.cultivee.com.br`)"
+      - "traefik.http.routers.cultivee-app.entrypoints=websecure"
+      - "traefik.http.routers.cultivee-app.tls.certresolver=letsencrypt"
+      # HTTP — ESP32 (sem TLS, nao redireciona)
+      - "traefik.http.routers.cultivee-app-http.rule=Host(`app.cultivee.com.br`)"
+      - "traefik.http.routers.cultivee-app-http.entrypoints=web"
+      - "traefik.http.services.cultivee-app.loadbalancer.server.port=5002"
+
+volumes:
+  cultivee-data:
+
+networks:
+  web:
+    external: true

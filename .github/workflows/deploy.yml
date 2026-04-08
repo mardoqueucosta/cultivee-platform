@@ -1,0 +1,45 @@
+name: Deploy Platform to VPS
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'server/**'
+      - 'docker-compose.yml'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deploy to VPS
+        uses: appleboy/ssh-action@v1
+        with:
+          host: 129.121.50.168
+          username: root
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: 22022
+          script: |
+            set -e
+            REMOTE_DIR="/opt/sites/cultivee-platform"
+            mkdir -p $REMOTE_DIR
+
+            # Sync do GitHub
+            rm -rf /tmp/cultivee-platform-deploy
+            git clone --depth 1 https://github.com/mardoqueucosta/cultivee-platform.git /tmp/cultivee-platform-deploy
+
+            # Copiar server e docker-compose
+            rsync -a --exclude='.git' --exclude='__pycache__' --exclude='*.db' --exclude='data/' /tmp/cultivee-platform-deploy/server/ $REMOTE_DIR/server/
+            cp /tmp/cultivee-platform-deploy/docker-compose.yml $REMOTE_DIR/docker-compose.yml
+            rm -rf /tmp/cultivee-platform-deploy
+
+            # Rebuild container
+            cd $REMOTE_DIR
+            docker compose build --no-cache
+            docker compose up -d
+
+            # Status
+            docker ps --format 'table {{.Names}}\t{{.Status}}' | grep cultivee-app
+            echo "Deploy platform concluido!"

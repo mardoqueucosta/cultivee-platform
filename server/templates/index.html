@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#0f1923">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>{{ config.title }}</title>
+    <link rel="icon" type="image/png" sizes="192x192" href="/static/icon-192.png">
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+    <link rel="apple-touch-icon" sizes="192x192" href="/static/icon-192.png">
+    <link rel="manifest" href="/manifest.json">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+    <!-- Tela Offline / Modo Local -->
+    <div id="offline-screen" class="screen hidden">
+        <div class="auth-card" style="text-align:center">
+            <div class="auth-logo">
+                <h1>Cultivee</h1>
+                <p>{{ config.subtitle }}</p>
+            </div>
+            <div style="margin:1.5rem 0">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#e67e22" stroke-width="2" style="margin:0 auto 1rem">
+                    <line x1="1" y1="1" x2="23" y2="23"/><path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"/><path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"/><path d="M10.71 5.05A16 16 0 0 1 22.56 9"/><path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/>
+                </svg>
+                <h2 style="color:#e0e0e0;font-size:1.1rem;margin-bottom:0.5rem">Sem conexão com a internet</h2>
+                <p style="color:#888;font-size:0.85rem;margin-bottom:1.5rem">Conecte na rede <b style="color:#27ae60">{{ config.ap_ssid }}</b> para controlar localmente</p>
+            </div>
+            <a href="http://192.168.4.1" class="btn-local-mode">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1"/></svg>
+                Abrir Modo Local
+            </a>
+            <button onclick="location.reload()" style="display:block;width:100%;margin-top:0.75rem;padding:0.75rem;background:transparent;border:1px solid #3a3d45;color:#888;border-radius:8px;font-size:0.85rem;cursor:pointer">
+                Tentar novamente
+            </button>
+            <p style="color:#555;font-size:0.7rem;margin-top:1.5rem">
+                Dica: Conecte seu celular na rede WiFi <b>{{ config.ap_ssid }}</b> nas configurações do celular, depois clique em "Abrir Modo Local"
+            </p>
+        </div>
+    </div>
+
+    <!-- Login / Register -->
+    <div id="auth-screen" class="screen hidden">
+        <div class="auth-card">
+            <div class="auth-logo">
+                <h1>Cultivee</h1>
+                <p>{{ config.subtitle }}</p>
+            </div>
+            <div id="auth-login">
+                <input type="email" id="login-email" placeholder="Email">
+                <div class="pass-group">
+                    <input type="password" id="login-pass" placeholder="Senha">
+                    <span class="pass-toggle" onclick="togglePass('login-pass', this)">mostrar</span>
+                </div>
+                <button onclick="doLogin()">Entrar</button>
+                <p class="auth-switch">Nao tem conta? <a href="#" onclick="showRegister()">Criar conta</a></p>
+            </div>
+            <div id="auth-register" class="hidden">
+                <input type="text" id="reg-name" placeholder="Nome">
+                <input type="email" id="reg-email" placeholder="Email">
+                <div class="pass-group">
+                    <input type="password" id="reg-pass" placeholder="Senha (min 6 caracteres)">
+                    <span class="pass-toggle" onclick="togglePass('reg-pass', this)">mostrar</span>
+                </div>
+                <button onclick="doRegister()">Criar conta</button>
+                <p class="auth-switch">Ja tem conta? <a href="#" onclick="showLogin()">Entrar</a></p>
+            </div>
+            <p id="auth-error" class="auth-error hidden"></p>
+            <div style="margin-top:1.5rem;padding-top:1rem;border-top:1px solid var(--border);text-align:center">
+                <a href="http://192.168.4.1" style="color:var(--text-dim);font-size:0.75rem;text-decoration:none">
+                    Sem internet? <span style="color:var(--primary)">Modo Local</span>
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- App Principal -->
+    <div id="app-screen" class="screen hidden">
+        <!-- Navbar -->
+        <nav class="navbar">
+            <div class="navbar-inner">
+                <div class="logo">
+                    <div style="width:2rem;height:2rem;flex-shrink:0;">
+                        <img src="/static/icon-192.png" alt="Cultivee" width="32" height="32" style="border-radius:8px;width:100%;height:100%;">
+                    </div>
+                    <div class="logo-texts">
+                        <span class="logo-text">CULTIVEE</span>
+                        <span class="logo-subtitle">{{ config.navbar_subtitle }}</span>
+                    </div>
+                </div>
+                <div class="nav-status">
+                    <span id="nav-user" style="color:#8b9bb4;font-size:0.75rem"></span>
+                    <div class="status-divider"></div>
+                    <span style="color:#8b9bb4;font-size:0.75rem;cursor:pointer" onclick="doLogout()">Sair</span>
+                </div>
+            </div>
+        </nav>
+
+        <main>
+            <!-- Barra do modulo -->
+            <section class="module-bar" id="module-bar">
+                <div id="modules-list" class="modules-list">
+                    <div class="empty-state"><p>Carregando...</p></div>
+                </div>
+            </section>
+
+            <!-- Conteudo dos modulos selecionados (renderizado por registry) -->
+            <section id="module-content"></section>
+        </main>
+
+        <footer class="footer">
+            <p id="app-footer">{{ config.title }} v1.0.0</p>
+        </footer>
+    </div>
+
+    <!-- Modal Setup Guiado -->
+    <div id="pair-modal" class="modal hidden" onclick="closePairModal(event)">
+        <div class="modal-content wizard-modal">
+            <button class="modal-close" onclick="closePairModal()">&times;</button>
+
+            <!-- Passo 0: Escolha -->
+            <div class="wizard-step" id="wizard-step-0">
+                <div class="wizard-header">
+                    <div class="wizard-icon">
+                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><circle cx="6" cy="6" r="1"/><circle cx="6" cy="18" r="1"/></svg>
+                    </div>
+                    <h3>Adicionar Dispositivo</h3>
+                    <p class="wizard-desc">Como você quer configurar?</p>
+                </div>
+                <div class="wizard-options">
+                    <button class="wizard-option" onclick="wizardStart('new')">
+                        <span class="wizard-option-icon">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1"/></svg>
+                        </span>
+                        <div>
+                    <strong>Dispositivo novo</strong>
+                            <small>Precisa configurar o WiFi do módulo</small>
+                        </div>
+                    </button>
+                    <button class="wizard-option" onclick="wizardStart('code')">
+                        <span class="wizard-option-icon">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+                        </span>
+                        <div>
+                            <strong>Já tenho o código</strong>
+                            <small>Dispositivo já configurado, só vincular</small>
+                        </div>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Passo 1: Conectar no WiFi e abrir portal -->
+            <div class="wizard-step hidden" id="wizard-step-1">
+                <div class="wizard-progress">
+                    <div class="progress-bar"><div class="progress-fill" style="width:50%"></div></div>
+                    <span class="progress-text">Passo 1 de 2</span>
+                </div>
+                <div class="wizard-header">
+                    <div class="wizard-icon wifi-icon">
+                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1"/></svg>
+                    </div>
+                    <h3>Configure o módulo</h3>
+                </div>
+                <div class="wizard-checklist">
+                    <div class="check-item">
+                        <span class="check-num">1</span>
+                        <span>Va nas <strong>configurações WiFi</strong> do celular e conecte na rede <strong>{{ config.ap_ssid }}</strong> (sem senha)</span>
+                    </div>
+                    <div class="check-item">
+                        <span class="check-num">2</span>
+                        <span>Volte aqui e toque no botao abaixo</span>
+                    </div>
+                </div>
+                <a class="btn-primary" href="http://192.168.4.1" target="_blank" style="display:block;text-align:center;text-decoration:none;padding:0.85rem;border-radius:0.5rem;font-weight:600;margin-top:1rem">Configurar WiFi do módulo</a>
+                <p class="wizard-note" style="margin-top:1rem">Após configurar, o módulo vai reiniciar. Reconecte no seu WiFi normal e toque abaixo.</p>
+                <div class="wizard-actions">
+                    <button class="btn-secondary" onclick="wizardBack(0)">Voltar</button>
+                    <button class="btn-primary" onclick="wizardNext(2)">Já configurei</button>
+                </div>
+            </div>
+
+            <!-- Passo 2: Vincular codigo -->
+            <div class="wizard-step hidden" id="wizard-step-2">
+                <div class="wizard-progress">
+                    <div class="progress-bar"><div class="progress-fill" style="width:100%"></div></div>
+                    <span class="progress-text">Passo 2 de 2</span>
+                </div>
+                <div class="wizard-header">
+                    <div class="wizard-icon link-icon">
+                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                    </div>
+                    <h3>Vincular dispositivo</h3>
+                    <p class="wizard-desc">Digite o código que apareceu no portal de configuração</p>
+                </div>
+                <input type="text" id="pair-code" placeholder="Ex: F0C8" maxlength="4" style="text-transform:uppercase;text-align:center;font-size:1.5rem;letter-spacing:0.2em">
+                <input type="text" id="pair-name" placeholder="Nome (ex: {{ config.default_name }} sala)">
+                <button class="btn-primary" onclick="doPair()" style="width:100%">Vincular</button>
+                <p id="pair-error" class="auth-error hidden"></p>
+                <div class="wizard-actions" style="margin-top:0.5rem">
+                    <button class="btn-secondary" onclick="wizardBack(2)">Voltar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Configuração -->
+    <div id="config-modal" class="modal hidden" onclick="closeConfigModal(event)">
+        <div class="modal-content config-modal-content">
+            <button class="modal-close" onclick="closeConfigModal()">&times;</button>
+            <div class="wizard-header">
+                <div class="wizard-icon">
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                </div>
+                <h3>Configuração</h3>
+                <p class="wizard-desc">Edite as fases do cultivo</p>
+            </div>
+            <div id="config-content"></div>
+        </div>
+    </div>
+
+    <!-- Banner de Instalacao PWA -->
+    <div id="pwa-banner" class="pwa-banner hidden">
+        <div class="pwa-banner-inner">
+            <div class="pwa-banner-info">
+                <img src="/static/icon-192.png" alt="Cultivee" class="pwa-banner-icon">
+                <div>
+                    <strong>Instalar {{ config.title }}</strong>
+                    <small>Acesse rapido pela tela inicial</small>
+                </div>
+            </div>
+            <div class="pwa-banner-actions">
+                <button class="pwa-btn-install" id="pwa-install-btn" onclick="pwaInstall()">Instalar</button>
+                <button class="pwa-btn-dismiss" onclick="pwaDismiss()">Agora nao</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Config injetada pelo servidor (espelha firmware products/*.h) -->
+    <script>
+    window.CULTIVEE = {
+        storagePrefix: "{{ config.storage_prefix }}",
+        productName: "{{ config.title }}",
+        defaultName: "{{ config.default_name }}",
+        apSsid: "{{ config.ap_ssid }}"
+    };
+    </script>
+    <script src="/static/app.js"></script>
+</body>
+</html>

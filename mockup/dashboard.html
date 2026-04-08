@@ -1,0 +1,1069 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cultivee — Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  /* ── DESIGN TOKENS ── */
+  :root {
+    --primary:        hsl(142, 71%, 45%);
+    --primary-hover:  hsl(142, 71%, 38%);
+    --primary-glow:   hsla(142, 71%, 45%, 0.15);
+    --primary-dim:    hsla(142, 71%, 45%, 0.08);
+
+    --bg:             hsl(210, 20%, 8%);
+    --bg-card:        hsl(210, 18%, 12%);
+    --bg-card-hover:  hsl(210, 18%, 15%);
+    --bg-input:       hsl(210, 18%, 14%);
+
+    --text:           hsl(210, 20%, 90%);
+    --text-muted:     hsl(210, 15%, 55%);
+    --text-dim:       hsl(210, 15%, 40%);
+
+    --border:         hsl(210, 15%, 20%);
+    --border-focus:   var(--primary);
+
+    --danger:         hsl(0, 72%, 51%);
+    --danger-glow:    hsla(0, 72%, 51%, 0.12);
+    --warning:        hsl(38, 92%, 50%);
+    --warning-glow:   hsla(38, 92%, 50%, 0.12);
+    --info:           hsl(217, 91%, 60%);
+
+    --radius:         0.75rem;
+    --radius-lg:      1rem;
+    --transition:     all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  /* ── RESET ── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+
+  /* ── SCROLLBAR ── */
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  /* ── NAVBAR ── */
+  .navbar {
+    position: sticky; top: 0; z-index: 100;
+    background: hsla(210, 20%, 8%, 0.92);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+    padding: 0 2rem;
+    height: 60px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .navbar-brand {
+    display: flex; align-items: center; gap: 0.75rem;
+  }
+  .navbar-logo {
+    width: 30px; height: 30px;
+    background: var(--primary);
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .navbar-logo svg { width: 18px; height: 18px; color: #0f1923; }
+  .navbar-name {
+    font-size: 1.1rem; font-weight: 800;
+    letter-spacing: 0.08em;
+    color: var(--primary);
+  }
+  .navbar-nav {
+    display: flex; align-items: center; gap: 0.25rem;
+  }
+  .nav-item {
+    padding: 0.4rem 0.9rem;
+    border-radius: 0.5rem;
+    font-size: 0.8rem; font-weight: 500;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: var(--transition);
+    border: none; background: none;
+  }
+  .nav-item:hover { color: var(--text); background: var(--bg-card); }
+  .nav-item.active { color: var(--primary); background: var(--primary-dim); }
+  .navbar-right {
+    display: flex; align-items: center; gap: 1rem;
+  }
+  .navbar-notif {
+    position: relative;
+    width: 34px; height: 34px;
+    border-radius: 0.5rem;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; transition: var(--transition);
+    color: var(--text-muted);
+  }
+  .navbar-notif:hover { border-color: var(--primary); color: var(--text); }
+  .notif-badge {
+    position: absolute; top: -4px; right: -4px;
+    width: 16px; height: 16px;
+    background: var(--danger);
+    border-radius: 50%;
+    font-size: 0.6rem; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    border: 2px solid var(--bg);
+  }
+  .navbar-user {
+    display: flex; align-items: center; gap: 0.5rem;
+    padding: 0.3rem 0.75rem 0.3rem 0.3rem;
+    border-radius: 2rem;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    cursor: pointer; transition: var(--transition);
+  }
+  .navbar-user:hover { border-color: var(--primary-glow); }
+  .user-avatar {
+    width: 26px; height: 26px;
+    border-radius: 50%;
+    background: var(--primary);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.65rem; font-weight: 700;
+    color: #0f1923;
+  }
+  .user-name { font-size: 0.8rem; font-weight: 500; }
+
+  /* ── LAYOUT ── */
+  .layout {
+    display: grid;
+    grid-template-columns: 220px 1fr;
+    min-height: calc(100vh - 60px);
+  }
+
+  /* ── SIDEBAR ── */
+  .sidebar {
+    border-right: 1px solid var(--border);
+    padding: 1.5rem 1rem;
+    display: flex; flex-direction: column; gap: 0.25rem;
+  }
+  .sidebar-section {
+    font-size: 0.65rem; font-weight: 600;
+    letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--text-dim);
+    padding: 0.5rem 0.75rem 0.25rem;
+    margin-top: 0.5rem;
+  }
+  .sidebar-item {
+    display: flex; align-items: center; gap: 0.65rem;
+    padding: 0.55rem 0.75rem;
+    border-radius: 0.5rem;
+    font-size: 0.82rem; font-weight: 500;
+    color: var(--text-muted);
+    cursor: pointer; transition: var(--transition);
+    border: none; background: none; width: 100%; text-align: left;
+  }
+  .sidebar-item:hover { color: var(--text); background: var(--bg-card); }
+  .sidebar-item.active { color: var(--primary); background: var(--primary-dim); }
+  .sidebar-item svg { width: 16px; height: 16px; flex-shrink: 0; }
+  .sidebar-badge {
+    margin-left: auto;
+    background: var(--danger);
+    color: #fff;
+    font-size: 0.6rem; font-weight: 700;
+    padding: 0.1rem 0.4rem;
+    border-radius: 1rem;
+  }
+  .sidebar-badge.warn { background: var(--warning); color: #0f1923; }
+
+  /* ── MAIN CONTENT ── */
+  .main {
+    padding: 2rem;
+    overflow-y: auto;
+    background: linear-gradient(135deg, hsl(210, 25%, 6%) 0%, hsl(142, 30%, 8%) 100%);
+  }
+
+  /* ── PAGE HEADER ── */
+  .page-header {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    margin-bottom: 1.75rem;
+  }
+  .page-title {
+    font-size: 1.4rem; font-weight: 700;
+    color: var(--text);
+  }
+  .page-subtitle {
+    font-size: 0.8rem; color: var(--text-muted);
+    margin-top: 0.2rem;
+  }
+  .btn {
+    display: inline-flex; align-items: center; gap: 0.5rem;
+    padding: 0.55rem 1.1rem;
+    border-radius: 0.6rem;
+    font-size: 0.82rem; font-weight: 600;
+    cursor: pointer; transition: var(--transition);
+    border: none;
+  }
+  .btn-primary {
+    background: var(--primary);
+    color: #0f1923;
+  }
+  .btn-primary:hover { background: var(--primary-hover); transform: translateY(-1px); box-shadow: 0 4px 16px var(--primary-glow); }
+  .btn svg { width: 15px; height: 15px; }
+
+  /* ── ALERTAS ── */
+  .alerts-section { margin-bottom: 1.75rem; }
+  .alerts-header {
+    display: flex; align-items: center; gap: 0.5rem;
+    margin-bottom: 0.75rem;
+    font-size: 0.75rem; font-weight: 600;
+    letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--text-dim);
+  }
+  .alerts-header span { color: var(--danger); font-size: 0.7rem; }
+  .alerts-list { display: flex; flex-direction: column; gap: 0.5rem; }
+
+  .alert-item {
+    display: flex; align-items: center; gap: 1rem;
+    padding: 0.75rem 1rem;
+    border-radius: var(--radius);
+    border: 1px solid;
+    cursor: pointer; transition: var(--transition);
+  }
+  .alert-item:hover { transform: translateX(2px); }
+  .alert-item.p0 {
+    background: var(--danger-glow);
+    border-color: hsla(0, 72%, 51%, 0.3);
+  }
+  .alert-item.p1 {
+    background: var(--warning-glow);
+    border-color: hsla(38, 92%, 50%, 0.3);
+  }
+  .alert-item.p2 {
+    background: var(--primary-dim);
+    border-color: hsla(142, 71%, 45%, 0.2);
+  }
+  .alert-level {
+    font-size: 0.6rem; font-weight: 800;
+    letter-spacing: 0.05em;
+    padding: 0.15rem 0.45rem;
+    border-radius: 0.3rem;
+    flex-shrink: 0;
+  }
+  .p0 .alert-level { background: var(--danger); color: #fff; }
+  .p1 .alert-level { background: var(--warning); color: #0f1923; }
+  .p2 .alert-level { background: var(--primary); color: #0f1923; }
+  .alert-icon {
+    width: 32px; height: 32px; flex-shrink: 0;
+    border-radius: 0.5rem;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .p0 .alert-icon { background: hsla(0, 72%, 51%, 0.15); color: var(--danger); }
+  .p1 .alert-icon { background: hsla(38, 92%, 50%, 0.15); color: var(--warning); }
+  .p2 .alert-icon { background: var(--primary-dim); color: var(--primary); }
+  .alert-icon svg { width: 16px; height: 16px; }
+  .alert-body { flex: 1; }
+  .alert-msg {
+    font-size: 0.82rem; font-weight: 500; color: var(--text);
+  }
+  .alert-meta {
+    font-size: 0.72rem; color: var(--text-muted); margin-top: 0.1rem;
+  }
+  .alert-action {
+    font-size: 0.72rem; font-weight: 600;
+    color: var(--text-dim);
+    padding: 0.3rem 0.65rem;
+    border-radius: 0.4rem;
+    border: 1px solid var(--border);
+    background: var(--bg-card);
+    cursor: pointer; transition: var(--transition);
+    flex-shrink: 0;
+  }
+  .alert-action:hover { border-color: var(--primary); color: var(--primary); }
+
+  /* ── SECTION TITLE ── */
+  .section-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 1rem;
+  }
+  .section-title {
+    font-size: 0.75rem; font-weight: 600;
+    letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--text-dim);
+    display: flex; align-items: center; gap: 0.5rem;
+  }
+  .section-count {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    font-size: 0.65rem; font-weight: 700;
+    padding: 0.1rem 0.45rem;
+    border-radius: 1rem;
+    color: var(--text-muted);
+  }
+
+  /* ── LOCAIS GRID ── */
+  .locais-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 1rem;
+  }
+
+  /* ── CARD LOCAL ── */
+  .local-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 1.25rem;
+    cursor: pointer; transition: var(--transition);
+    position: relative;
+    overflow: hidden;
+  }
+  .local-card::before {
+    content: '';
+    position: absolute; top: 0; left: 0; right: 0;
+    height: 3px;
+    transition: var(--transition);
+  }
+  .local-card.online::before  { background: var(--primary); }
+  .local-card.alert::before   { background: var(--warning); }
+  .local-card.offline::before { background: var(--danger); }
+
+  .local-card:hover {
+    border-color: var(--primary-glow);
+    background: var(--bg-card-hover);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  }
+
+  /* card header */
+  .card-header {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    margin-bottom: 1rem;
+  }
+  .card-type-badge {
+    display: inline-flex; align-items: center; gap: 0.35rem;
+    font-size: 0.62rem; font-weight: 700;
+    letter-spacing: 0.06em; text-transform: uppercase;
+    padding: 0.2rem 0.6rem;
+    border-radius: 1rem;
+    margin-bottom: 0.4rem;
+  }
+  .badge-fazenda { background: hsla(142, 71%, 45%, 0.12); color: var(--primary); border: 1px solid hsla(142, 71%, 45%, 0.2); }
+  .badge-expositor { background: hsla(217, 91%, 60%, 0.1); color: var(--info); border: 1px solid hsla(217, 91%, 60%, 0.2); }
+  .card-name {
+    font-size: 1rem; font-weight: 700;
+    color: var(--text);
+    line-height: 1.2;
+  }
+  .card-location {
+    font-size: 0.72rem; color: var(--text-dim);
+    margin-top: 0.2rem;
+    display: flex; align-items: center; gap: 0.25rem;
+  }
+  .card-location svg { width: 11px; height: 11px; }
+
+  /* status badge */
+  .status-badge {
+    display: flex; align-items: center; gap: 0.4rem;
+    padding: 0.3rem 0.65rem;
+    border-radius: 2rem;
+    font-size: 0.7rem; font-weight: 600;
+    flex-shrink: 0;
+  }
+  .status-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+  }
+  .status-online  { background: hsla(142, 71%, 45%, 0.12); color: var(--primary);  border: 1px solid hsla(142, 71%, 45%, 0.25); }
+  .status-online  .status-dot { background: var(--primary); animation: pulse 2s infinite; }
+  .status-alert   { background: hsla(38, 92%, 50%, 0.1);  color: var(--warning); border: 1px solid hsla(38, 92%, 50%, 0.25); }
+  .status-alert   .status-dot { background: var(--warning); animation: pulse 1.5s infinite; }
+  .status-offline { background: hsla(0, 72%, 51%, 0.1);   color: var(--danger);  border: 1px solid hsla(0, 72%, 51%, 0.2); }
+  .status-offline .status-dot { background: var(--danger); }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50%       { opacity: 0.5; transform: scale(1.3); }
+  }
+
+  /* sensores strip */
+  .sensors-strip {
+    display: flex; flex-wrap: wrap; gap: 0.5rem;
+    padding: 0.75rem;
+    background: var(--bg);
+    border-radius: 0.6rem;
+    border: 1px solid var(--border);
+    margin-bottom: 1rem;
+  }
+  .sensor-item {
+    display: flex; align-items: center; gap: 0.35rem;
+    font-size: 0.75rem;
+  }
+  .sensor-icon { font-size: 0.8rem; }
+  .sensor-val { font-weight: 600; color: var(--text); }
+  .sensor-lbl { color: var(--text-dim); font-size: 0.68rem; }
+  .sensor-sep {
+    width: 1px; height: 14px;
+    background: var(--border);
+  }
+  .sensor-item.warn .sensor-val { color: var(--warning); }
+  .sensor-item.ok   .sensor-val { color: var(--primary); }
+
+  /* lotes strip */
+  .lotes-strip {
+    display: flex; flex-direction: column; gap: 0.4rem;
+    margin-bottom: 1rem;
+  }
+  .lote-row {
+    display: flex; align-items: center; gap: 0.65rem;
+    padding: 0.5rem 0.65rem;
+    background: var(--bg);
+    border-radius: 0.5rem;
+    border: 1px solid var(--border);
+  }
+  .lote-especie {
+    flex: 1;
+    font-size: 0.78rem; font-weight: 500;
+  }
+  .lote-fase {
+    font-size: 0.68rem; color: var(--text-dim);
+    padding: 0.1rem 0.45rem;
+    background: var(--bg-card);
+    border-radius: 0.3rem;
+  }
+  .lote-progress {
+    display: flex; align-items: center; gap: 0.4rem;
+    font-size: 0.72rem; font-weight: 600;
+  }
+  .lote-bar {
+    width: 50px; height: 4px;
+    background: var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .lote-bar-fill { height: 100%; border-radius: 2px; }
+  .fill-green  { background: var(--primary); }
+  .fill-yellow { background: var(--warning); }
+  .fill-red    { background: var(--danger); }
+  .col-green   { color: var(--primary); }
+  .col-yellow  { color: var(--warning); }
+  .col-red     { color: var(--danger); }
+
+  /* card footer */
+  .card-footer {
+    display: flex; align-items: center; justify-content: space-between;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--border);
+  }
+  .card-meta {
+    display: flex; gap: 1rem;
+  }
+  .meta-item {
+    text-align: center;
+  }
+  .meta-val {
+    font-size: 1rem; font-weight: 700;
+    color: var(--text);
+  }
+  .meta-lbl {
+    font-size: 0.63rem; color: var(--text-dim);
+    text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  .card-action {
+    font-size: 0.75rem; font-weight: 600;
+    color: var(--primary);
+    display: flex; align-items: center; gap: 0.25rem;
+    cursor: pointer;
+  }
+  .card-action svg { width: 13px; height: 13px; }
+
+  /* card offline overlay */
+  .local-card.offline .sensors-strip,
+  .local-card.offline .lotes-strip {
+    opacity: 0.4;
+  }
+  .offline-banner {
+    display: none;
+    align-items: center; justify-content: center; gap: 0.5rem;
+    padding: 0.5rem;
+    background: var(--danger-glow);
+    border: 1px solid hsla(0, 72%, 51%, 0.3);
+    border-radius: 0.5rem;
+    font-size: 0.75rem; color: var(--danger); font-weight: 600;
+    margin-bottom: 0.75rem;
+  }
+  .local-card.offline .offline-banner { display: flex; }
+
+  /* ── ADD LOCAL CARD ── */
+  .add-card {
+    background: transparent;
+    border: 2px dashed var(--border);
+    border-radius: var(--radius-lg);
+    padding: 1.25rem;
+    cursor: pointer; transition: var(--transition);
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 0.75rem; min-height: 180px;
+    color: var(--text-dim);
+  }
+  .add-card:hover {
+    border-color: var(--primary);
+    color: var(--primary);
+    background: var(--primary-dim);
+  }
+  .add-icon {
+    width: 40px; height: 40px;
+    border-radius: 50%;
+    border: 2px dashed currentColor;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.2rem;
+  }
+  .add-label { font-size: 0.82rem; font-weight: 600; }
+  .add-sub { font-size: 0.72rem; color: var(--text-dim); }
+
+  /* ── PIPELINE MINI (fazenda card) ── */
+  .pipeline-mini {
+    display: flex; align-items: center; gap: 0.3rem;
+    margin-bottom: 1rem;
+    padding: 0.65rem 0.75rem;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 0.6rem;
+    overflow: hidden;
+  }
+  .pipe-step {
+    flex: 1; text-align: center;
+  }
+  .pipe-val {
+    font-size: 0.9rem; font-weight: 700;
+    color: var(--text);
+  }
+  .pipe-lbl {
+    font-size: 0.58rem; color: var(--text-dim);
+    text-transform: uppercase; letter-spacing: 0.05em;
+    margin-top: 0.1rem;
+  }
+  .pipe-arrow {
+    color: var(--border);
+    font-size: 0.7rem;
+    flex-shrink: 0;
+  }
+  .pipe-step.ok   .pipe-val { color: var(--primary); }
+  .pipe-step.warn .pipe-val { color: var(--warning); }
+  .pipe-step.low  .pipe-val { color: var(--danger); }
+
+  /* ── STATS ROW ── */
+  .stats-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0.75rem;
+    margin-bottom: 1.75rem;
+  }
+  .stat-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1rem 1.1rem;
+    display: flex; align-items: center; gap: 0.9rem;
+  }
+  .stat-icon {
+    width: 38px; height: 38px; flex-shrink: 0;
+    border-radius: 0.6rem;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .stat-icon.green { background: var(--primary-dim); color: var(--primary); }
+  .stat-icon.blue  { background: hsla(217, 91%, 60%, 0.1); color: var(--info); }
+  .stat-icon.orange{ background: var(--warning-glow); color: var(--warning); }
+  .stat-icon.red   { background: var(--danger-glow); color: var(--danger); }
+  .stat-icon svg { width: 18px; height: 18px; }
+  .stat-val {
+    font-size: 1.5rem; font-weight: 700;
+    color: var(--text); line-height: 1;
+  }
+  .stat-lbl {
+    font-size: 0.72rem; color: var(--text-muted);
+    margin-top: 0.2rem;
+  }
+  .stat-trend {
+    font-size: 0.68rem; margin-top: 0.15rem;
+    color: var(--primary);
+  }
+</style>
+</head>
+<body>
+
+<!-- ── NAVBAR ── -->
+<nav class="navbar">
+  <div class="navbar-brand">
+    <div class="navbar-logo">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z"/>
+        <path d="M8 12c0-2.21 1.79-4 4-4s4 1.79 4 4"/>
+        <path d="M12 8v1M12 15v1M8 12H7M17 12h-1"/>
+      </svg>
+    </div>
+    <span class="navbar-name">CULTIVEE</span>
+  </div>
+
+  <nav class="navbar-nav">
+    <button class="nav-item active">Dashboard</button>
+    <button class="nav-item">Planejamento</button>
+    <button class="nav-item">Relatorios</button>
+    <button class="nav-item">Configuracoes</button>
+  </nav>
+
+  <div class="navbar-right">
+    <div class="navbar-notif">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+        <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+        <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+      </svg>
+      <span class="notif-badge">3</span>
+    </div>
+    <div class="navbar-user">
+      <div class="user-avatar">MC</div>
+      <span class="user-name">Carlos</span>
+    </div>
+  </div>
+</nav>
+
+<!-- ── LAYOUT ── -->
+<div class="layout">
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <span class="sidebar-section">Visao geral</span>
+    <button class="sidebar-item active">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+      Dashboard
+    </button>
+    <button class="sidebar-item">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+      Meus Locais
+      <span class="sidebar-badge warn">3</span>
+    </button>
+    <button class="sidebar-item">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      Alertas
+      <span class="sidebar-badge">2</span>
+    </button>
+
+    <span class="sidebar-section">Producao</span>
+    <button class="sidebar-item">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+      Lotes
+    </button>
+    <button class="sidebar-item">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+      Planejamento
+    </button>
+    <button class="sidebar-item">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+      Agenda
+    </button>
+
+    <span class="sidebar-section">Dados</span>
+    <button class="sidebar-item">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.21 15.89A10 10 0 1 1 8 2.83"/><path d="M22 12A10 10 0 0 0 12 2v10z"/></svg>
+      Relatorios
+    </button>
+  </aside>
+
+  <!-- MAIN -->
+  <main class="main">
+
+    <!-- PAGE HEADER -->
+    <div class="page-header">
+      <div>
+        <h1 class="page-title">Dashboard</h1>
+        <p class="page-subtitle">Tera-feira, 31 de marco de 2026 · Tudo sob monitoramento</p>
+      </div>
+      <button class="btn btn-primary">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        Adicionar Local
+      </button>
+    </div>
+
+    <!-- STATS ROW -->
+    <div class="stats-row">
+      <div class="stat-card">
+        <div class="stat-icon green">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9,22 9,12 15,12 15,22"/></svg>
+        </div>
+        <div>
+          <div class="stat-val">3</div>
+          <div class="stat-lbl">Locais ativos</div>
+          <div class="stat-trend">↑ 1 fazenda · 2 expositores</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon blue">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        </div>
+        <div>
+          <div class="stat-val">1.184</div>
+          <div class="stat-lbl">Plantas no sistema</div>
+          <div class="stat-trend" style="color: var(--warning);">⚠ 94% da meta</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon orange">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12,6 12,12 16,14"/></svg>
+        </div>
+        <div>
+          <div class="stat-val">7</div>
+          <div class="stat-lbl">Lotes em andamento</div>
+          <div class="stat-trend">3 na fazenda · 4 expositores</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon red">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        </div>
+        <div>
+          <div class="stat-val">2</div>
+          <div class="stat-lbl">Alertas ativos</div>
+          <div class="stat-trend" style="color: var(--danger);">1 critico · 1 atencao</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- LOCAIS -->
+    <div class="section-header">
+      <span class="section-title">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+        Meus locais
+        <span class="section-count">3</span>
+      </span>
+    </div>
+
+    <div class="locais-grid">
+
+      <!-- ── CARD 1: FAZENDA ── -->
+      <div class="local-card online">
+        <div class="card-header">
+          <div>
+            <div class="card-type-badge badge-fazenda">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="10" height="10"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+              Fazenda
+            </div>
+            <div class="card-name">Galpao 1</div>
+            <div class="card-location">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+              Av. Industrial, 1420
+            </div>
+          </div>
+          <div class="status-badge status-online">
+            <span class="status-dot"></span> Online
+          </div>
+        </div>
+
+        <!-- sensores -->
+        <div class="sensors-strip">
+          <div class="sensor-item ok">
+            <span class="sensor-icon">🌡</span>
+            <span class="sensor-val">22°C</span>
+            <span class="sensor-lbl">temp</span>
+          </div>
+          <div class="sensor-sep"></div>
+          <div class="sensor-item ok">
+            <span class="sensor-icon">💧</span>
+            <span class="sensor-val">66%</span>
+            <span class="sensor-lbl">umid</span>
+          </div>
+          <div class="sensor-sep"></div>
+          <div class="sensor-item warn">
+            <span class="sensor-icon">🌿</span>
+            <span class="sensor-val">380ppm</span>
+            <span class="sensor-lbl">CO2</span>
+          </div>
+          <div class="sensor-sep"></div>
+          <div class="sensor-item warn">
+            <span class="sensor-icon">⚗️</span>
+            <span class="sensor-val">4.8</span>
+            <span class="sensor-lbl">pH</span>
+          </div>
+          <div class="sensor-sep"></div>
+          <div class="sensor-item ok">
+            <span class="sensor-icon">⚡</span>
+            <span class="sensor-val">1.4</span>
+            <span class="sensor-lbl">EC</span>
+          </div>
+        </div>
+
+        <!-- pipeline mini -->
+        <div class="pipeline-mini">
+          <div class="pipe-step ok">
+            <div class="pipe-val">198</div>
+            <div class="pipe-lbl">Germin.</div>
+          </div>
+          <span class="pipe-arrow">›</span>
+          <div class="pipe-step ok">
+            <div class="pipe-val">310</div>
+            <div class="pipe-lbl">Bercario</div>
+          </div>
+          <span class="pipe-arrow">›</span>
+          <div class="pipe-step warn">
+            <div class="pipe-val">380</div>
+            <div class="pipe-lbl">Engorda</div>
+          </div>
+          <span class="pipe-arrow">›</span>
+          <div class="pipe-step ok">
+            <div class="pipe-val">66</div>
+            <div class="pipe-lbl">Pronto</div>
+          </div>
+        </div>
+
+        <div class="card-footer">
+          <div class="card-meta">
+            <div class="meta-item">
+              <div class="meta-val">5</div>
+              <div class="meta-lbl">Modulos</div>
+            </div>
+            <div class="meta-item">
+              <div class="meta-val">954</div>
+              <div class="meta-lbl">Plantas</div>
+            </div>
+            <div class="meta-item">
+              <div class="meta-val" style="color:var(--warning)">94%</div>
+              <div class="meta-lbl">Da meta</div>
+            </div>
+          </div>
+          <span class="card-action">
+            Ver detalhes
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+          </span>
+        </div>
+      </div>
+
+      <!-- ── CARD 2: EXPOSITOR ONLINE ── -->
+      <div class="local-card alert">
+        <div class="card-header">
+          <div>
+            <div class="card-type-badge badge-expositor">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="10" height="10"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+              Expositor
+            </div>
+            <div class="card-name">Edificio Centro</div>
+            <div class="card-location">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+              Expositor 1
+            </div>
+          </div>
+          <div class="status-badge status-alert">
+            <span class="status-dot"></span> Atencao
+          </div>
+        </div>
+
+        <div class="sensors-strip">
+          <div class="sensor-item ok">
+            <span class="sensor-icon">🌡</span>
+            <span class="sensor-val">21°C</span>
+            <span class="sensor-lbl">temp</span>
+          </div>
+          <div class="sensor-sep"></div>
+          <div class="sensor-item ok">
+            <span class="sensor-icon">💧</span>
+            <span class="sensor-val">62%</span>
+            <span class="sensor-lbl">umid</span>
+          </div>
+          <div class="sensor-sep"></div>
+          <div class="sensor-item ok">
+            <span class="sensor-icon">🪣</span>
+            <span class="sensor-val">OK</span>
+            <span class="sensor-lbl">nivel</span>
+          </div>
+          <div class="sensor-sep"></div>
+          <div class="sensor-item ok">
+            <span class="sensor-icon">💡</span>
+            <span class="sensor-val">ON</span>
+            <span class="sensor-lbl">luz</span>
+          </div>
+        </div>
+
+        <div class="lotes-strip">
+          <div class="lote-row">
+            <span class="lote-especie">Alface Crespa</span>
+            <span class="lote-fase">48 plantas</span>
+            <div class="lote-progress col-yellow">
+              <div class="lote-bar"><div class="lote-bar-fill fill-yellow" style="width:70%"></div></div>
+              dia 7/10
+            </div>
+          </div>
+          <div class="lote-row">
+            <span class="lote-especie">Rucula</span>
+            <span class="lote-fase">36 plantas</span>
+            <div class="lote-progress col-green">
+              <div class="lote-bar"><div class="lote-bar-fill fill-green" style="width:30%"></div></div>
+              dia 2/7
+            </div>
+          </div>
+        </div>
+
+        <div class="card-footer">
+          <div class="card-meta">
+            <div class="meta-item">
+              <div class="meta-val">3</div>
+              <div class="meta-lbl">Modulos</div>
+            </div>
+            <div class="meta-item">
+              <div class="meta-val">84</div>
+              <div class="meta-lbl">Plantas</div>
+            </div>
+            <div class="meta-item">
+              <div class="meta-val" style="color:var(--warning)">3d</div>
+              <div class="meta-lbl">Repor</div>
+            </div>
+          </div>
+          <span class="card-action">
+            Ver detalhes
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+          </span>
+        </div>
+      </div>
+
+      <!-- ── CARD 3: EXPOSITOR OFFLINE ── -->
+      <div class="local-card offline">
+        <div class="card-header">
+          <div>
+            <div class="card-type-badge badge-expositor">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="10" height="10"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+              Expositor
+            </div>
+            <div class="card-name">Cond. Bela Vista</div>
+            <div class="card-location">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+              Expositor 2 · Rua Angelo Canetto
+            </div>
+          </div>
+          <div class="status-badge status-offline">
+            <span class="status-dot"></span> Offline
+          </div>
+        </div>
+
+        <div class="offline-banner">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          Sem comunicacao ha 2h 14min · Ultimo contato 09:43
+        </div>
+
+        <div class="sensors-strip">
+          <div class="sensor-item">
+            <span class="sensor-icon">🌡</span>
+            <span class="sensor-val">—</span>
+            <span class="sensor-lbl">temp</span>
+          </div>
+          <div class="sensor-sep"></div>
+          <div class="sensor-item">
+            <span class="sensor-icon">💧</span>
+            <span class="sensor-val">—</span>
+            <span class="sensor-lbl">umid</span>
+          </div>
+          <div class="sensor-sep"></div>
+          <div class="sensor-item">
+            <span class="sensor-icon">🪣</span>
+            <span class="sensor-val">—</span>
+            <span class="sensor-lbl">nivel</span>
+          </div>
+          <div class="sensor-sep"></div>
+          <div class="sensor-item">
+            <span class="sensor-icon">💡</span>
+            <span class="sensor-val">—</span>
+            <span class="sensor-lbl">luz</span>
+          </div>
+        </div>
+
+        <div class="lotes-strip">
+          <div class="lote-row">
+            <span class="lote-especie">Rucula</span>
+            <span class="lote-fase">42 plantas</span>
+            <div class="lote-progress col-red">
+              <div class="lote-bar"><div class="lote-bar-fill fill-red" style="width:85%"></div></div>
+              dia 6/7
+            </div>
+          </div>
+        </div>
+
+        <div class="card-footer">
+          <div class="card-meta">
+            <div class="meta-item">
+              <div class="meta-val">2</div>
+              <div class="meta-lbl">Modulos</div>
+            </div>
+            <div class="meta-item">
+              <div class="meta-val">42</div>
+              <div class="meta-lbl">Plantas</div>
+            </div>
+            <div class="meta-item">
+              <div class="meta-val" style="color:var(--danger)">1d</div>
+              <div class="meta-lbl">Urgente</div>
+            </div>
+          </div>
+          <span class="card-action" style="color:var(--danger)">
+            Investigar
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+          </span>
+        </div>
+      </div>
+
+      <!-- ── ADD CARD ── -->
+      <div class="add-card">
+        <div class="add-icon">+</div>
+        <span class="add-label">Adicionar local</span>
+        <span class="add-sub">Fazenda ou expositor</span>
+      </div>
+
+    </div><!-- /locais-grid -->
+
+    <!-- ALERTAS -->
+    <div class="alerts-section" style="margin-top: 1.75rem; margin-bottom: 0;">
+      <div class="alerts-header">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>
+        Alertas ativos
+        <span>● 2 requerem atencao</span>
+      </div>
+      <div class="alerts-list">
+
+        <div class="alert-item p0">
+          <span class="alert-level">P0</span>
+          <div class="alert-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12" y2="18"/></svg>
+          </div>
+          <div class="alert-body">
+            <div class="alert-msg">Expositor "Cond. Bela Vista" offline ha 2h 14min</div>
+            <div class="alert-meta">Modulo HIDRO · Rua Angelo Canetto · Ultimo contato: 09:43</div>
+          </div>
+          <button class="alert-action">Ver local</button>
+        </div>
+
+        <div class="alert-item p1">
+          <span class="alert-level">P1</span>
+          <div class="alert-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          </div>
+          <div class="alert-body">
+            <div class="alert-msg">Fazenda "Galpao 1" — pH fora da faixa (4,8)</div>
+            <div class="alert-meta">Modulo SOLUCAO · Ideal: 5,5 – 6,5 · Leitura ha 12 min</div>
+          </div>
+          <button class="alert-action">Verificar</button>
+        </div>
+
+        <div class="alert-item p2">
+          <span class="alert-level">P2</span>
+          <div class="alert-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v6M12 22v-6M4.93 4.93l4.24 4.24M14.83 14.83l4.24 4.24M2 12h6M22 12h-6M4.93 19.07l4.24-4.24M14.83 9.17l4.24-4.24"/></svg>
+          </div>
+          <div class="alert-body">
+            <div class="alert-msg">Expositor "Padaria Centro" — Alface Crespa com 3 dias restantes</div>
+            <div class="alert-meta">Lote ALC-20260321-02 · 48 plantas · Dia 7 de 10</div>
+          </div>
+          <button class="alert-action">Planejar</button>
+        </div>
+
+      </div>
+    </div>
+
+  </main>
+</div>
+
+</body>
+</html>
