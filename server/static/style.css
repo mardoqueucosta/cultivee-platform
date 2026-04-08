@@ -617,7 +617,7 @@ main { max-width: 480px; margin: 0 auto; padding: 0 0.75rem; }
 
 .phase-item-details {
     color: var(--text-muted);
-    font-size: 0.78rem;
+    font-size: 0.88rem;
     margin-top: 0.4rem;
     line-height: 1.5;
 }
@@ -651,9 +651,9 @@ main { max-width: 480px; margin: 0 auto; padding: 0 0.75rem; }
    ===================================================================== */
 
 .status-indicators {
-    display: flex;
-    justify-content: center;
-    gap: 1rem;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
     margin: 0.75rem 0;
 }
 

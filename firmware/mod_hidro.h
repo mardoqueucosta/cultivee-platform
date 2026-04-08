@@ -773,8 +773,8 @@ String hidro_dashboard_html() {
     phasesHtml += "<div style='border-radius:10px;padding:10px;margin-bottom:6px;" + border + "'>";
     phasesHtml += "<div style='display:flex;justify-content:space-between;align-items:center'>";
     phasesHtml += "<b>" + String(ph->name) + "</b>" + badge;
-    phasesHtml += "<span style='color:#888;font-size:0.8rem'>" + diasStr + "</span></div>";
-    phasesHtml += "<div style='color:#888;font-size:0.75rem;margin-top:4px'>";
+    phasesHtml += "<span style='color:#888;font-size:0.85rem'>" + diasStr + "</span></div>";
+    phasesHtml += "<div style='color:#888;font-size:0.85rem;margin-top:4px'>";
     phasesHtml += "&#128161; " + String(ph->lightOnHour) + ":" + (ph->lightOnMin < 10 ? "0" : "") + String(ph->lightOnMin);
     phasesHtml += " - " + String(ph->lightOffHour) + ":" + (ph->lightOffMin < 10 ? "0" : "") + String(ph->lightOffMin) + "<br>";
     phasesHtml += "&#128167; Dia: " + String(ph->pumpOnDay) + "/" + String(ph->pumpOffDay) + "min";
