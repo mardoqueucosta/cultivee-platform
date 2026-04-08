@@ -26,10 +26,16 @@ Plataforma IoT para cultivo inteligente. Arquitetura modular:
 Hardware especializado: cada ESP32 faz uma coisa so.
 Composicao por software: o app mostra os modulos que o usuario adicionar.
 
+## Repositorios
+
+Este projeto foi separado do monorepo original (mardoqueucosta/cultivee tag v1.0-monorepo):
+- **cultivee-platform** (este repo) — firmware + servidor + PWA (app.cultivee.com.br)
+- **cultivee.com.br** (repo separado) — landing page React (cultivee.com.br)
+
 ## Estrutura do Projeto
 
 ```
-cultivee/
+cultivee-platform/
 ├── firmware/                 # UM firmware, multiplos produtos
 │   ├── firmware.ino          # setup() + loop() — orquestrador modular
 │   ├── config.h              # Selecao de produto + ambiente (local/prod)
@@ -57,8 +63,7 @@ cultivee/
 │   ├── Dockerfile
 │   └── requirements.txt
 │
-├── site/                     # cultivee.com.br — Landing page (React + Nginx)
-├── docker-compose.yml        # FONTE DA VERDADE — 2 containers (site + app)
+├── docker-compose.yml        # FONTE DA VERDADE — container app (Flask/Gunicorn)
 ├── deploy.sh                 # Deploy automatizado para VPS
 ├── PRD-Cultivee.md           # FONTE DA VERDADE — Product Requirements Document
 └── CLAUDE.md                 # ESTE ARQUIVO
@@ -257,22 +262,19 @@ moduleRenderers.sensor = {
 ### Containers
 | Container | Servico | Porta | Dominios |
 |-----------|---------|-------|----------|
-| cultivee-site | Landing page (Nginx) | 80 | cultivee.com.br, www.cultivee.com.br |
-| cultivee-app | Servidor unificado (Flask/Gunicorn) | 5002 | app.cultivee.com.br, hidro.cultivee.com.br, cam.cultivee.com.br |
+| cultivee-app | Servidor unificado (Flask/Gunicorn) | 5002 | app.cultivee.com.br |
+
+> Site (cultivee.com.br) esta no repo separado mardoqueucosta/cultivee.com.br
 
 ### Deploy
 ```bash
-bash deploy.sh app        # servidor
-bash deploy.sh site       # landing page
-bash deploy.sh all        # tudo
+bash deploy.sh            # deploy do servidor para VPS
 ```
 
 ### DNS (Cloudflare)
 - **Conta:** mardo.abc@gmail.com
-- cultivee.com.br → proxied
-- app.cultivee.com.br → DNS only
-- hidro.cultivee.com.br → DNS only (alias retrocompat)
-- cam.cultivee.com.br → DNS only
+- cultivee.com.br → proxied (repo cultivee.com.br)
+- app.cultivee.com.br → DNS only (este repo)
 
 ### Desenvolvimento local
 ```bash
