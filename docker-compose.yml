@@ -26,6 +26,8 @@ services:
 
 volumes:
   cultivee-data:
+    name: cultivee_cultivee-data
+    external: true
 
 networks:
   web:
