@@ -7,6 +7,9 @@
 #ifndef PRODUCT_CAM_H
 #define PRODUCT_CAM_H
 
+// ===== VERSAO =====
+#define FIRMWARE_VERSION   "3.3.0"
+
 // ===== MODULOS ATIVOS =====
 #define MOD_CAM
 // SEM MOD_HIDRO — sem reles, sem fases
