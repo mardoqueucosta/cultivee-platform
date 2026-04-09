@@ -827,39 +827,6 @@ main { max-width: 480px; margin: 0 auto; padding: 0 0.75rem; }
     box-shadow: 0 0 0 3px var(--primary-glow);
 }
 
-.time-select {
-    display: flex;
-    align-items: center;
-    gap: 0.25rem;
-}
-
-.time-sel {
-    flex: 1;
-    padding: 0.5rem 0.4rem;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    font-size: 0.9rem;
-    background: var(--bg-input);
-    color: var(--text);
-    font-family: var(--font);
-    appearance: none;
-    -webkit-appearance: none;
-    text-align: center;
-    cursor: pointer;
-}
-
-.time-sel:focus {
-    outline: none;
-    border-color: var(--border-focus);
-    box-shadow: 0 0 0 3px var(--primary-glow);
-}
-
-.time-sep {
-    color: var(--text-muted);
-    font-size: 1.1rem;
-    font-weight: 700;
-}
-
 .config-section-label {
     font-size: 0.75rem;
     font-weight: 600;

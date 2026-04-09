@@ -644,28 +644,6 @@ function closeConfigModal(event) {
     document.getElementById("config-modal").classList.add("hidden");
 }
 
-function timeSelect(id, hour, minute) {
-    let hOpts = '', mOpts = '';
-    for (let h = 0; h < 24; h++) {
-        const hv = String(h).padStart(2, '0');
-        hOpts += `<option value="${hv}"${h===hour?' selected':''}>${hv}</option>`;
-    }
-    for (let m = 0; m < 60; m += 5) {
-        const mv = String(m).padStart(2, '0');
-        const sel = (m === minute || (m < minute && m + 5 > minute)) ? ' selected' : '';
-        mOpts += `<option value="${mv}"${sel}>${mv}</option>`;
-    }
-    return `<div class="time-select" id="${id}"><select class="time-sel" data-part="h">${hOpts}</select><span class="time-sep">:</span><select class="time-sel" data-part="m">${mOpts}</select></div>`;
-}
-
-function getTimeSelectValue(id) {
-    const el = document.getElementById(id);
-    if (!el) return '00:00';
-    const h = el.querySelector('[data-part="h"]').value;
-    const m = el.querySelector('[data-part="m"]').value;
-    return `${h}:${m}`;
-}
-
 function renderConfigModal(data) {
     const container = document.getElementById("config-content");
     const today = new Date().toISOString().split('T')[0];
@@ -673,6 +651,10 @@ function renderConfigModal(data) {
     const phases = data.phases || [];
 
     let phasesHtml = phases.map((p, i) => {
+        const lOn = `${String(p.lightOnHour||6).padStart(2,'0')}:${String(p.lightOnMin||0).padStart(2,'0')}`;
+        const lOff = `${String(p.lightOffHour||18).padStart(2,'0')}:${String(p.lightOffMin||0).padStart(2,'0')}`;
+        const vOn = `${String(p.ventOnHour||0).padStart(2,'0')}:${String(p.ventOnMin||0).padStart(2,'0')}`;
+        const vOff = `${String(p.ventOffHour||0).padStart(2,'0')}:${String(p.ventOffMin||0).padStart(2,'0')}`;
         return `<div class="config-phase">
             <div class="config-phase-header"><span class="config-phase-title">Fase ${i+1}</span>${phases.length > 1 ? `<button class="config-remove" onclick="removePhase(${i})">&#10005;</button>` : ''}</div>
             <div class="config-grid">
@@ -681,8 +663,8 @@ function renderConfigModal(data) {
             </div>
             <div class="config-section-label">&#128161; Iluminacao</div>
             <div class="config-grid">
-                <div class="config-field"><label>Liga</label>${timeSelect(`cfg-lon${i}`, p.lightOnHour||6, p.lightOnMin||0)}</div>
-                <div class="config-field"><label>Desliga</label>${timeSelect(`cfg-loff${i}`, p.lightOffHour||18, p.lightOffMin||0)}</div>
+                <div class="config-field"><label>Liga</label><input type="time" id="cfg-lon${i}" value="${lOn}"></div>
+                <div class="config-field"><label>Desliga</label><input type="time" id="cfg-loff${i}" value="${lOff}"></div>
             </div>
             <div class="config-section-label">&#128167; Irrigacao Dia</div>
             <div class="config-grid">
@@ -696,8 +678,8 @@ function renderConfigModal(data) {
             </div>
             <div class="config-section-label">&#127744; Ventilacao</div>
             <div class="config-grid">
-                <div class="config-field"><label>Liga</label>${timeSelect(`cfg-von${i}`, p.ventOnHour||0, p.ventOnMin||0)}</div>
-                <div class="config-field"><label>Desliga</label>${timeSelect(`cfg-voff${i}`, p.ventOffHour||0, p.ventOffMin||0)}</div>
+                <div class="config-field"><label>Liga</label><input type="time" id="cfg-von${i}" value="${vOn}"></div>
+                <div class="config-field"><label>Desliga</label><input type="time" id="cfg-voff${i}" value="${vOff}"></div>
             </div>
             <div class="config-section-label">&#128168; Aeracao Dia</div>
             <div class="config-grid">
@@ -728,14 +710,14 @@ async function saveConfig() {
     phases.forEach((_, i) => {
         data[`n${i}`] = document.getElementById(`cfg-n${i}`).value;
         data[`d${i}`] = document.getElementById(`cfg-d${i}`).value;
-        data[`lon${i}`] = getTimeSelectValue(`cfg-lon${i}`);
-        data[`loff${i}`] = getTimeSelectValue(`cfg-loff${i}`);
+        data[`lon${i}`] = document.getElementById(`cfg-lon${i}`).value;
+        data[`loff${i}`] = document.getElementById(`cfg-loff${i}`).value;
         data[`pod${i}`] = document.getElementById(`cfg-pod${i}`).value;
         data[`pfd${i}`] = document.getElementById(`cfg-pfd${i}`).value;
         data[`pon${i}`] = document.getElementById(`cfg-pon${i}`).value;
         data[`pfn${i}`] = document.getElementById(`cfg-pfn${i}`).value;
-        data[`von${i}`] = getTimeSelectValue(`cfg-von${i}`);
-        data[`voff${i}`] = getTimeSelectValue(`cfg-voff${i}`);
+        data[`von${i}`] = document.getElementById(`cfg-von${i}`).value;
+        data[`voff${i}`] = document.getElementById(`cfg-voff${i}`).value;
         data[`aod${i}`] = document.getElementById(`cfg-aod${i}`).value;
         data[`afd${i}`] = document.getElementById(`cfg-afd${i}`).value;
         data[`aon${i}`] = document.getElementById(`cfg-aon${i}`).value;

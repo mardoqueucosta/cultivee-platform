@@ -549,10 +549,16 @@ void handleSaveConfig() {
     if (n.length() > 0) strncpy(phases[i].name, n.c_str(), sizeof(phases[i].name) - 1);
     phases[i].days = server.arg("d" + String(i)).toInt();
 
-    phases[i].lightOnHour = server.arg("lon" + String(i) + "h").toInt();
-    phases[i].lightOnMin = server.arg("lon" + String(i) + "m").toInt();
-    phases[i].lightOffHour = server.arg("loff" + String(i) + "h").toInt();
-    phases[i].lightOffMin = server.arg("loff" + String(i) + "m").toInt();
+    String lon = server.arg("lon" + String(i));
+    if (lon.length() >= 5) {
+      phases[i].lightOnHour = lon.substring(0, 2).toInt();
+      phases[i].lightOnMin = lon.substring(3, 5).toInt();
+    }
+    String loff = server.arg("loff" + String(i));
+    if (loff.length() >= 5) {
+      phases[i].lightOffHour = loff.substring(0, 2).toInt();
+      phases[i].lightOffMin = loff.substring(3, 5).toInt();
+    }
 
     int pod = server.arg("pod" + String(i)).toInt();
     int pfd = server.arg("pfd" + String(i)).toInt();
@@ -563,10 +569,16 @@ void handleSaveConfig() {
     phases[i].pumpOnNight = pon > 0 ? pon : 15;
     phases[i].pumpOffNight = pfn > 0 ? pfn : 45;
 
-    phases[i].ventOnHour = server.arg("von" + String(i) + "h").toInt();
-    phases[i].ventOnMin = server.arg("von" + String(i) + "m").toInt();
-    phases[i].ventOffHour = server.arg("voff" + String(i) + "h").toInt();
-    phases[i].ventOffMin = server.arg("voff" + String(i) + "m").toInt();
+    String von = server.arg("von" + String(i));
+    if (von.length() >= 5) {
+      phases[i].ventOnHour = von.substring(0, 2).toInt();
+      phases[i].ventOnMin = von.substring(3, 5).toInt();
+    }
+    String voff = server.arg("voff" + String(i));
+    if (voff.length() >= 5) {
+      phases[i].ventOffHour = voff.substring(0, 2).toInt();
+      phases[i].ventOffMin = voff.substring(3, 5).toInt();
+    }
     int aod = server.arg("aod" + String(i)).toInt();
     int afd = server.arg("afd" + String(i)).toInt();
     int aon = server.arg("aon" + String(i)).toInt();
@@ -585,35 +597,14 @@ void handleSaveConfig() {
 
 // ===================== CONFIG PAGE HTML =====================
 
-String hourSelect(String name, int sel) {
-  String s = "<select name='" + name + "' style='flex:1;padding:0.5rem 0.3rem;border:1px solid hsl(210,15%,20%);border-radius:0.75rem;font-size:0.85rem;background:hsl(210,18%,12%);color:hsl(210,20%,90%);text-align:center;font-family:inherit'>";
-  for (int h = 0; h < 24; h++) {
-    String hv = (h < 10 ? "0" : "") + String(h);
-    s += "<option value='" + hv + "'" + (h == sel ? " selected" : "") + ">" + hv + "</option>";
-  }
-  s += "</select>";
-  return s;
-}
-
-String minuteSelect(String name, int sel) {
-  String s = "<select name='" + name + "' style='flex:1;padding:0.5rem 0.3rem;border:1px solid hsl(210,15%,20%);border-radius:0.75rem;font-size:0.85rem;background:hsl(210,18%,12%);color:hsl(210,20%,90%);text-align:center;font-family:inherit'>";
-  for (int m = 0; m < 60; m += 5) {
-    String mv = (m < 10 ? "0" : "") + String(m);
-    int closest = (sel / 5) * 5;
-    s += "<option value='" + mv + "'" + (m == closest ? " selected" : "") + ">" + mv + "</option>";
-  }
-  s += "</select>";
-  return s;
-}
-
-String timeSelects(String prefix, int hour, int minute) {
-  return "<div style='display:flex;align-items:center;gap:4px'>" + hourSelect(prefix + "h", hour) + "<span style='color:hsl(210,15%,55%);font-weight:700;font-size:1rem'>:</span>" + minuteSelect(prefix + "m", minute) + "</div>";
-}
-
 void handleConfig() {
   String phaseForms = "";
   for (int i = 0; i < numPhases; i++) {
     Phase *p = &phases[i];
+    String lonVal = (p->lightOnHour < 10 ? "0" : "") + String(p->lightOnHour) + ":" + (p->lightOnMin < 10 ? "0" : "") + String(p->lightOnMin);
+    String loffVal = (p->lightOffHour < 10 ? "0" : "") + String(p->lightOffHour) + ":" + (p->lightOffMin < 10 ? "0" : "") + String(p->lightOffMin);
+    String vonVal = (p->ventOnHour < 10 ? "0" : "") + String(p->ventOnHour) + ":" + (p->ventOnMin < 10 ? "0" : "") + String(p->ventOnMin);
+    String voffVal = (p->ventOffHour < 10 ? "0" : "") + String(p->ventOffHour) + ":" + (p->ventOffMin < 10 ? "0" : "") + String(p->ventOffMin);
 
     phaseForms += "<div class='ph'>";
     phaseForms += "<div class='ph-hdr'><span class='ph-t'>Fase " + String(i + 1) + "</span>";
@@ -624,8 +615,8 @@ void handleConfig() {
     phaseForms += "<div class='fd'><label>Dias</label><input type='number' name='d" + String(i) + "' value='" + String(p->days) + "' min='0' placeholder='0=infinito'></div></div>";
 
     phaseForms += "<div class='sl'>&#128161; Ilumina&ccedil;&atilde;o</div>";
-    phaseForms += "<div class='gr'><div class='fd'><label>Liga</label>" + timeSelects("lon" + String(i), p->lightOnHour, p->lightOnMin) + "</div>";
-    phaseForms += "<div class='fd'><label>Desliga</label>" + timeSelects("loff" + String(i), p->lightOffHour, p->lightOffMin) + "</div></div>";
+    phaseForms += "<div class='gr'><div class='fd'><label>Liga</label><input type='time' name='lon" + String(i) + "' value='" + lonVal + "'></div>";
+    phaseForms += "<div class='fd'><label>Desliga</label><input type='time' name='loff" + String(i) + "' value='" + loffVal + "'></div></div>";
 
     phaseForms += "<div class='sl'>&#128167; Irriga&ccedil;&atilde;o Dia</div>";
     phaseForms += "<div class='gr'><div class='fd'><label>ON (min)</label><input type='number' name='pod" + String(i) + "' value='" + String(p->pumpOnDay) + "' min='1'></div>";
@@ -636,8 +627,8 @@ void handleConfig() {
     phaseForms += "<div class='fd'><label>OFF (min)</label><input type='number' name='pfn" + String(i) + "' value='" + String(p->pumpOffNight) + "' min='1'></div></div>";
 
     phaseForms += "<div class='sl'>&#127744; Ventila&ccedil;&atilde;o</div>";
-    phaseForms += "<div class='gr'><div class='fd'><label>Liga</label>" + timeSelects("von" + String(i), p->ventOnHour, p->ventOnMin) + "</div>";
-    phaseForms += "<div class='fd'><label>Desliga</label>" + timeSelects("voff" + String(i), p->ventOffHour, p->ventOffMin) + "</div></div>";
+    phaseForms += "<div class='gr'><div class='fd'><label>Liga</label><input type='time' name='von" + String(i) + "' value='" + vonVal + "'></div>";
+    phaseForms += "<div class='fd'><label>Desliga</label><input type='time' name='voff" + String(i) + "' value='" + voffVal + "'></div></div>";
 
     phaseForms += "<div class='sl'>&#129707; Aera&ccedil;&atilde;o Dia</div>";
     phaseForms += "<div class='gr'><div class='fd'><label>ON (min)</label><input type='number' name='aod" + String(i) + "' value='" + String(p->aerOnDay) + "' min='1'></div>";
