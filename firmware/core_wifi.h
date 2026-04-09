@@ -61,7 +61,7 @@ bool connectWiFi() {
 }
 
 void startSetupMode() {
-  WiFi.mode(WIFI_AP);
+  WiFi.mode(WIFI_AP_STA);  // AP+STA para permitir scan de redes
   startAP();
   currentMode = MODE_SETUP;
   Serial.println("Modo SETUP — sem credenciais WiFi");
