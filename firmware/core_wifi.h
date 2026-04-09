@@ -185,9 +185,11 @@ void tryReconnectWiFi() {
 
   unsigned long start = millis();
   while (WiFi.status() != WL_CONNECTED && millis() - start < 5000) {
-    delay(100);
+    delay(50);
+    server.handleClient();       // web server responsivo durante reconexao
+    dnsServer.processNextRequest();
     #ifdef MOD_HIDRO
-    hidro_loop();  // continua automacao durante tentativa
+    hidro_loop();
     #endif
   }
 
