@@ -35,6 +35,9 @@ void startAP() {
   WiFi.softAP(AP_SSID, NULL, 6, 0, 4);  // Canal 6, sem senha, max 4 clientes
   delay(100);
   esp_wifi_set_ps(WIFI_PS_NONE);  // Desabilita power saving — melhora latencia
+  #ifdef MOD_CAM
+  WiFi.setTxPower(WIFI_POWER_8_5dBm);  // WROVER: TX mais baixo = AP mais estavel
+  #endif
   dnsServer.start(53, "*", WiFi.softAPIP());
   Serial.printf("AP ativo: %s IP: %s\n", AP_SSID, WiFi.softAPIP().toString().c_str());
 }

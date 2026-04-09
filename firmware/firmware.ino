@@ -215,10 +215,7 @@ void setup() {
   pinMode(RESET_BTN, INPUT_PULLUP);
   pinMode(LED_ONBOARD, OUTPUT);
 
-  // Modulos: setup hardware
-  #ifdef MOD_CAM
-  cam_setup();
-  #endif
+  // Modulos: setup hardware (cam depois do WiFi — câmera afeta rádio)
   #ifdef MOD_HIDRO
   hidro_setup();
   #endif
@@ -250,6 +247,11 @@ void setup() {
   } else {
     startSetupMode();
   }
+
+  // Camera: inicializar apos WiFi (DMA/PSRAM da camera afeta radio)
+  #ifdef MOD_CAM
+  cam_setup();
+  #endif
 
   // Rotas: rota raiz dinamica
   server.on("/", []() {
