@@ -29,13 +29,13 @@ bool initCamera() {
   config.pin_sccb_scl = SIOC_GPIO_NUM;
   config.pin_pwdn = PWDN_GPIO_NUM;
   config.pin_reset = RESET_GPIO_NUM;
-  config.xclk_freq_hz = 20000000;
+  config.xclk_freq_hz = 10000000;       // 10MHz — mais estavel, menos interferencia WiFi
   config.pixel_format = PIXFORMAT_JPEG;
-  config.frame_size = FRAMESIZE_UXGA;  // Init na resolucao maxima para alocar buffer suficiente
-  config.jpeg_quality = 10;
-  config.fb_count = 1;                  // UXGA precisa de fb_count=1 (PSRAM limitada)
+  config.frame_size = FRAMESIZE_SVGA;   // Init em SVGA (800x600) — bom balanco RAM/qualidade
+  config.jpeg_quality = 12;
+  config.fb_count = 1;
   config.fb_location = CAMERA_FB_IN_PSRAM;
-  config.grab_mode = CAMERA_GRAB_LATEST;  // Sempre pega o frame mais recente
+  config.grab_mode = CAMERA_GRAB_LATEST;
 
   esp_err_t err = esp_camera_init(&config);
   if (err != ESP_OK) {
@@ -56,16 +56,12 @@ bool initCamera() {
   s->set_lenc(s, 1);
   s->set_saturation(s, 0);
 
-  // Flush frames iniciais (auto-exposure/WB estabiliza)
-  for (int i = 0; i < 5; i++) {
+  // Flush 2 frames (auto-exposure/WB estabiliza)
+  for (int i = 0; i < 2; i++) {
     camera_fb_t* fb = esp_camera_fb_get();
     if (fb) esp_camera_fb_return(fb);
-    delay(100);
+    delay(50);
   }
-
-  // Reduz para VGA como resolucao padrao (UXGA sob demanda para captura)
-  s->set_framesize(s, FRAMESIZE_VGA);
-  s->set_quality(s, 12);
 
   Serial.println("Camera OK!");
   return true;
