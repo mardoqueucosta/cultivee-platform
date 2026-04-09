@@ -145,14 +145,16 @@ ESP32 boot → connectWiFi → registerOnServer (POST /api/modules/register)
 
 ### Compilar e gravar
 ```bash
-# 1. Editar config.h — selecionar produto e ambiente
-# 2. Compilar
-"C:/Users/user/arduino-cli/arduino-cli.exe" compile --fqbn esp32:esp32:esp32doit-devkit-v1 "D:/01-projetos-claude/00-Sites/cultivee-platform/firmware"   # WROOM
-"C:/Users/user/arduino-cli/arduino-cli.exe" compile --fqbn esp32:esp32:esp32wroverkit "D:/01-projetos-claude/00-Sites/cultivee-platform/firmware"        # WROVER
+# HIDRO (ESP32-WROOM) — usa script com particao OTA (min_spiffs)
+bash compile.sh              # compila → build/firmware.ino.bin
+bash compile.sh upload       # compila + grava via USB (COM7)
 
-# 3. Gravar
-"C:/Users/user/arduino-cli/arduino-cli.exe" upload --fqbn esp32:esp32:esp32doit-devkit-v1 -p COM7 "D:/01-projetos-claude/00-Sites/cultivee-platform/firmware"  # WROOM
-"C:/Users/user/arduino-cli/arduino-cli.exe" upload --fqbn esp32:esp32:esp32wroverkit -p COM9 "D:/01-projetos-claude/00-Sites/cultivee-platform/firmware"       # WROVER
+# Atualizar via OTA (sem cabo): abrir http://192.168.x.x/update no navegador
+# e enviar build/firmware.ino.bin
+
+# CAM (ESP32-WROVER) — sem OTA por enquanto
+"C:/Users/user/arduino-cli/arduino-cli.exe" compile --fqbn esp32:esp32:esp32wroverkit "D:/01-projetos-claude/00-Sites/cultivee-platform/firmware"
+"C:/Users/user/arduino-cli/arduino-cli.exe" upload --fqbn esp32:esp32:esp32wroverkit -p COM9 "D:/01-projetos-claude/00-Sites/cultivee-platform/firmware"
 ```
 
 ---
