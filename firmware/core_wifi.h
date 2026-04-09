@@ -124,13 +124,6 @@ void rtcWrite(struct tm *t) {
 }
 
 void rtcSeedFromCompileTime() {
-  struct tm current;
-  if (rtcRead(&current) && current.tm_year >= (2024 - 1900)) {
-    Serial.printf("RTC ja configurado: %02d/%02d/%04d %02d:%02d:%02d\n",
-      current.tm_mday, current.tm_mon + 1, current.tm_year + 1900,
-      current.tm_hour, current.tm_min, current.tm_sec);
-    return;
-  }
   const char *months = "JanFebMarAprMayJunJulAugSepOctNovDec";
   char mon[4]; int day, year, hour, minute, sec;
   sscanf(__DATE__, "%s %d %d", mon, &day, &year);
