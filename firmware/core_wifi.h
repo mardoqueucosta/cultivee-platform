@@ -141,9 +141,9 @@ void setupNTP() {
 bool getCurrentTime(struct tm *t) {
   // NTP primeiro (mais preciso)
   if (getLocalTime(t, 0)) return true;
-  // Fallback: RTC DS3231
+  // Fallback: RTC DS3231 (só aceita se ano >= 2024)
   #ifdef MOD_HIDRO
-  if (rtcAvailable && rtcRead(t)) return true;
+  if (rtcAvailable && rtcRead(t) && t->tm_year >= (2024 - 1900)) return true;
   #endif
   return false;
 }
