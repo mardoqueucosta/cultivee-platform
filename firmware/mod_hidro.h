@@ -961,6 +961,7 @@ bool hidro_process_command(String cmd, String obj) {
 
 void hidro_setup() {
   rtcInit();
+  if (rtcAvailable) rtcSeedFromCompileTime();
 
   pinMode(RELE_LAMPADA, OUTPUT);
   pinMode(RELE_BOMBA, OUTPUT);

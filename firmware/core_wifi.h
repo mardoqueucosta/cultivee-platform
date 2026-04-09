@@ -86,6 +86,9 @@ void rtcInit() {
   }
 }
 
+// Forward declaration — chamado após rtcInit() no hidro_setup()
+void rtcSeedFromCompileTime();
+
 bool rtcRead(struct tm *t) {
   Wire.beginTransmission(RTC_ADDRESS);
   Wire.write(0x00);
@@ -118,6 +121,31 @@ void rtcWrite(struct tm *t) {
   Wire.endTransmission();
   Serial.printf("RTC atualizado: %02d/%02d/%04d %02d:%02d:%02d\n",
     t->tm_mday, t->tm_mon + 1, t->tm_year + 1900, t->tm_hour, t->tm_min, t->tm_sec);
+}
+
+void rtcSeedFromCompileTime() {
+  struct tm current;
+  if (rtcRead(&current) && current.tm_year >= (2024 - 1900)) {
+    Serial.printf("RTC ja configurado: %02d/%02d/%04d %02d:%02d:%02d\n",
+      current.tm_mday, current.tm_mon + 1, current.tm_year + 1900,
+      current.tm_hour, current.tm_min, current.tm_sec);
+    return;
+  }
+  const char *months = "JanFebMarAprMayJunJulAugSepOctNovDec";
+  char mon[4]; int day, year, hour, minute, sec;
+  sscanf(__DATE__, "%s %d %d", mon, &day, &year);
+  sscanf(__TIME__, "%d:%d:%d", &hour, &minute, &sec);
+  int monthIdx = 0;
+  for (int i = 0; i < 12; i++) {
+    if (strncmp(mon, months + i * 3, 3) == 0) { monthIdx = i; break; }
+  }
+  struct tm t = {0};
+  t.tm_year = year - 1900; t.tm_mon = monthIdx; t.tm_mday = day;
+  t.tm_hour = hour; t.tm_min = minute; t.tm_sec = sec;
+  mktime(&t);
+  Serial.printf("RTC seed: %02d/%02d/%04d %02d:%02d:%02d (compilacao)\n",
+    day, monthIdx + 1, year, hour, minute, sec);
+  rtcWrite(&t);
 }
 #endif
 
