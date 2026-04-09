@@ -175,24 +175,10 @@ void tryReconnectWiFi() {
   if (currentMode != MODE_OFFLINE) return;
   if (savedSSID.length() == 0) return;
   #ifdef MOD_CAM
-  if (localStreamActive) return;  // Nao reconectar durante stream local
+  if (localStreamActive) return;
   #endif
-  if (millis() - lastWiFiRetry < WIFI_RETRY_INTERVAL) return;
-  lastWiFiRetry = millis();
 
-  Serial.println("Tentando reconectar WiFi...");
-  WiFi.begin(savedSSID.c_str(), savedPass.c_str());
-
-  unsigned long start = millis();
-  while (WiFi.status() != WL_CONNECTED && millis() - start < 5000) {
-    delay(50);
-    server.handleClient();       // web server responsivo durante reconexao
-    dnsServer.processNextRequest();
-    #ifdef MOD_HIDRO
-    hidro_loop();
-    #endif
-  }
-
+  // Verifica se ja reconectou (WiFi.begin disparado em ciclo anterior)
   if (WiFi.status() == WL_CONNECTED) {
     currentMode = MODE_CONNECTED;
     Serial.printf("Reconectado! IP: %s\n", WiFi.localIP().toString().c_str());
@@ -200,9 +186,14 @@ void tryReconnectWiFi() {
     if (MDNS.begin(MDNS_NAME)) {
       MDNS.addService("http", "tcp", 80);
     }
-  } else {
-    Serial.println("Reconexao falhou, tentando novamente em 30s...");
+    return;
   }
+
+  // Dispara tentativa a cada 60s (nao-bloqueante)
+  if (millis() - lastWiFiRetry < 60000) return;
+  lastWiFiRetry = millis();
+  Serial.println("Reconexao WiFi (background)...");
+  WiFi.begin(savedSSID.c_str(), savedPass.c_str());
 }
 
 void checkWiFiConnection() {
