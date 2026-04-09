@@ -67,6 +67,60 @@ void startSetupMode() {
   Serial.println("Modo SETUP — sem credenciais WiFi");
 }
 
+// ===================== RTC DS3231 =====================
+
+#ifdef MOD_HIDRO
+bool rtcAvailable = false;
+
+uint8_t bcd2dec(uint8_t val) { return (val >> 4) * 10 + (val & 0x0F); }
+uint8_t dec2bcd(uint8_t val) { return ((val / 10) << 4) + (val % 10); }
+
+void rtcInit() {
+  Wire.begin(RTC_SDA, RTC_SCL);
+  Wire.beginTransmission(RTC_ADDRESS);
+  if (Wire.endTransmission() == 0) {
+    rtcAvailable = true;
+    Serial.println("RTC DS3231 detectado");
+  } else {
+    Serial.println("RTC DS3231 nao encontrado");
+  }
+}
+
+bool rtcRead(struct tm *t) {
+  Wire.beginTransmission(RTC_ADDRESS);
+  Wire.write(0x00);
+  if (Wire.endTransmission() != 0) return false;
+  Wire.requestFrom((uint8_t)RTC_ADDRESS, (uint8_t)7);
+  if (Wire.available() < 7) return false;
+
+  t->tm_sec  = bcd2dec(Wire.read() & 0x7F);
+  t->tm_min  = bcd2dec(Wire.read());
+  t->tm_hour = bcd2dec(Wire.read() & 0x3F);
+  Wire.read(); // dia da semana (ignorado)
+  t->tm_mday = bcd2dec(Wire.read());
+  t->tm_mon  = bcd2dec(Wire.read() & 0x1F) - 1; // tm_mon: 0-11
+  t->tm_year = bcd2dec(Wire.read()) + 100;        // tm_year: anos desde 1900
+  t->tm_isdst = 0;
+  mktime(t); // normaliza (calcula tm_wday, tm_yday)
+  return true;
+}
+
+void rtcWrite(struct tm *t) {
+  Wire.beginTransmission(RTC_ADDRESS);
+  Wire.write(0x00);
+  Wire.write(dec2bcd(t->tm_sec));
+  Wire.write(dec2bcd(t->tm_min));
+  Wire.write(dec2bcd(t->tm_hour));
+  Wire.write(dec2bcd(t->tm_wday + 1)); // DS3231: 1-7
+  Wire.write(dec2bcd(t->tm_mday));
+  Wire.write(dec2bcd(t->tm_mon + 1));  // DS3231: 1-12
+  Wire.write(dec2bcd(t->tm_year - 100)); // DS3231: 00-99
+  Wire.endTransmission();
+  Serial.printf("RTC atualizado: %02d/%02d/%04d %02d:%02d:%02d\n",
+    t->tm_mday, t->tm_mon + 1, t->tm_year + 1900, t->tm_hour, t->tm_min, t->tm_sec);
+}
+#endif
+
 // ===================== NTP =====================
 
 void setupNTP() {
@@ -76,13 +130,22 @@ void setupNTP() {
     ntpSynced = true;
     Serial.printf("NTP sincronizado: %02d/%02d/%04d %02d:%02d:%02d\n",
       t.tm_mday, t.tm_mon + 1, t.tm_year + 1900, t.tm_hour, t.tm_min, t.tm_sec);
+    #ifdef MOD_HIDRO
+    if (rtcAvailable) rtcWrite(&t);
+    #endif
   } else {
     Serial.println("NTP: falha ao sincronizar");
   }
 }
 
 bool getCurrentTime(struct tm *t) {
-  return getLocalTime(t, 0);
+  // NTP primeiro (mais preciso)
+  if (getLocalTime(t, 0)) return true;
+  // Fallback: RTC DS3231
+  #ifdef MOD_HIDRO
+  if (rtcAvailable && rtcRead(t)) return true;
+  #endif
+  return false;
 }
 
 // ===================== RECONEXAO =====================

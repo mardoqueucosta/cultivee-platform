@@ -15,6 +15,7 @@
 #include <HTTPClient.h>
 #include <ESPmDNS.h>
 #include <time.h>
+#include <Wire.h>
 #include "config.h"
 
 #ifdef MOD_CAM

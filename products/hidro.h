@@ -41,6 +41,11 @@
 #define RELE_ON          LOW    // Modulo rele ativa em LOW
 #define RELE_OFF         HIGH
 
+// ===== RTC DS3231 (I2C) =====
+#define RTC_SDA        21   // I2C Data (GPIO21)
+#define RTC_SCL        22   // I2C Clock (GPIO22)
+#define RTC_ADDRESS    0x68 // DS3231 I2C address
+
 // ===== NTP =====
 #define NTP_SERVER     "pool.ntp.org"
 #define GMT_OFFSET     -3 * 3600

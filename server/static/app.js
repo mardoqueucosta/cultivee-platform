@@ -493,6 +493,11 @@ function renderDashboard(container, chipId, moduleType, data) {
         startDate = `${d}/${m}/${y}`;
     }
 
+    const ntpOk = data.ntp_synced || false;
+    const rtcOk = data.rtc_available || false;
+    const timeSource = ntpOk ? 'NTP' : (rtcOk ? 'RTC' : '--');
+    const timeStr = data.time || '--:--';
+
     // Fases
     let phasesHtml = '';
     if (data.phases && data.phases.length) {
@@ -564,6 +569,9 @@ function renderDashboard(container, chipId, moduleType, data) {
                 <div class="stat-card"><div class="label">Fase</div><div class="value small">${phase}</div></div>
                 <div class="stat-card"><div class="label">Inicio</div><div class="value small">${startDate}</div></div>
                 <div class="stat-card"><div class="label">Hoje</div><div class="value small">${dateStr}</div></div>
+            </div>
+            <div style="text-align:center;font-size:0.75rem;color:var(--text-dim);margin:0.25rem 0">
+                ${timeStr} <span style="color:${ntpOk ? 'var(--primary)' : (rtcOk ? '#e67e22' : '#e74c3c')}">${timeSource}</span>${rtcOk ? ' <span style="color:#888">| RTC &#10003;</span>' : ''}
             </div>
             <div class="status-indicators">
                 <div class="status-indicator ${lightOn ? 'status-on' : 'status-off'}"><span class="status-indicator-dot"></span><span>Luz ${lightOn ? 'Ligada' : 'Desligada'}</span></div>

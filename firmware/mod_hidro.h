@@ -308,6 +308,7 @@ String hidro_status_json() {
   json += "\"num_phases\":" + String(numPhases) + ",";
   json += "\"start_date\":\"" + String(startDate) + "\",";
   json += "\"ntp_synced\":" + String(ntpSynced ? "true" : "false") + ",";
+  json += "\"rtc_available\":" + String(rtcAvailable ? "true" : "false") + ",";
   if (hasTime) {
     char timeStr[9];
     snprintf(timeStr, sizeof(timeStr), "%02d:%02d:%02d", t.tm_hour, t.tm_min, t.tm_sec);
@@ -391,6 +392,7 @@ String hidro_register_json() {
   json += "\"num_phases\":" + String(numPhases) + ",";
   json += "\"start_date\":\"" + String(startDate) + "\",";
   json += "\"ntp_synced\":" + String(ntpSynced ? "true" : "false") + ",";
+  json += "\"rtc_available\":" + String(rtcAvailable ? "true" : "false") + ",";
   json += "\"time\":\"" + String(timeStr) + "\",";
   json += "\"phases\":" + phasesJson;
 
@@ -958,6 +960,8 @@ bool hidro_process_command(String cmd, String obj) {
 // ===================== SETUP & ROUTES =====================
 
 void hidro_setup() {
+  rtcInit();
+
   pinMode(RELE_LAMPADA, OUTPUT);
   pinMode(RELE_BOMBA, OUTPUT);
   setRelay(RELE_LAMPADA, false);
