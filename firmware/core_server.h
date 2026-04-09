@@ -43,6 +43,8 @@ void handleCaptiveGeneric() {
 // ===================== WIFI SETUP PAGE =====================
 
 void handleSetupPage() {
+  WiFi.disconnect(false);  // libera STA para scan (nao apaga credenciais)
+  delay(100);
   int n = WiFi.scanNetworks();
   String options = "";
   for (int i = 0; i < n; i++) {
