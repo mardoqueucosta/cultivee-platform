@@ -618,7 +618,14 @@ async function toggleRelay(chipId, moduleType, device) {
             if (device === "pump" && data.pump === localState.pump) { confirmed = true; break; }
             if (device === "ventilation" && data.ventilation === localState.ventilation) { confirmed = true; break; }
             if (device === "aeration" && data.aeration === localState.aeration) { confirmed = true; break; }
-            if (device === "mode" && data.mode === localState.mode) { confirmed = true; break; }
+            if (device === "mode" && data.mode === localState.mode) {
+                // Ao trocar modo, sincroniza estados reais dos reles
+                localState.light = data.light;
+                localState.pump = data.pump;
+                localState.ventilation = data.ventilation;
+                localState.aeration = data.aeration;
+                confirmed = true; break;
+            }
         } catch (e) { break; }
     }
     pendingCommands.delete(device);
