@@ -16,6 +16,7 @@
 #include <ESPmDNS.h>
 #include <time.h>
 #include <Wire.h>
+#include <Update.h>
 #include "config.h"
 
 #ifdef MOD_CAM
@@ -108,6 +109,7 @@ void hidro_loop();
 // ===== INCLUDES DOS MODULOS (apos globals — funcoes referenciam as variaveis) =====
 #include "core_wifi.h"
 #include "core_server.h"
+#include "core_ota.h"
 #include "core_register.h"
 
 #ifdef MOD_HIDRO
@@ -175,7 +177,7 @@ body{font-family:-apple-system,sans-serif;background:#1a1d23;color:#e0e0e0;max-w
   #endif
 
   html += "<div class='footer'>";
-  html += "<a href='/setup-wifi'>&#9881; Configurar WiFi</a> &nbsp;|&nbsp; " + String(PRODUCT_NAME) + " v1.0.1";
+  html += "<a href='/setup-wifi'>&#9881; WiFi</a> &nbsp;|&nbsp; <a href='/update'>&#8679; Firmware</a> &nbsp;|&nbsp; " + String(PRODUCT_NAME) + " v" + String(FIRMWARE_VERSION);
   html += "</div>";
 
   // JavaScript dos modulos
@@ -268,6 +270,9 @@ void setup() {
 
   // Rotas: core (WiFi setup, captive portal)
   core_register_routes();
+
+  // Rotas: OTA (atualizar firmware via navegador)
+  ota_register_routes();
 
   server.begin();
   Serial.println("Web server iniciado");

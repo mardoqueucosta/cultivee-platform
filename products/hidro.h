@@ -7,6 +7,9 @@
 #ifndef PRODUCT_HIDRO_H
 #define PRODUCT_HIDRO_H
 
+// ===== VERSAO =====
+#define FIRMWARE_VERSION   "3.2.0"
+
 // ===== MODULOS ATIVOS =====
 #define MOD_HIDRO
 
@@ -55,7 +58,8 @@
 #define MAX_PHASES     10
 
 // ===== BOARD =====
-// Compilar com: esp32:esp32:esp32doit-devkit-v1
+// Compilar com: esp32:esp32:esp32doit-devkit-v1:PartitionScheme=min_spiffs
 // Porta: COM7
+// Particao: min_spiffs (1.9MB app0 + 1.9MB app1 OTA)
 
 #endif
