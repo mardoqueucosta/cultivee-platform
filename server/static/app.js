@@ -1,10 +1,10 @@
 // =====================================================================
-// Cultivee PWA v3.0 — Registry Pattern + Lista de Modulos
-// Config injetada pelo servidor via window.CULTIVEE
+// Cultivee PWA — Registry Pattern + Lista de Modulos
+// Versao definida em config.py (fonte unica), injetada via window.CULTIVEE
 // =====================================================================
 
-const APP_VERSION = '3.0.0';
 const C = window.CULTIVEE || {};
+const APP_VERSION = C.version || '3.1.0';
 const STORAGE_PREFIX = C.storagePrefix || 'cultivee';
 const PRODUCT_NAME = C.productName || 'Cultivee';
 const DEFAULT_NAME = C.defaultName || 'Dispositivo';

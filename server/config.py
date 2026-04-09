@@ -18,3 +18,7 @@ DB_PATH = _db if os.path.isabs(_db) else os.path.join(_BASE_DIR, _db)
 
 # Nome do produto (para logs)
 PRODUCT_NAME = "Cultivee"
+
+# Versao unica — usada pelo sw.js (cache), app.js (UI) e footer
+# Incrementar quando mudar app.js, style.css ou index.html
+APP_VERSION = "3.1.0"

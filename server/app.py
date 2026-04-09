@@ -22,7 +22,7 @@ import urllib.request
 import urllib.error
 from flask import Flask, request, jsonify, send_from_directory, render_template, Response
 
-from config import PORT, PRODUCT_NAME
+from config import PORT, PRODUCT_NAME, APP_VERSION
 import models
 
 logging.basicConfig(
@@ -312,6 +312,7 @@ pwa_cfg = {
     "ap_ssid": "Cultivee",
     "storage_prefix": "cultivee",
     "cache_prefix": "cultivee",
+    "version": APP_VERSION,
 }
 
 
@@ -346,7 +347,7 @@ def manifest():
 
 @app.route("/sw.js")
 def service_worker():
-    sw_js = f"""const APP_VERSION = '2.0.0';
+    sw_js = f"""const APP_VERSION = '{APP_VERSION}';
 const CACHE_NAME = '{pwa_cfg["cache_prefix"]}-v' + APP_VERSION;
 const STATIC_ASSETS = [
     '/',

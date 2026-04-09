@@ -114,7 +114,7 @@
         </main>
 
         <footer class="footer">
-            <p id="app-footer">{{ config.title }} v1.0.0</p>
+            <p id="app-footer">{{ config.title }} v{{ config.version }}</p>
         </footer>
     </div>
 
@@ -246,7 +246,8 @@
         storagePrefix: "{{ config.storage_prefix }}",
         productName: "{{ config.title }}",
         defaultName: "{{ config.default_name }}",
-        apSsid: "{{ config.ap_ssid }}"
+        apSsid: "{{ config.ap_ssid }}",
+        version: "{{ config.version }}"
     };
     </script>
     <script src="/static/app.js"></script>
