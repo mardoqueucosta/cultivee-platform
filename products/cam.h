@@ -63,7 +63,8 @@
 #define DST_OFFSET     0
 
 // ===== BOARD =====
-// Compilar com: esp32:esp32:esp32wroverkit
+// Compilar com: esp32:esp32:esp32wroverkit --build-property "build.partitions=no_ota" --build-property "upload.maximum_size=2097152"
 // Porta: COM9
+// Particao: no_ota (2.0MB app unica, sem OTA — gravacao via USB)
 
 #endif
