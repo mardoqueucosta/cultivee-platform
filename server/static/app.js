@@ -661,32 +661,32 @@ function renderConfigModal(data) {
                 <div class="config-field"><label>Nome</label><input type="text" id="cfg-n${i}" value="${p.name||`Fase ${i+1}`}"></div>
                 <div class="config-field"><label>Dias</label><input type="number" id="cfg-d${i}" value="${p.days!=null?p.days:7}" min="0"></div>
             </div>
-            <div class="config-section-label">&#128161; Iluminacao</div>
+            <div class="config-section-label sec-light">&#128161; Iluminacao</div>
             <div class="config-grid">
                 <div class="config-field"><label>Liga</label><input type="time" id="cfg-lon${i}" value="${lOn}"></div>
                 <div class="config-field"><label>Desliga</label><input type="time" id="cfg-loff${i}" value="${lOff}"></div>
             </div>
-            <div class="config-section-label">&#128167; Irrigacao Dia</div>
+            <div class="config-section-label sec-pump">&#128167; Irrigacao Dia</div>
             <div class="config-grid">
                 <div class="config-field"><label>ON (min)</label><input type="number" id="cfg-pod${i}" value="${p.pumpOnDay||15}" min="1"></div>
                 <div class="config-field"><label>OFF (min)</label><input type="number" id="cfg-pfd${i}" value="${p.pumpOffDay||15}" min="1"></div>
             </div>
-            <div class="config-section-label">&#127769; Irrigacao Noite</div>
+            <div class="config-section-label sec-pump">&#127769; Irrigacao Noite</div>
             <div class="config-grid">
                 <div class="config-field"><label>ON (min)</label><input type="number" id="cfg-pon${i}" value="${p.pumpOnNight||15}" min="1"></div>
                 <div class="config-field"><label>OFF (min)</label><input type="number" id="cfg-pfn${i}" value="${p.pumpOffNight||45}" min="1"></div>
             </div>
-            <div class="config-section-label">&#127744; Ventilacao</div>
+            <div class="config-section-label sec-vent">&#127744; Ventilacao</div>
             <div class="config-grid">
                 <div class="config-field"><label>Liga</label><input type="time" id="cfg-von${i}" value="${vOn}"></div>
                 <div class="config-field"><label>Desliga</label><input type="time" id="cfg-voff${i}" value="${vOff}"></div>
             </div>
-            <div class="config-section-label">&#128168; Aeracao Dia</div>
+            <div class="config-section-label sec-aer">&#128168; Aeracao Dia</div>
             <div class="config-grid">
                 <div class="config-field"><label>ON (min)</label><input type="number" id="cfg-aod${i}" value="${p.aerOnDay||15}" min="1"></div>
                 <div class="config-field"><label>OFF (min)</label><input type="number" id="cfg-afd${i}" value="${p.aerOffDay||15}" min="1"></div>
             </div>
-            <div class="config-section-label">&#127769; Aeracao Noite</div>
+            <div class="config-section-label sec-aer">&#127769; Aeracao Noite</div>
             <div class="config-grid">
                 <div class="config-field"><label>ON (min)</label><input type="number" id="cfg-aon${i}" value="${p.aerOnNight||15}" min="1"></div>
                 <div class="config-field"><label>OFF (min)</label><input type="number" id="cfg-afn${i}" value="${p.aerOffNight||45}" min="1"></div>

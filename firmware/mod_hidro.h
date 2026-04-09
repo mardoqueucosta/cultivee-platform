@@ -614,27 +614,27 @@ void handleConfig() {
     phaseForms += "<div class='gr'><div class='fd'><label>Nome</label><input name='n" + String(i) + "' value='" + String(p->name) + "'></div>";
     phaseForms += "<div class='fd'><label>Dias</label><input type='number' name='d" + String(i) + "' value='" + String(p->days) + "' min='0' placeholder='0=infinito'></div></div>";
 
-    phaseForms += "<div class='sl'>&#128161; Ilumina&ccedil;&atilde;o</div>";
+    phaseForms += "<div class='sl sl-l'>&#128161; Ilumina&ccedil;&atilde;o</div>";
     phaseForms += "<div class='gr'><div class='fd'><label>Liga</label><input type='time' name='lon" + String(i) + "' value='" + lonVal + "'></div>";
     phaseForms += "<div class='fd'><label>Desliga</label><input type='time' name='loff" + String(i) + "' value='" + loffVal + "'></div></div>";
 
-    phaseForms += "<div class='sl'>&#128167; Irriga&ccedil;&atilde;o Dia</div>";
+    phaseForms += "<div class='sl sl-p'>&#128167; Irriga&ccedil;&atilde;o Dia</div>";
     phaseForms += "<div class='gr'><div class='fd'><label>ON (min)</label><input type='number' name='pod" + String(i) + "' value='" + String(p->pumpOnDay) + "' min='1'></div>";
     phaseForms += "<div class='fd'><label>OFF (min)</label><input type='number' name='pfd" + String(i) + "' value='" + String(p->pumpOffDay) + "' min='1'></div></div>";
 
-    phaseForms += "<div class='sl'>&#127769; Irriga&ccedil;&atilde;o Noite</div>";
+    phaseForms += "<div class='sl sl-p'>&#127769; Irriga&ccedil;&atilde;o Noite</div>";
     phaseForms += "<div class='gr'><div class='fd'><label>ON (min)</label><input type='number' name='pon" + String(i) + "' value='" + String(p->pumpOnNight) + "' min='1'></div>";
     phaseForms += "<div class='fd'><label>OFF (min)</label><input type='number' name='pfn" + String(i) + "' value='" + String(p->pumpOffNight) + "' min='1'></div></div>";
 
-    phaseForms += "<div class='sl'>&#127744; Ventila&ccedil;&atilde;o</div>";
+    phaseForms += "<div class='sl sl-v'>&#127744; Ventila&ccedil;&atilde;o</div>";
     phaseForms += "<div class='gr'><div class='fd'><label>Liga</label><input type='time' name='von" + String(i) + "' value='" + vonVal + "'></div>";
     phaseForms += "<div class='fd'><label>Desliga</label><input type='time' name='voff" + String(i) + "' value='" + voffVal + "'></div></div>";
 
-    phaseForms += "<div class='sl'>&#129707; Aera&ccedil;&atilde;o Dia</div>";
+    phaseForms += "<div class='sl sl-a'>&#129707; Aera&ccedil;&atilde;o Dia</div>";
     phaseForms += "<div class='gr'><div class='fd'><label>ON (min)</label><input type='number' name='aod" + String(i) + "' value='" + String(p->aerOnDay) + "' min='1'></div>";
     phaseForms += "<div class='fd'><label>OFF (min)</label><input type='number' name='afd" + String(i) + "' value='" + String(p->aerOffDay) + "' min='1'></div></div>";
 
-    phaseForms += "<div class='sl'>&#127769; Aera&ccedil;&atilde;o Noite</div>";
+    phaseForms += "<div class='sl sl-a'>&#127769; Aera&ccedil;&atilde;o Noite</div>";
     phaseForms += "<div class='gr'><div class='fd'><label>ON (min)</label><input type='number' name='aon" + String(i) + "' value='" + String(p->aerOnNight) + "' min='1'></div>";
     phaseForms += "<div class='fd'><label>OFF (min)</label><input type='number' name='afn" + String(i) + "' value='" + String(p->aerOffNight) + "' min='1'></div></div>";
     phaseForms += "</div>";
@@ -661,7 +661,11 @@ body{font-family:'Inter',-apple-system,BlinkMacSystemFont,sans-serif;background:
 .ph-hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem;padding-bottom:0.5rem;border-bottom:1px solid hsl(210,15%,20%)}
 .ph-t{font-weight:700;font-size:0.9rem}
 .ph-rm{background:none;border:1px solid hsl(210,15%,20%);color:hsl(210,15%,40%);width:24px;height:24px;border-radius:50%;cursor:pointer;font-size:0.7rem;display:flex;align-items:center;justify-content:center}
-.sl{font-size:0.75rem;font-weight:600;color:hsl(210,15%,55%);margin:0.5rem 0 0.25rem}
+.sl{font-size:0.8rem;font-weight:700;margin:0.75rem 0 0.35rem;padding:0.3rem 0.6rem;border-radius:0.5rem;display:inline-block}
+.sl-l{color:hsl(142,71%,45%);background:hsla(142,71%,45%,0.12)}
+.sl-p{color:hsl(210,80%,55%);background:hsla(210,80%,55%,0.12)}
+.sl-v{color:#2ecc71;background:rgba(46,204,113,0.12)}
+.sl-a{color:#00bcd4;background:rgba(0,188,212,0.12)}
 .acts{display:flex;gap:0.5rem;margin-top:0.5rem}
 .btn-p{flex:1;padding:0.75rem 1.5rem;border-radius:0.75rem;font-weight:600;font-size:0.9rem;border:none;cursor:pointer;background:hsl(142,71%,45%);color:#fff}
 .btn-s{flex:1;padding:0.65rem 1rem;border-radius:0.75rem;font-weight:600;font-size:0.8rem;border:1px solid hsl(210,15%,20%);cursor:pointer;background:transparent;color:hsl(210,15%,55%);text-align:center;text-decoration:none}

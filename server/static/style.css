@@ -828,10 +828,33 @@ main { max-width: 480px; margin: 0 auto; padding: 0 0.75rem; }
 }
 
 .config-section-label {
-    font-size: 0.75rem;
-    font-weight: 600;
+    font-size: 0.8rem;
+    font-weight: 700;
     color: var(--text-muted);
-    margin: 0.5rem 0 0.25rem;
+    margin: 0.75rem 0 0.35rem;
+    padding: 0.3rem 0.6rem;
+    border-radius: 0.5rem;
+    display: inline-block;
+}
+
+.config-section-label.sec-light {
+    color: hsl(142, 71%, 45%);
+    background: hsla(142, 71%, 45%, 0.12);
+}
+
+.config-section-label.sec-pump {
+    color: hsl(210, 80%, 55%);
+    background: hsla(210, 80%, 55%, 0.12);
+}
+
+.config-section-label.sec-vent {
+    color: #2ecc71;
+    background: rgba(46, 204, 113, 0.12);
+}
+
+.config-section-label.sec-aer {
+    color: #00bcd4;
+    background: rgba(0, 188, 212, 0.12);
 }
 
 .config-actions {
