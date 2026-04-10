@@ -224,7 +224,7 @@ def register_module(chip_id, short_id, module_type="ctrl", ip="", ssid="", rssi=
         # ESP32 apenas ecoa; nunca deve sobrescrever o que o app salvou.
         server_keys = ("phases", "num_phases", "start_date",
                        "recording", "capture_interval", "cam_resolution",
-                       "cam_quality", "last_capture_at")
+                       "cam_quality", "last_capture_at", "capture_folder")
         for k in server_keys:
             if k in existing_data:
                 new_data[k] = existing_data[k]
@@ -478,7 +478,7 @@ def remove_module_from_group(chip_id, user_id):
 
 # --- Captura agendada ---
 
-def set_capture_config(chip_id, capture_interval=None, recording=None, cam_resolution=None, cam_quality=None):
+def set_capture_config(chip_id, capture_interval=None, recording=None, cam_resolution=None, cam_quality=None, capture_folder=None):
     data = {}
     if capture_interval is not None:
         data["capture_interval"] = int(capture_interval)
@@ -488,6 +488,8 @@ def set_capture_config(chip_id, capture_interval=None, recording=None, cam_resol
         data["cam_resolution"] = str(cam_resolution)
     if cam_quality is not None:
         data["cam_quality"] = int(cam_quality)
+    if capture_folder is not None:
+        data["capture_folder"] = str(capture_folder)
     if not data:
         return
     update_ctrl_data(chip_id, data)
@@ -512,6 +514,7 @@ def get_capture_config(chip_id):
         "last_capture_at": data.get("last_capture_at"),
         "cam_resolution": data.get("cam_resolution", "UXGA"),
         "cam_quality": data.get("cam_quality", 10),
+        "capture_folder": data.get("capture_folder", ""),
     }
 
 

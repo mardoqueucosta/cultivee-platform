@@ -316,6 +316,7 @@ async function loadModules() {
             const cd = camMod.ctrl_data || {};
             cam_recording = !!cd.recording;
             cam_captureInterval = cd.capture_interval || 600;
+            cam_captureFolder = cd.capture_folder || '';
             cam_resolution = cd.cam_resolution || 'UXGA';
             cam_quality = cd.cam_quality || 10;
         }
@@ -777,6 +778,7 @@ let cam_captureOpen = true;
 let cam_recordOpen = false;
 let cam_recording = false;
 let cam_captureInterval = 600;
+let cam_captureFolder = '';
 let cam_resolution = 'SVGA';
 let cam_quality = 8;
 let cam_galleryImages = [];
@@ -857,6 +859,10 @@ function renderModule_cam(container, mod) {
                 </div>
                 <div class="cam-dropdown-body" id="cam-section-record" style="display:${cam_recordOpen ? 'block' : 'none'}">
                     <div style="margin-bottom:8px">
+                        <label style="font-size:0.75rem;color:var(--text-dim)">Pasta</label>
+                        <input type="text" id="cam-folder" class="config-input" placeholder="Ex: Tomate Semana 3" value="${cam_captureFolder || ''}" ${cam_recording ? 'disabled' : ''} style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);font-size:0.85rem;background:var(--bg-input);color:var(--text)">
+                    </div>
+                    <div style="margin-bottom:8px">
                         <label style="font-size:0.75rem;color:var(--text-dim)">Intervalo</label>
                         <select id="cam-interval" class="config-select" onchange="cam_setInterval('${chipId}','${moduleType}',this.value)" ${cam_recording ? 'disabled' : ''}>
                             <option value="30" ${cam_captureInterval==30?'selected':''}>30 segundos</option>
@@ -889,6 +895,7 @@ function renderModule_cam(container, mod) {
                             <button id="cam-gallery-prev" onclick="cam_scrollGallery(-1)" style="position:absolute;left:0;top:50%;transform:translateY(-50%);width:28px;height:28px;border-radius:50%;border:none;background:rgba(0,0,0,0.6);color:#fff;font-size:14px;cursor:pointer;display:none;z-index:2">&lt;</button>
                             <button id="cam-gallery-next" onclick="cam_scrollGallery(1)" style="position:absolute;right:0;top:50%;transform:translateY(-50%);width:28px;height:28px;border-radius:50%;border:none;background:rgba(0,0,0,0.6);color:#fff;font-size:14px;cursor:pointer;display:none;z-index:2">&gt;</button>
                         </div>
+                        <button onclick="openGallery('${chipId}','${moduleType}')" style="width:100%;margin-top:8px;padding:10px;border-radius:var(--radius);border:1px solid var(--border);background:transparent;color:var(--text);font-weight:600;font-size:0.85rem;cursor:pointer">&#128193; Abrir Galeria</button>
                     </div>
                 </div>
             </div>
@@ -1019,10 +1026,15 @@ async function cam_loadLast(chipId, moduleType) {
 
 async function cam_toggleRecording(chipId, moduleType) {
     const newState = !cam_recording;
+    const body = { recording: newState };
+    if (newState) {
+        const folderInput = document.getElementById('cam-folder');
+        const folder = folderInput ? folderInput.value.trim() : '';
+        body.capture_folder = folder;
+        cam_captureFolder = folder;
+    }
     try {
-        await api(`${apiFor(moduleType)}/${chipId}/config`, {
-            method: 'POST', body: { recording: newState }
-        });
+        await api(`${apiFor(moduleType)}/${chipId}/config`, { method: 'POST', body });
         cam_recording = newState;
         if (!newState) cam_stopCountdown();
         forceFullRefresh();
@@ -1184,6 +1196,7 @@ function cam_syncState(mod) {
     if (cfg.recording !== undefined) cam_recording = !!cfg.recording;
     if (cfg.cam_resolution) cam_resolution = cfg.cam_resolution;
     if (cfg.cam_quality) cam_quality = cfg.cam_quality;
+    if (cfg.capture_folder !== undefined) cam_captureFolder = cfg.capture_folder || '';
 }
 
 // =====================================================================

@@ -26,14 +26,14 @@ LIVE_DIR = pathlib.Path(os.environ.get("DATA_DIR", "data")) / "live"
 THUMB_SIZE = (200, 150)
 
 
-def generate_thumbnail(chip_id, filename, img_data):
+def generate_thumbnail(chip_id, filename, img_data, folder=""):
     """Gera thumbnail 200x150 a partir dos bytes JPEG."""
     try:
         from PIL import Image
         import io
         img = Image.open(io.BytesIO(img_data))
         img.thumbnail(THUMB_SIZE)
-        thumb_dir = THUMB_DIR / chip_id
+        thumb_dir = THUMB_DIR / chip_id / folder if folder else THUMB_DIR / chip_id
         thumb_dir.mkdir(parents=True, exist_ok=True)
         thumb_path = thumb_dir / filename
         img.save(thumb_path, "JPEG", quality=70)
@@ -98,12 +98,15 @@ def upload_capture(chip_id):
     if not img_data or len(img_data) < 100:
         return jsonify({"error": "Imagem vazia"}), 400
 
-    save_dir = CAPTURE_DIR / chip_id
+    # Salva na pasta ativa (capture_folder) ou _sem-pasta
+    capture_cfg = models.get_capture_config(chip_id)
+    folder = capture_cfg.get("capture_folder", "") or "_sem-pasta"
+    save_dir = CAPTURE_DIR / chip_id / folder
     save_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"{timestamp}.jpg"
     (save_dir / filename).write_bytes(img_data)
-    generate_thumbnail(chip_id, filename, img_data)
+    generate_thumbnail(chip_id, filename, img_data, folder)
 
     models.mark_capture(chip_id)
     log.info(f"Capture push [{chip_id[:4]}]: {filename} ({len(img_data)/1024:.1f} KB)")
@@ -311,6 +314,7 @@ def set_config(chip_id):
     recording = data.get("recording")
     resolution = data.get("cam_resolution")
     quality = data.get("cam_quality")
+    folder = data.get("capture_folder")
 
     if interval is not None:
         interval = int(interval)
@@ -327,7 +331,8 @@ def set_config(chip_id):
             return jsonify({"error": "Qualidade invalida. Use: 8, 10 ou 15"}), 400
 
     models.set_capture_config(chip_id, capture_interval=interval, recording=recording,
-                              cam_resolution=resolution, cam_quality=quality)
+                              cam_resolution=resolution, cam_quality=quality,
+                              capture_folder=folder)
 
     # Se mudou resolucao ou qualidade, enfileira comando pro ESP32
     if resolution is not None or quality is not None:

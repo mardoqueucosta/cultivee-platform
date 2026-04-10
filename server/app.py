@@ -289,13 +289,37 @@ def list_modules():
 
 from bp_hidro import hidro_bp
 from bp_cam import cam_bp
+from bp_gallery import gallery_bp
 
 # Cada tipo de firmware encontra suas rotas pelo prefixo
 app.register_blueprint(hidro_bp, url_prefix="/api/ctrl", name="hidro_ctrl")
 app.register_blueprint(cam_bp, url_prefix="/api/cam", name="cam_standalone")
+app.register_blueprint(gallery_bp, url_prefix="/api/gallery", name="gallery")
 
 log.info("  [+] hidro_bp registrado em /api/ctrl")
 log.info("  [+] cam_bp registrado em /api/cam")
+log.info("  [+] gallery_bp registrado em /api/gallery")
+
+# Migrar fotos existentes (flat) para _sem-pasta (uma vez)
+import pathlib
+_capture_base = pathlib.Path(os.environ.get("DATA_DIR", "data")) / "captures"
+_thumb_base = pathlib.Path(os.environ.get("DATA_DIR", "data")) / "thumbs"
+if _capture_base.exists():
+    for chip_dir in _capture_base.iterdir():
+        if not chip_dir.is_dir():
+            continue
+        flat_jpgs = list(chip_dir.glob("*.jpg"))
+        if flat_jpgs:
+            sem_pasta = chip_dir / "_sem-pasta"
+            sem_pasta.mkdir(exist_ok=True)
+            thumb_sem = _thumb_base / chip_dir.name / "_sem-pasta"
+            thumb_sem.mkdir(parents=True, exist_ok=True)
+            for jpg in flat_jpgs:
+                jpg.rename(sem_pasta / jpg.name)
+                thumb = _thumb_base / chip_dir.name / jpg.name
+                if thumb.exists():
+                    thumb.rename(thumb_sem / jpg.name)
+            log.info(f"Migradas {len(flat_jpgs)} fotos de {chip_dir.name} para _sem-pasta")
 
 
 # =====================================================================
