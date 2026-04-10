@@ -126,10 +126,9 @@ void handleCapture() {
     return;
   }
 
-  // Descarta primeiro frame (auto-exposure ainda ajustando)
+  // Descarta primeiro frame (auto-exposure ajustando)
   camera_fb_t* discard = esp_camera_fb_get();
   if (discard) esp_camera_fb_return(discard);
-  delay(100);
 
   camera_fb_t* fb = esp_camera_fb_get();
   if (!fb) {
@@ -139,13 +138,15 @@ void handleCapture() {
     return;
   }
 
-  size_t len = fb->len;
-  sendCORS();
-  server.sendHeader("Cache-Control", "no-cache, no-store");
-  server.send_P(200, "image/jpeg", (const char*)fb->buf, len);
+  server.setContentLength(fb->len);
+  server.sendHeader("Access-Control-Allow-Origin", "*");
+  server.sendHeader("Cache-Control", "no-cache");
+  server.send(200, "image/jpeg", "");
+  server.sendContent((const char*)fb->buf, fb->len);
+
+  Serial.printf("Capture: %d bytes\n", fb->len);
   esp_camera_fb_return(fb);
   camDeinit();
-  Serial.printf("Capture: %d bytes\n", len);
 }
 
 void handleStream() {
