@@ -100,9 +100,26 @@ void restoreDefaultRes() {
   }
 }
 
+// ===================== ON-DEMAND INIT/DEINIT =====================
+
+void camDeinit() {
+  if (!cameraReady) return;
+  esp_camera_deinit();
+  cameraReady = false;
+  Serial.println("Camera: desligada");
+}
+
+void camInit() {
+  if (cameraReady) return;
+  cameraReady = initCamera();
+  if (cameraReady) Serial.println("Camera: ligada");
+  else Serial.println("Camera: erro ao inicializar");
+}
+
 // ===================== ROUTE HANDLERS =====================
 
 void handleCapture() {
+  camInit();
   if (!cameraReady) {
     sendCORS();
     server.send(503, "application/json", "{\"error\":\"Camera nao inicializada\"}");
@@ -112,6 +129,7 @@ void handleCapture() {
   camera_fb_t* fb = captureHighRes();
   if (!fb) {
     restoreDefaultRes();
+    camDeinit();
     sendCORS();
     server.send(500, "application/json", "{\"error\":\"Erro ao capturar\"}");
     return;
@@ -137,11 +155,12 @@ void handleCapture() {
 
   size_t sent = fb->len;
   esp_camera_fb_return(fb);
-  restoreDefaultRes();
+  camDeinit();
   Serial.printf("Capture: %d bytes\n", sent);
 }
 
 void handleStream() {
+  camInit();
   if (!cameraReady) {
     sendCORS();
     server.send(503, "text/plain", "Camera nao inicializada");
@@ -207,6 +226,7 @@ void handleStream() {
   }
 
   localStreamActive = false;
+  camDeinit();
   Serial.println("Stream local: PARADO");
 }
 
@@ -397,7 +417,7 @@ void cam_loop() {
   if (millis() - liveStartTime > LIVE_MAX_DURATION) {
     camLiveMode = false;
     liveHttpDisconnect();
-    setLiveResolution(false);
+    camDeinit();
     Serial.println("Live mode: timeout, parando");
     return;
   }
@@ -412,6 +432,7 @@ void cam_loop() {
 
 bool cam_process_command(String cmd, String obj) {
   if (cmd == "capture") {
+    camInit();
     if (cameraReady) {
       camera_fb_t* fb = captureHighRes();
       if (fb) {
@@ -427,22 +448,19 @@ bool cam_process_command(String cmd, String obj) {
       } else {
         Serial.println("Capture: erro ao capturar frame");
       }
-      restoreDefaultRes();
-    } else {
-      Serial.println("Capture: camera nao inicializada");
     }
+    camDeinit();
     return true;
   }
 
   if (cmd == "start-live") {
+    camInit();
     if (cameraReady) {
       setLiveResolution(true);
       camLiveMode = true;
       liveStartTime = millis();
       lastLiveFrame = 0;
       Serial.println("Live mode: INICIADO (QVGA)");
-    } else {
-      Serial.println("Live mode: camera nao inicializada");
     }
     return true;
   }
@@ -450,8 +468,8 @@ bool cam_process_command(String cmd, String obj) {
   if (cmd == "stop-live") {
     camLiveMode = false;
     liveHttpDisconnect();
-    setLiveResolution(false);
-    Serial.println("Live mode: PARADO (VGA restaurado)");
+    camDeinit();
+    Serial.println("Live mode: PARADO");
     return true;
   }
 
@@ -476,7 +494,10 @@ bool cam_process_command(String cmd, String obj) {
 // ===================== SETUP & ROUTES =====================
 
 void cam_setup() {
-  cameraReady = initCamera();
+  // Camera inicia DESLIGADA — liga sob demanda (captura/stream)
+  // Libera DMA/PSRAM para WiFi ficar rapido
+  cameraReady = false;
+  Serial.println("Camera: modo on-demand (desligada no boot)");
 }
 
 void handleSetCamera() {
