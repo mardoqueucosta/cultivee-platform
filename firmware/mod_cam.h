@@ -121,9 +121,12 @@ void handleCapture() {
   if (s && (captureFrameSize != prevSize || captureQuality != prevQuality)) {
     s->set_framesize(s, captureFrameSize);
     s->set_quality(s, captureQuality);
-    // Flush buffer com resolucao antiga
-    camera_fb_t* old = esp_camera_fb_get();
-    if (old) esp_camera_fb_return(old);
+    // Flush 3 frames para AEC/AWB estabilizar na nova resolucao
+    for (int i = 0; i < 3; i++) {
+      camera_fb_t* old = esp_camera_fb_get();
+      if (old) esp_camera_fb_return(old);
+      delay(100);
+    }
     changed = true;
   }
 
@@ -431,8 +434,11 @@ bool cam_process_command(String cmd, String obj) {
       framesize_t prevSize = s ? s->status.framesize : FRAMESIZE_VGA;
       int prevQuality = s ? s->status.quality : 12;
       if (s) { s->set_framesize(s, captureFrameSize); s->set_quality(s, captureQuality); }
-      camera_fb_t* old = esp_camera_fb_get();
-      if (old) esp_camera_fb_return(old);
+      for (int i = 0; i < 3; i++) {
+        camera_fb_t* old = esp_camera_fb_get();
+        if (old) esp_camera_fb_return(old);
+        delay(100);
+      }
 
       camera_fb_t* fb = esp_camera_fb_get();
       if (fb) {
