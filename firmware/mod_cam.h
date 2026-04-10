@@ -126,7 +126,11 @@ void handleCapture() {
     return;
   }
 
-  // Captura direta — camera ja inicia na resolucao correta
+  // Descarta primeiro frame (auto-exposure ainda ajustando)
+  camera_fb_t* discard = esp_camera_fb_get();
+  if (discard) esp_camera_fb_return(discard);
+  delay(100);
+
   camera_fb_t* fb = esp_camera_fb_get();
   if (!fb) {
     camDeinit();
@@ -135,28 +139,13 @@ void handleCapture() {
     return;
   }
 
-  WiFiClient client = server.client();
-  client.println("HTTP/1.1 200 OK");
-  client.println("Content-Type: image/jpeg");
-  client.println("Content-Length: " + String(fb->len));
-  client.println("Access-Control-Allow-Origin: *");
-  client.println("Cache-Control: no-cache, no-store");
-  client.println("Connection: close");
-  client.println();
-
-  uint8_t* buf = fb->buf;
-  size_t remaining = fb->len;
-  while (remaining > 0) {
-    size_t chunk = remaining > 4096 ? 4096 : remaining;
-    client.write(buf, chunk);
-    buf += chunk;
-    remaining -= chunk;
-  }
-
-  size_t sent = fb->len;
+  size_t len = fb->len;
+  sendCORS();
+  server.sendHeader("Cache-Control", "no-cache, no-store");
+  server.send_P(200, "image/jpeg", (const char*)fb->buf, len);
   esp_camera_fb_return(fb);
   camDeinit();
-  Serial.printf("Capture: %d bytes\n", sent);
+  Serial.printf("Capture: %d bytes\n", len);
 }
 
 void handleStream() {
