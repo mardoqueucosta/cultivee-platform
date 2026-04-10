@@ -490,6 +490,22 @@ bool cam_process_command(String cmd, String obj) {
 
     if (qual > 0 && qual <= 63) captureQuality = qual;
 
+    // Sensor adjustments
+    sensor_t* s = esp_camera_sensor_get();
+    if (s) {
+      if (obj.indexOf("\"wb_mode\"") >= 0) s->set_wb_mode(s, jsonInt(obj, "wb_mode"));
+      if (obj.indexOf("\"brightness\"") >= 0) s->set_brightness(s, jsonInt(obj, "brightness"));
+      if (obj.indexOf("\"contrast\"") >= 0) s->set_contrast(s, jsonInt(obj, "contrast"));
+      if (obj.indexOf("\"saturation\"") >= 0) s->set_saturation(s, jsonInt(obj, "saturation"));
+      if (obj.indexOf("\"ae_level\"") >= 0) s->set_ae_level(s, jsonInt(obj, "ae_level"));
+      if (obj.indexOf("\"gainceiling\"") >= 0) s->set_gainceiling(s, (gainceiling_t)jsonInt(obj, "gainceiling"));
+      if (obj.indexOf("\"special_effect\"") >= 0) s->set_special_effect(s, jsonInt(obj, "special_effect"));
+      if (obj.indexOf("\"hmirror\"") >= 0) s->set_hmirror(s, jsonInt(obj, "hmirror"));
+      if (obj.indexOf("\"vflip\"") >= 0) s->set_vflip(s, jsonInt(obj, "vflip"));
+      if (obj.indexOf("\"exposure_ctrl\"") >= 0) s->set_exposure_ctrl(s, jsonInt(obj, "exposure_ctrl"));
+      if (obj.indexOf("\"whitebal\"") >= 0) s->set_whitebal(s, jsonInt(obj, "whitebal"));
+    }
+
     Serial.printf("Camera config: %s q%d\n", res.c_str(), captureQuality);
     return true;
   }
@@ -514,6 +530,23 @@ void handleSetCamera() {
   else if (res == "VGA") captureFrameSize = FRAMESIZE_VGA;
 
   if (qual > 0 && qual <= 63) captureQuality = qual;
+
+  // Sensor adjustments
+  sensor_t* s = esp_camera_sensor_get();
+  if (s) {
+    String v;
+    v = server.arg("wb_mode");      if (v.length()) s->set_wb_mode(s, v.toInt());
+    v = server.arg("brightness");   if (v.length()) s->set_brightness(s, v.toInt());
+    v = server.arg("contrast");     if (v.length()) s->set_contrast(s, v.toInt());
+    v = server.arg("saturation");   if (v.length()) s->set_saturation(s, v.toInt());
+    v = server.arg("ae_level");     if (v.length()) s->set_ae_level(s, v.toInt());
+    v = server.arg("gainceiling");  if (v.length()) s->set_gainceiling(s, (gainceiling_t)v.toInt());
+    v = server.arg("special_effect"); if (v.length()) s->set_special_effect(s, v.toInt());
+    v = server.arg("hmirror");      if (v.length()) s->set_hmirror(s, v.toInt());
+    v = server.arg("vflip");        if (v.length()) s->set_vflip(s, v.toInt());
+    v = server.arg("exposure_ctrl"); if (v.length()) s->set_exposure_ctrl(s, v.toInt());
+    v = server.arg("whitebal");     if (v.length()) s->set_whitebal(s, v.toInt());
+  }
 
   Serial.printf("Camera local: %s q%d\n", res.c_str(), captureQuality);
   sendCORS();

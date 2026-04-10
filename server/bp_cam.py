@@ -318,6 +318,18 @@ def set_config(chip_id):
     quality = data.get("cam_quality")
     folder = data.get("capture_folder")
 
+    wb_mode = data.get("cam_wb_mode")
+    brightness = data.get("cam_brightness")
+    contrast = data.get("cam_contrast")
+    saturation = data.get("cam_saturation")
+    ae_level = data.get("cam_ae_level")
+    gainceiling = data.get("cam_gainceiling")
+    special_effect = data.get("cam_special_effect")
+    hmirror = data.get("cam_hmirror")
+    vflip = data.get("cam_vflip")
+    exposure_ctrl = data.get("cam_exposure_ctrl")
+    whitebal = data.get("cam_whitebal")
+
     if interval is not None:
         interval = int(interval)
         if interval < 30 or interval > 86400:
@@ -334,13 +346,44 @@ def set_config(chip_id):
 
     models.set_capture_config(chip_id, capture_interval=interval, recording=recording,
                               cam_resolution=resolution, cam_quality=quality,
-                              capture_folder=folder)
+                              capture_folder=folder,
+                              cam_wb_mode=wb_mode, cam_brightness=brightness,
+                              cam_contrast=contrast, cam_saturation=saturation,
+                              cam_ae_level=ae_level, cam_gainceiling=gainceiling,
+                              cam_special_effect=special_effect, cam_hmirror=hmirror,
+                              cam_vflip=vflip, cam_exposure_ctrl=exposure_ctrl,
+                              cam_whitebal=whitebal)
 
     # Se mudou resolucao ou qualidade, enfileira comando pro ESP32
     if resolution is not None or quality is not None:
         cfg = models.get_capture_config(chip_id)
         models.add_pending_command(chip_id, "set-camera",
             json.dumps({"resolution": cfg["cam_resolution"], "quality": cfg["cam_quality"]}))
+
+    # If any sensor param changed, send to ESP32
+    sensor_fields = ["cam_wb_mode", "cam_brightness", "cam_contrast", "cam_saturation",
+                     "cam_ae_level", "cam_gainceiling", "cam_special_effect",
+                     "cam_hmirror", "cam_vflip", "cam_exposure_ctrl", "cam_whitebal"]
+    if any(data.get(f) is not None for f in sensor_fields):
+        cfg = models.get_capture_config(chip_id)
+        params = {
+            "wb_mode": cfg["cam_wb_mode"],
+            "brightness": cfg["cam_brightness"],
+            "contrast": cfg["cam_contrast"],
+            "saturation": cfg["cam_saturation"],
+            "ae_level": cfg["cam_ae_level"],
+            "gainceiling": cfg["cam_gainceiling"],
+            "special_effect": cfg["cam_special_effect"],
+            "hmirror": cfg["cam_hmirror"],
+            "vflip": cfg["cam_vflip"],
+            "exposure_ctrl": cfg["cam_exposure_ctrl"],
+            "whitebal": cfg["cam_whitebal"],
+        }
+        # Also include resolution/quality
+        params["resolution"] = cfg["cam_resolution"]
+        params["quality"] = cfg["cam_quality"]
+        models.add_pending_command(chip_id, "set-camera", json.dumps(params))
+
     cfg = models.get_capture_config(chip_id)
     return jsonify({"status": "ok", **cfg})
 

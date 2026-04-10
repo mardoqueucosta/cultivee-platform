@@ -845,6 +845,7 @@ function renderModule_cam(container, mod) {
                             </select>
                         </div>
                     </div>
+                    <button onclick="showCamSensorConfig('${chipId}','${moduleType}')" style="width:100%;margin-top:8px;padding:8px;border-radius:var(--radius);border:1px solid var(--border);background:transparent;color:var(--text-dim);font-size:0.8rem;cursor:pointer">&#9881; Configuracoes do Sensor</button>
                 </div>
             </div>
 
@@ -1197,6 +1198,148 @@ function cam_syncState(mod) {
     if (cfg.cam_resolution) cam_resolution = cfg.cam_resolution;
     if (cfg.cam_quality) cam_quality = cfg.cam_quality;
     if (cfg.capture_folder !== undefined) cam_captureFolder = cfg.capture_folder || '';
+}
+
+// --- Sensor Config ---
+let sensorChipId = null, sensorModuleType = null;
+
+async function showCamSensorConfig(chipId, moduleType) {
+    sensorChipId = chipId;
+    sensorModuleType = moduleType;
+    try {
+        const data = await api(`${apiFor(moduleType)}/${chipId}/status`);
+        renderCamSensorConfig(data);
+        document.getElementById("config-modal").classList.remove("hidden");
+    } catch (e) { alert("Erro: " + e.message); }
+}
+
+function renderCamSensorConfig(data) {
+    const c = document.getElementById("config-content");
+    const wb = data.cam_wb_mode || 0;
+    const bri = data.cam_brightness || 0;
+    const con = data.cam_contrast || 0;
+    const sat = data.cam_saturation || 0;
+    const ae = data.cam_ae_level || 0;
+    const gc = data.cam_gainceiling != null ? data.cam_gainceiling : 2;
+    const fx = data.cam_special_effect || 0;
+    const hm = data.cam_hmirror || 0;
+    const vf = data.cam_vflip || 0;
+    const ec = data.cam_exposure_ctrl != null ? data.cam_exposure_ctrl : 1;
+    const wbal = data.cam_whitebal != null ? data.cam_whitebal : 1;
+
+    c.innerHTML = `
+        <div class="config-section-label" style="color:var(--primary);background:var(--primary-glow);padding:0.3rem 0.6rem;border-radius:0.5rem;display:inline-block;font-weight:700;font-size:0.8rem">&#127909; Balanco de Branco</div>
+        <div class="config-field" style="margin-bottom:0.5rem">
+            <label>Modo</label>
+            <select id="sc-wb" class="config-select" style="width:100%">
+                <option value="0" ${wb==0?'selected':''}>Auto</option>
+                <option value="1" ${wb==1?'selected':''}>Sunny</option>
+                <option value="2" ${wb==2?'selected':''}>Cloudy</option>
+                <option value="3" ${wb==3?'selected':''}>Office</option>
+                <option value="4" ${wb==4?'selected':''}>Home</option>
+            </select>
+        </div>
+
+        <div class="config-section-label" style="color:hsl(210,80%,55%);background:hsla(210,80%,55%,0.12);padding:0.3rem 0.6rem;border-radius:0.5rem;display:inline-block;font-weight:700;font-size:0.8rem">&#127912; Ajustes de Imagem</div>
+        <div class="config-field" style="margin-bottom:0.5rem">
+            <label>Brilho <span id="sc-bri-val">${bri}</span></label>
+            <input type="range" id="sc-bri" min="-2" max="2" value="${bri}" oninput="document.getElementById('sc-bri-val').textContent=this.value" style="width:100%">
+        </div>
+        <div class="config-field" style="margin-bottom:0.5rem">
+            <label>Contraste <span id="sc-con-val">${con}</span></label>
+            <input type="range" id="sc-con" min="-2" max="2" value="${con}" oninput="document.getElementById('sc-con-val').textContent=this.value" style="width:100%">
+        </div>
+        <div class="config-field" style="margin-bottom:0.5rem">
+            <label>Saturacao <span id="sc-sat-val">${sat}</span></label>
+            <input type="range" id="sc-sat" min="-2" max="2" value="${sat}" oninput="document.getElementById('sc-sat-val').textContent=this.value" style="width:100%">
+        </div>
+        <div class="config-field" style="margin-bottom:0.5rem">
+            <label>Compensacao Exposicao <span id="sc-ae-val">${ae}</span></label>
+            <input type="range" id="sc-ae" min="-2" max="2" value="${ae}" oninput="document.getElementById('sc-ae-val').textContent=this.value" style="width:100%">
+        </div>
+
+        <div class="config-section-label" style="color:#e67e22;background:rgba(230,126,34,0.12);padding:0.3rem 0.6rem;border-radius:0.5rem;display:inline-block;font-weight:700;font-size:0.8rem">&#9881; Avancado</div>
+        <div class="config-grid">
+            <div class="config-field">
+                <label>Teto de Ganho</label>
+                <select id="sc-gc" class="config-select" style="width:100%">
+                    <option value="0" ${gc==0?'selected':''}>2x</option>
+                    <option value="1" ${gc==1?'selected':''}>4x</option>
+                    <option value="2" ${gc==2?'selected':''}>8x</option>
+                    <option value="3" ${gc==3?'selected':''}>16x</option>
+                    <option value="4" ${gc==4?'selected':''}>32x</option>
+                    <option value="5" ${gc==5?'selected':''}>64x</option>
+                    <option value="6" ${gc==6?'selected':''}>128x</option>
+                </select>
+            </div>
+            <div class="config-field">
+                <label>Efeito</label>
+                <select id="sc-fx" class="config-select" style="width:100%">
+                    <option value="0" ${fx==0?'selected':''}>Nenhum</option>
+                    <option value="1" ${fx==1?'selected':''}>Negativo</option>
+                    <option value="2" ${fx==2?'selected':''}>P&B</option>
+                    <option value="3" ${fx==3?'selected':''}>Vermelho</option>
+                    <option value="4" ${fx==4?'selected':''}>Verde</option>
+                    <option value="5" ${fx==5?'selected':''}>Azul</option>
+                    <option value="6" ${fx==6?'selected':''}>Sepia</option>
+                </select>
+            </div>
+        </div>
+
+        <div style="margin-top:0.75rem;display:flex;flex-direction:column;gap:0.5rem">
+            <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem;color:var(--text);cursor:pointer">
+                <input type="checkbox" id="sc-ec" ${ec?'checked':''} style="width:18px;height:18px"> Auto Exposicao
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem;color:var(--text);cursor:pointer">
+                <input type="checkbox" id="sc-wbal" ${wbal?'checked':''} style="width:18px;height:18px"> Auto Balanco de Branco
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem;color:var(--text);cursor:pointer">
+                <input type="checkbox" id="sc-hm" ${hm?'checked':''} style="width:18px;height:18px"> Espelhar Horizontal
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem;color:var(--text);cursor:pointer">
+                <input type="checkbox" id="sc-vf" ${vf?'checked':''} style="width:18px;height:18px"> Inverter Vertical
+            </label>
+        </div>
+
+        <div class="config-actions" style="margin-top:1rem">
+            <button class="btn-primary" onclick="saveCamSensorConfig()">Salvar</button>
+        </div>
+        <div class="config-actions" style="margin-top:0.5rem">
+            <button class="btn-secondary" onclick="resetCamSensorConfig()">Restaurar Padrao</button>
+        </div>
+    `;
+}
+
+async function saveCamSensorConfig() {
+    const body = {
+        cam_wb_mode: parseInt(document.getElementById('sc-wb').value),
+        cam_brightness: parseInt(document.getElementById('sc-bri').value),
+        cam_contrast: parseInt(document.getElementById('sc-con').value),
+        cam_saturation: parseInt(document.getElementById('sc-sat').value),
+        cam_ae_level: parseInt(document.getElementById('sc-ae').value),
+        cam_gainceiling: parseInt(document.getElementById('sc-gc').value),
+        cam_special_effect: parseInt(document.getElementById('sc-fx').value),
+        cam_hmirror: document.getElementById('sc-hm').checked ? 1 : 0,
+        cam_vflip: document.getElementById('sc-vf').checked ? 1 : 0,
+        cam_exposure_ctrl: document.getElementById('sc-ec').checked ? 1 : 0,
+        cam_whitebal: document.getElementById('sc-wbal').checked ? 1 : 0,
+    };
+    try {
+        await api(`${apiFor(sensorModuleType)}/${sensorChipId}/config`, { method: 'POST', body });
+        closeConfigModal();
+    } catch (e) { alert('Erro: ' + e.message); }
+}
+
+async function resetCamSensorConfig() {
+    const body = {
+        cam_wb_mode: 0, cam_brightness: 0, cam_contrast: 0, cam_saturation: 0,
+        cam_ae_level: 0, cam_gainceiling: 2, cam_special_effect: 0,
+        cam_hmirror: 0, cam_vflip: 0, cam_exposure_ctrl: 1, cam_whitebal: 1,
+    };
+    try {
+        await api(`${apiFor(sensorModuleType)}/${sensorChipId}/config`, { method: 'POST', body });
+        closeConfigModal();
+    } catch (e) { alert('Erro: ' + e.message); }
 }
 
 // =====================================================================

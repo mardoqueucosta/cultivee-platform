@@ -224,7 +224,11 @@ def register_module(chip_id, short_id, module_type="ctrl", ip="", ssid="", rssi=
         # ESP32 apenas ecoa; nunca deve sobrescrever o que o app salvou.
         server_keys = ("phases", "num_phases", "start_date",
                        "recording", "capture_interval", "cam_resolution",
-                       "cam_quality", "last_capture_at", "capture_folder")
+                       "cam_quality", "last_capture_at", "capture_folder",
+                       "cam_wb_mode", "cam_brightness", "cam_contrast",
+                       "cam_saturation", "cam_ae_level", "cam_gainceiling",
+                       "cam_special_effect", "cam_hmirror", "cam_vflip",
+                       "cam_exposure_ctrl", "cam_whitebal")
         for k in server_keys:
             if k in existing_data:
                 new_data[k] = existing_data[k]
@@ -478,7 +482,10 @@ def remove_module_from_group(chip_id, user_id):
 
 # --- Captura agendada ---
 
-def set_capture_config(chip_id, capture_interval=None, recording=None, cam_resolution=None, cam_quality=None, capture_folder=None):
+def set_capture_config(chip_id, capture_interval=None, recording=None, cam_resolution=None, cam_quality=None, capture_folder=None,
+                       cam_wb_mode=None, cam_brightness=None, cam_contrast=None, cam_saturation=None,
+                       cam_ae_level=None, cam_gainceiling=None, cam_special_effect=None,
+                       cam_hmirror=None, cam_vflip=None, cam_exposure_ctrl=None, cam_whitebal=None):
     data = {}
     if capture_interval is not None:
         data["capture_interval"] = int(capture_interval)
@@ -490,6 +497,28 @@ def set_capture_config(chip_id, capture_interval=None, recording=None, cam_resol
         data["cam_quality"] = int(cam_quality)
     if capture_folder is not None:
         data["capture_folder"] = str(capture_folder)
+    if cam_wb_mode is not None:
+        data["cam_wb_mode"] = int(cam_wb_mode)
+    if cam_brightness is not None:
+        data["cam_brightness"] = int(cam_brightness)
+    if cam_contrast is not None:
+        data["cam_contrast"] = int(cam_contrast)
+    if cam_saturation is not None:
+        data["cam_saturation"] = int(cam_saturation)
+    if cam_ae_level is not None:
+        data["cam_ae_level"] = int(cam_ae_level)
+    if cam_gainceiling is not None:
+        data["cam_gainceiling"] = int(cam_gainceiling)
+    if cam_special_effect is not None:
+        data["cam_special_effect"] = int(cam_special_effect)
+    if cam_hmirror is not None:
+        data["cam_hmirror"] = int(cam_hmirror)
+    if cam_vflip is not None:
+        data["cam_vflip"] = int(cam_vflip)
+    if cam_exposure_ctrl is not None:
+        data["cam_exposure_ctrl"] = int(cam_exposure_ctrl)
+    if cam_whitebal is not None:
+        data["cam_whitebal"] = int(cam_whitebal)
     if not data:
         return
     update_ctrl_data(chip_id, data)
@@ -515,6 +544,17 @@ def get_capture_config(chip_id):
         "cam_resolution": data.get("cam_resolution", "UXGA"),
         "cam_quality": data.get("cam_quality", 10),
         "capture_folder": data.get("capture_folder", ""),
+        "cam_wb_mode": data.get("cam_wb_mode", 0),
+        "cam_brightness": data.get("cam_brightness", 0),
+        "cam_contrast": data.get("cam_contrast", 0),
+        "cam_saturation": data.get("cam_saturation", 0),
+        "cam_ae_level": data.get("cam_ae_level", 0),
+        "cam_gainceiling": data.get("cam_gainceiling", 2),
+        "cam_special_effect": data.get("cam_special_effect", 0),
+        "cam_hmirror": data.get("cam_hmirror", 0),
+        "cam_vflip": data.get("cam_vflip", 0),
+        "cam_exposure_ctrl": data.get("cam_exposure_ctrl", 1),
+        "cam_whitebal": data.get("cam_whitebal", 1),
     }
 
 
