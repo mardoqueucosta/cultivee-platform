@@ -275,17 +275,19 @@ def last_capture(chip_id):
     if not cap_dir.exists():
         return jsonify({"status": "empty"})
 
-    files = sorted(cap_dir.glob("*.jpg"), reverse=True)
+    # Busca em todas as subpastas (novo layout com pastas)
+    files = sorted(cap_dir.rglob("*.jpg"), key=lambda f: f.name, reverse=True)
     if not files:
         return jsonify({"status": "empty"})
 
-    # Monta URL usando o tipo do modulo para determinar o prefixo
     mod_type = module.get("type", "cam")
-    filename = files[0].name
+    f = files[0]
+    folder = f.parent.name
     return jsonify({
         "status": "ok",
-        "url": f"/api/{mod_type}/{chip_id}/image/{filename}",
-        "size_kb": round(files[0].stat().st_size / 1024, 1)
+        "url": f"/api/gallery/{chip_id}/folders/{folder}/image/{f.name}",
+        "thumb_url": f"/api/gallery/{chip_id}/folders/{folder}/thumb/{f.name}",
+        "size_kb": round(f.stat().st_size / 1024, 1)
     })
 
 
@@ -360,7 +362,8 @@ def list_images(chip_id):
     if not cap_dir.exists():
         return jsonify({"images": [], "total": 0, "page": 1, "pages": 0})
 
-    all_files = sorted(cap_dir.glob("*.jpg"), reverse=True)
+    # Busca em todas as subpastas (novo layout com pastas)
+    all_files = sorted(cap_dir.rglob("*.jpg"), key=lambda f: f.name, reverse=True)
     total = len(all_files)
 
     page = max(1, int(request.args.get("page", 1)))
@@ -369,19 +372,19 @@ def list_images(chip_id):
     start = (page - 1) * per_page
     files = all_files[start:start + per_page]
 
-    mod_type = module.get("type", "cam")
     images = []
     for f in files:
-        # Parse timestamp do nome: YYYYMMDD_HHMMSS.jpg
         name = f.stem
+        folder = f.parent.name
         try:
             created = datetime.strptime(name, "%Y%m%d_%H%M%S").isoformat()
         except ValueError:
             created = ""
         images.append({
             "filename": f.name,
-            "url": f"/api/{mod_type}/{chip_id}/image/{f.name}",
-            "thumb_url": f"/api/{mod_type}/{chip_id}/thumb/{f.name}",
+            "folder": folder,
+            "url": f"/api/gallery/{chip_id}/folders/{folder}/image/{f.name}",
+            "thumb_url": f"/api/gallery/{chip_id}/folders/{folder}/thumb/{f.name}",
             "size_kb": round(f.stat().st_size / 1024, 1),
             "created_at": created,
         })
