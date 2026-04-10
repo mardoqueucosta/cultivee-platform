@@ -137,11 +137,22 @@ ESP32 boot → connectWiFi → registerOnServer (POST /api/modules/register)
 ### CAM (ESP32-WROVER-DEV) — Standalone
 - **Porta:** COM9
 - **Board:** esp32:esp32:esp32wroverkit
-- **Flash:** 94%
-- **Camera:** OV2640, VGA 640x480, JPEG quality 12, 2 frame buffers (PSRAM)
+- **Particao:** no_ota (2.0 MB app), gravacao via USB
+- **Flash:** 60%
+- **Camera:** OV2640, always-on (init unico no boot, nunca deinit)
 - **AP:** Cultivee-Cam
-- **SERVER_URL prod:** `http://cam.cultivee.com.br`
-- **APP_URL prod:** `https://cam.cultivee.com.br`
+- **SERVER_URL prod:** `http://app.cultivee.com.br`
+- **APP_URL prod:** `https://app.cultivee.com.br`
+
+#### Otimizacao da Camera (ref: docs/guia-otimizacao-esp32-cam.md)
+- **XCLK:** 8 MHz (minima EMI WiFi — ping 35ms vs 1435ms@20MHz)
+- **fb_count:** 2 (double buffering, DMA continuo, captura instantanea)
+- **grab_mode:** CAMERA_GRAB_LATEST (sempre frame mais recente)
+- **jpeg_quality init:** 10 (buffer grande, previne truncamento)
+- **Resolucao init:** VGA 640x480 (sweet spot streaming/captura)
+- **Flush boot:** 4 frames descartados (auto-exposure/AWB estabiliza)
+- **Captura:** fb_get() direto (frame ja pronto no buffer)
+- **NUNCA fazer:** esp_camera_deinit() repetido (corrompe DMA)
 
 ### Compilar e gravar
 ```bash
