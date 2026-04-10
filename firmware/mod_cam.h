@@ -29,13 +29,13 @@ bool initCamera() {
   config.pin_sccb_scl = SIOC_GPIO_NUM;
   config.pin_pwdn = PWDN_GPIO_NUM;
   config.pin_reset = RESET_GPIO_NUM;
-  config.xclk_freq_hz = 10000000;       // 10MHz — mais estavel, menos interferencia WiFi
+  config.xclk_freq_hz = 8000000;        // 8MHz — minima EMI, WiFi estavel (ping 35ms vs 1435ms@20MHz)
   config.pixel_format = PIXFORMAT_JPEG;
-  config.frame_size = FRAMESIZE_SVGA;   // Init em SVGA (800x600) — bom balanco RAM/qualidade
-  config.jpeg_quality = 12;
-  config.fb_count = 1;
+  config.frame_size = FRAMESIZE_VGA;    // VGA sweet spot (streaming + captura)
+  config.jpeg_quality = 10;             // Buffer grande na init (runtime pode usar 12+)
+  config.fb_count = 2;                  // Double buffering — DMA continuo, captura instantanea
   config.fb_location = CAMERA_FB_IN_PSRAM;
-  config.grab_mode = CAMERA_GRAB_LATEST;
+  config.grab_mode = CAMERA_GRAB_LATEST; // Sempre frame mais recente
 
   esp_err_t err = esp_camera_init(&config);
   if (err != ESP_OK) {
@@ -56,14 +56,14 @@ bool initCamera() {
   s->set_lenc(s, 1);
   s->set_saturation(s, 0);
 
-  // Flush 2 frames (auto-exposure/WB estabiliza)
-  for (int i = 0; i < 2; i++) {
+  // Descarta 4 frames (auto-exposure/AWB estabiliza, elimina tonalidade verde)
+  for (int i = 0; i < 4; i++) {
     camera_fb_t* fb = esp_camera_fb_get();
     if (fb) esp_camera_fb_return(fb);
-    delay(50);
+    delay(100);
   }
 
-  Serial.println("Camera OK!");
+  Serial.println("Camera OK! (always-on, fb_count=2, XCLK=8MHz)");
   return true;
 }
 
@@ -100,39 +100,18 @@ void restoreDefaultRes() {
   }
 }
 
-// ===================== ON-DEMAND INIT/DEINIT =====================
-
-void camDeinit() {
-  if (!cameraReady) return;
-  esp_camera_deinit();
-  cameraReady = false;
-  Serial.println("Camera: desligada");
-}
-
-void camInit() {
-  if (cameraReady) return;
-  cameraReady = initCamera();
-  if (cameraReady) Serial.println("Camera: ligada");
-  else Serial.println("Camera: erro ao inicializar");
-}
-
 // ===================== ROUTE HANDLERS =====================
 
 void handleCapture() {
-  camInit();
   if (!cameraReady) {
     sendCORS();
     server.send(503, "application/json", "{\"error\":\"Camera nao inicializada\"}");
     return;
   }
 
-  // Descarta primeiro frame (auto-exposure ajustando)
-  camera_fb_t* discard = esp_camera_fb_get();
-  if (discard) esp_camera_fb_return(discard);
-
+  // fb_count=2 + GRAB_LATEST: frame ja esta pronto no buffer
   camera_fb_t* fb = esp_camera_fb_get();
   if (!fb) {
-    camDeinit();
     sendCORS();
     server.send(500, "application/json", "{\"error\":\"Erro ao capturar\"}");
     return;
@@ -146,11 +125,9 @@ void handleCapture() {
 
   Serial.printf("Capture: %d bytes\n", fb->len);
   esp_camera_fb_return(fb);
-  camDeinit();
 }
 
 void handleStream() {
-  camInit();
   if (!cameraReady) {
     sendCORS();
     server.send(503, "text/plain", "Camera nao inicializada");
@@ -216,7 +193,7 @@ void handleStream() {
   }
 
   localStreamActive = false;
-  camDeinit();
+  restoreDefaultRes();
   Serial.println("Stream local: PARADO");
 }
 
@@ -237,9 +214,9 @@ String cam_dashboard_html() {
   html += "<div class='card' style='padding:0;overflow:hidden'>";
   html += "<div onclick='camTgl()' style='display:flex;justify-content:space-between;align-items:center;padding:14px;cursor:pointer'>";
   html += "<div style='display:flex;align-items:center;gap:8px'>";
-  html += "<span style='width:8px;height:8px;border-radius:50%;background:" + String(cameraReady ? "#27ae60" : "#e67e22") + "'></span>";
+  html += "<span style='width:8px;height:8px;border-radius:50%;background:" + String(cameraReady ? "#27ae60" : "#e74c3c") + "'></span>";
   html += "<b style='font-size:0.9rem'>Camera</b>";
-  html += "<span style='color:#888;font-size:0.8rem'>" + String(cameraReady ? "Ativa" : "Standby") + "</span>";
+  html += "<span style='color:#888;font-size:0.8rem'>" + String(cameraReady ? "Pronta" : "Erro") + "</span>";
   html += "</div>";
   html += "<svg id='cam-chv' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='#888' stroke-width='2' style='transition:transform 0.25s'><polyline points='6 9 12 15 18 9'/></svg>";
   html += "</div>";
@@ -407,7 +384,7 @@ void cam_loop() {
   if (millis() - liveStartTime > LIVE_MAX_DURATION) {
     camLiveMode = false;
     liveHttpDisconnect();
-    camDeinit();
+    setLiveResolution(false);
     Serial.println("Live mode: timeout, parando");
     return;
   }
@@ -422,7 +399,6 @@ void cam_loop() {
 
 bool cam_process_command(String cmd, String obj) {
   if (cmd == "capture") {
-    camInit();
     if (cameraReady) {
       camera_fb_t* fb = esp_camera_fb_get();
       if (fb) {
@@ -439,12 +415,10 @@ bool cam_process_command(String cmd, String obj) {
         Serial.println("Capture: erro ao capturar frame");
       }
     }
-    camDeinit();
     return true;
   }
 
   if (cmd == "start-live") {
-    camInit();
     if (cameraReady) {
       setLiveResolution(true);
       camLiveMode = true;
@@ -458,7 +432,7 @@ bool cam_process_command(String cmd, String obj) {
   if (cmd == "stop-live") {
     camLiveMode = false;
     liveHttpDisconnect();
-    camDeinit();
+    setLiveResolution(false);
     Serial.println("Live mode: PARADO");
     return true;
   }
@@ -484,10 +458,9 @@ bool cam_process_command(String cmd, String obj) {
 // ===================== SETUP & ROUTES =====================
 
 void cam_setup() {
-  // Camera inicia DESLIGADA — liga sob demanda (captura/stream)
-  // Libera DMA/PSRAM para WiFi ficar rapido
-  cameraReady = false;
-  Serial.println("Camera: modo on-demand (desligada no boot)");
+  // Always-on: init unico no boot, nunca deinit
+  // XCLK 8MHz = WiFi estavel, fb_count=2 = captura instantanea
+  cameraReady = initCamera();
 }
 
 void handleSetCamera() {
