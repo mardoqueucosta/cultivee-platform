@@ -6,6 +6,8 @@ on:
     paths:
       - 'server/**'
       - 'docker-compose.yml'
+      - '.github/workflows/**'
+  workflow_dispatch:
 
 jobs:
   deploy:
