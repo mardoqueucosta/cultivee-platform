@@ -1207,7 +1207,9 @@ async function showCamSensorConfig(chipId, moduleType) {
     sensorChipId = chipId;
     sensorModuleType = moduleType;
     try {
-        const data = await api(`${apiFor(moduleType)}/${chipId}/status`);
+        const resp = await api('/api/modules');
+        const mod = (resp.modules || []).find(m => m.chip_id === chipId);
+        const data = mod && mod.ctrl_data ? mod.ctrl_data : {};
         renderCamSensorConfig(data);
         document.getElementById("config-modal").classList.remove("hidden");
     } catch (e) { alert("Erro: " + e.message); }
