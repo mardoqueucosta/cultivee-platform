@@ -50,18 +50,23 @@ cultivee-platform/
 │   └── cam.h                 # MOD_CAM — ESP32-WROVER, camera standalone
 │
 ├── server/                   # UM servidor Flask unificado
-│   ├── app.py                # Core: auth, modules, PWA, blueprints em multiplos prefixos
+│   ├── app.py                # Core: auth, modules, PWA, blueprints, migracao fotos
 │   ├── models.py             # SQLite (users, modules, commands, tokens, groups)
-│   ├── config.py             # PORT, DB_PATH, PRODUCT_NAME
+│   ├── config.py             # PORT, DB_PATH, PRODUCT_NAME, APP_VERSION (fonte unica)
 │   ├── bp_hidro.py           # Blueprint: status, relay, phases (valida capability hidro)
-│   ├── bp_cam.py             # Blueprint: capture, upload, live (valida capability cam)
+│   ├── bp_cam.py             # Blueprint: capture, upload, live, sensor config
+│   ├── bp_gallery.py         # Blueprint: galeria com pastas, selecao, exclusao
 │   ├── templates/index.html  # PWA template (config injetada)
-│   ├── static/app.js         # PWA v3.0 — registry pattern, lista modulos
-│   ├── static/style.css      # Dark theme responsivo
-│   ├── sim_esp32.py          # Simulador de hardware (ctrl, cam, hidro-cam)
+│   ├── static/app.js         # PWA — registry pattern, hidro + cam UI
+│   ├── static/gallery.js     # Galeria modal: pastas, grid, selecao, exclusao
+│   ├── static/style.css      # Dark theme responsivo (desktop + mobile)
+│   ├── sim_esp32.py          # Simulador de hardware (ctrl, cam)
 │   ├── run-app.py            # Dev server local (porta 5002)
 │   ├── Dockerfile
 │   └── requirements.txt
+│
+├── docs/                     # Documentacao tecnica
+│   └── guia-otimizacao-esp32-cam.md  # Referencia otimizacao camera
 │
 ├── docker-compose.yml        # FONTE DA VERDADE — container app (Flask/Gunicorn)
 ├── deploy.sh                 # Deploy automatizado para VPS
