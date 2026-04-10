@@ -126,9 +126,9 @@ void handleCapture() {
     return;
   }
 
-  camera_fb_t* fb = captureHighRes();
+  // Captura direta — camera ja inicia na resolucao correta
+  camera_fb_t* fb = esp_camera_fb_get();
   if (!fb) {
-    restoreDefaultRes();
     camDeinit();
     sendCORS();
     server.send(500, "application/json", "{\"error\":\"Erro ao capturar\"}");
@@ -434,7 +434,7 @@ bool cam_process_command(String cmd, String obj) {
   if (cmd == "capture") {
     camInit();
     if (cameraReady) {
-      camera_fb_t* fb = captureHighRes();
+      camera_fb_t* fb = esp_camera_fb_get();
       if (fb) {
         HTTPClient camHttp;
         String uploadUrl = String(SERVER_URL) + "/api/" + String(MODULE_TYPE) + "/" + chipId + "/upload-capture";
