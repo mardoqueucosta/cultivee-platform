@@ -247,9 +247,9 @@ String cam_dashboard_html() {
   html += "<div class='card' style='padding:0;overflow:hidden'>";
   html += "<div onclick='camTgl()' style='display:flex;justify-content:space-between;align-items:center;padding:14px;cursor:pointer'>";
   html += "<div style='display:flex;align-items:center;gap:8px'>";
-  html += "<span style='width:8px;height:8px;border-radius:50%;background:" + String(cameraReady ? "#27ae60" : "#e74c3c") + "'></span>";
+  html += "<span style='width:8px;height:8px;border-radius:50%;background:" + String(cameraReady ? "#27ae60" : "#e67e22") + "'></span>";
   html += "<b style='font-size:0.9rem'>Camera</b>";
-  html += "<span style='color:#888;font-size:0.8rem'>" + String(cameraReady ? "Pronta" : "Offline") + "</span>";
+  html += "<span style='color:#888;font-size:0.8rem'>" + String(cameraReady ? "Ativa" : "Standby") + "</span>";
   html += "</div>";
   html += "<svg id='cam-chv' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='#888' stroke-width='2' style='transition:transform 0.25s'><polyline points='6 9 12 15 18 9'/></svg>";
   html += "</div>";
@@ -258,8 +258,8 @@ String cam_dashboard_html() {
   html += "<span style='color:#555;font-size:0.85rem'>Toque em Capturar</span>";
   html += "</div>";
   html += "<div style='display:flex;gap:8px;margin-top:8px'>";
-  html += "<button id='cam-btn' onclick='cap()' style='flex:1;padding:10px;border-radius:10px;border:1px solid #3a3d45;background:#2a2d35;color:#aaa;font-weight:600;font-size:0.85rem;cursor:pointer' " + String(cameraReady ? "" : "disabled") + ">&#128247; Capturar</button>";
-  html += "<button id='live-btn' onclick='live()' style='flex:1;padding:10px;border-radius:10px;border:1px solid #3a3d45;background:#2a2d35;color:#aaa;font-weight:600;font-size:0.85rem;cursor:pointer' " + String(cameraReady ? "" : "disabled") + ">&#127909; Ao Vivo</button>";
+  html += "<button id='cam-btn' onclick='cap()' style='flex:1;padding:10px;border-radius:10px;border:1px solid #3a3d45;background:#2a2d35;color:#aaa;font-weight:600;font-size:0.85rem;cursor:pointer'>&#128247; Capturar</button>";
+  html += "<button id='live-btn' onclick='live()' style='flex:1;padding:10px;border-radius:10px;border:1px solid #3a3d45;background:#2a2d35;color:#aaa;font-weight:600;font-size:0.85rem;cursor:pointer'>&#127909; Ao Vivo</button>";
   html += "</div>";
   // Dropdowns resolucao + qualidade
   html += "<div style='display:flex;gap:8px;margin-top:8px'>";
@@ -284,7 +284,7 @@ String cam_dashboard_html() {
   html += "<div id='sched-progress' style='display:none;margin-bottom:8px'>";
   html += "<span id='sched-label' style='font-size:0.75rem;color:#888'>Proxima captura em --:--</span>";
   html += "<div style='height:4px;background:#2a2d35;border-radius:2px;overflow:hidden;margin-top:4px'><div id='sched-bar' style='height:100%;background:#27ae60;border-radius:2px;width:0%;transition:width 1s linear'></div></div></div>";
-  html += "<button id='sched-btn' onclick='schedToggle()' style='width:100%;padding:10px;border-radius:10px;border:1px solid #27ae60;background:transparent;color:#27ae60;font-weight:600;font-size:0.85rem;cursor:pointer' " + String(cameraReady ? "" : "disabled") + ">&#9654; Iniciar Gravacao</button>";
+  html += "<button id='sched-btn' onclick='schedToggle()' style='width:100%;padding:10px;border-radius:10px;border:1px solid #27ae60;background:transparent;color:#27ae60;font-weight:600;font-size:0.85rem;cursor:pointer'>&#9654; Iniciar Gravacao</button>";
   html += "</div>";
   html += "</div></div>";
   return html;
