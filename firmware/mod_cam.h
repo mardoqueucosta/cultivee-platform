@@ -109,9 +109,23 @@ void handleCapture() {
     return;
   }
 
-  // fb_count=2 + GRAB_LATEST: frame ja esta pronto no buffer
+  // Aplica resolucao/qualidade selecionada pelo usuario
+  sensor_t* s = esp_camera_sensor_get();
+  framesize_t prevSize = s ? s->status.framesize : FRAMESIZE_VGA;
+  int prevQuality = s ? s->status.quality : 12;
+  bool changed = false;
+  if (s && (captureFrameSize != prevSize || captureQuality != prevQuality)) {
+    s->set_framesize(s, captureFrameSize);
+    s->set_quality(s, captureQuality);
+    // Flush buffer com resolucao antiga
+    camera_fb_t* old = esp_camera_fb_get();
+    if (old) esp_camera_fb_return(old);
+    changed = true;
+  }
+
   camera_fb_t* fb = esp_camera_fb_get();
   if (!fb) {
+    if (changed && s) { s->set_framesize(s, prevSize); s->set_quality(s, prevQuality); }
     sendCORS();
     server.send(500, "application/json", "{\"error\":\"Erro ao capturar\"}");
     return;
@@ -123,8 +137,16 @@ void handleCapture() {
   server.send(200, "image/jpeg", "");
   server.sendContent((const char*)fb->buf, fb->len);
 
-  Serial.printf("Capture: %d bytes\n", fb->len);
+  Serial.printf("Capture: %s %d bytes\n", changed ? "HiRes" : "VGA", fb->len);
   esp_camera_fb_return(fb);
+
+  // Restaura VGA para streaming/preview
+  if (changed && s) {
+    s->set_framesize(s, prevSize);
+    s->set_quality(s, prevQuality);
+    camera_fb_t* flush = esp_camera_fb_get();
+    if (flush) esp_camera_fb_return(flush);
+  }
 }
 
 void handleStream() {
@@ -400,6 +422,14 @@ void cam_loop() {
 bool cam_process_command(String cmd, String obj) {
   if (cmd == "capture") {
     if (cameraReady) {
+      // Aplica resolucao/qualidade selecionada
+      sensor_t* s = esp_camera_sensor_get();
+      framesize_t prevSize = s ? s->status.framesize : FRAMESIZE_VGA;
+      int prevQuality = s ? s->status.quality : 12;
+      if (s) { s->set_framesize(s, captureFrameSize); s->set_quality(s, captureQuality); }
+      camera_fb_t* old = esp_camera_fb_get();
+      if (old) esp_camera_fb_return(old);
+
       camera_fb_t* fb = esp_camera_fb_get();
       if (fb) {
         HTTPClient camHttp;
@@ -414,6 +444,8 @@ bool cam_process_command(String cmd, String obj) {
       } else {
         Serial.println("Capture: erro ao capturar frame");
       }
+      // Restaura VGA
+      if (s) { s->set_framesize(s, prevSize); s->set_quality(s, prevQuality); }
     }
     return true;
   }
