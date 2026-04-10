@@ -31,8 +31,8 @@ bool initCamera() {
   config.pin_reset = RESET_GPIO_NUM;
   config.xclk_freq_hz = 8000000;        // 8MHz — minima EMI, WiFi estavel (ping 35ms vs 1435ms@20MHz)
   config.pixel_format = PIXFORMAT_JPEG;
-  config.frame_size = FRAMESIZE_VGA;    // VGA sweet spot (streaming + captura)
-  config.jpeg_quality = 10;             // Buffer grande na init (runtime pode usar 12+)
+  config.frame_size = FRAMESIZE_UXGA;   // Init na resolucao MAXIMA para alocar buffer suficiente
+  config.jpeg_quality = 4;              // Buffer GRANDE (q4) — runtime pode usar 5-15 sem truncar
   config.fb_count = 2;                  // Double buffering — DMA continuo, captura instantanea
   config.fb_location = CAMERA_FB_IN_PSRAM;
   config.grab_mode = CAMERA_GRAB_LATEST; // Sempre frame mais recente
@@ -63,7 +63,11 @@ bool initCamera() {
     delay(100);
   }
 
-  Serial.println("Camera OK! (always-on, fb_count=2, XCLK=8MHz)");
+  // Reduz para VGA como resolucao padrao (UXGA/SVGA sob demanda para captura)
+  s->set_framesize(s, FRAMESIZE_VGA);
+  s->set_quality(s, 12);
+
+  Serial.println("Camera OK! (always-on, fb_count=2, XCLK=8MHz, init UXGA q4)");
   return true;
 }
 
