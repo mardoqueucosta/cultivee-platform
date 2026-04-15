@@ -746,9 +746,9 @@ function renderDashboard(container, chipId, moduleType, data) {
             </div>
             ${phasesHtml}
         </div>` : ''}
-        ${extrasHtml}
         ${ambientHtml}
-        ${reservoirHtml}`;
+        ${reservoirHtml}
+        ${extrasHtml}`;
 }
 
 async function toggleRelay(chipId, moduleType, device) {

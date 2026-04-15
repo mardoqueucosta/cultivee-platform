@@ -1087,9 +1087,9 @@ String hidrofarm_dashboard_html() {
   html += "<a href='/config' style='float:right;color:#27ae60;font-size:0.8rem;text-decoration:none'>&#9881; Configurar</a></h3>";
   html += phasesHtml + "</div>";
 
-  html += extrasCard;
   html += ambientCard;
   html += reservoirCard;
+  html += extrasCard;  // Controles Extras no final
 
   return html;
 }
