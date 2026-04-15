@@ -40,22 +40,18 @@
 #endif
 
 // ===== HARDWARE (ESP32-WROOM-32D) =====
-// Reles principais (iguais ao hidro — mantidos por compatibilidade)
-#define RELE_LAMPADA     4    // IN1 do modulo rele (GPIO4)
-#define RELE_BOMBA       5    // IN2 do modulo rele (GPIO5)
-#define RELE_VENTILACAO  18   // IN3 do modulo rele (GPIO18)
-#define RELE_AERACAO     19   // IN4 do modulo rele (GPIO19)
-#define LED_ONBOARD      2    // LED azul da placa
-#define RESET_BTN        0    // Botao BOOT (GPIO0) - segurar 3s = reset WiFi
-#define RELE_ON          LOW    // Modulo rele ativa em LOW
-#define RELE_OFF         HIGH
+// 6 reles concretos do hidro-farm (modulo rele 8 canais — 2 canais livres para expansao futura)
+#define RELE_LAMPADA         4    // IN1 - Luz (iluminacao principal)
+#define RELE_BOMBA           5    // IN2 - Bomba de irrigacao (NFT / gotejamento)
+#define RELE_VENTILACAO      16   // IN3 - Ventilacao (exaustor)
+#define RELE_AERACAO         17   // IN4 - Aeracao (bolhas / oxigenacao raiz)
+#define RELE_VALVULA_ENTRADA 18   // IN5 - Valvula de entrada de agua no reservatorio
+#define RELE_BOMBA_HOMO      19   // IN6 - Bomba de homogeneizacao (mistura nutrientes)
 
-// TODO HIDRO-FARM EXTRA: Reles adicionais (modulo de 8 canais)
-// Descomente e ative em mod_hidrofarm.h quando for usar.
-// #define RELE_EXTRA_1    13   // IN5 - ex: luz secundaria / UV
-// #define RELE_EXTRA_2    14   // IN6 - ex: bomba dreno
-// #define RELE_EXTRA_3    25   // IN7 - ex: resistencia aquecedor
-// #define RELE_EXTRA_4    26   // IN8 - ex: cooler / nebulizador
+#define LED_ONBOARD          2    // LED azul da placa
+#define RESET_BTN            0    // Botao BOOT (GPIO0) - segurar 3s = reset WiFi
+#define RELE_ON              LOW    // Modulo rele ativa em LOW
+#define RELE_OFF             HIGH
 
 // ===== RTC DS3231 (I2C) =====
 #define RTC_SDA        21   // I2C Data (GPIO21)

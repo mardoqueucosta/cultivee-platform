@@ -94,6 +94,13 @@ bool aerationState = false;
 unsigned long lastAutoCheck = 0;
 #endif
 
+// ===== VARIAVEIS GLOBAIS HIDRO-FARM EXTRA =====
+// Reles sempre manuais — NAO participam da automacao por fase nem do modeAuto
+#ifdef MOD_HIDROFARM
+bool valveEntradaState = false;   // RELE_VALVULA_ENTRADA (GPIO18)
+bool bombaHomoState    = false;   // RELE_BOMBA_HOMO      (GPIO19)
+#endif
+
 // ===== VARIAVEIS GLOBAIS CAMERA =====
 #ifdef MOD_CAM
 bool cameraReady = false;

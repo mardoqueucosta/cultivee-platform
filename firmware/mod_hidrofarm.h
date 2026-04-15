@@ -302,6 +302,8 @@ String hidrofarm_status_json() {
   json += "\"pump\":" + String(pumpState ? "true" : "false") + ",";
   json += "\"ventilation\":" + String(ventilationState ? "true" : "false") + ",";
   json += "\"aeration\":" + String(aerationState ? "true" : "false") + ",";
+  json += "\"valve_entrada\":" + String(valveEntradaState ? "true" : "false") + ",";
+  json += "\"bomba_homo\":" + String(bombaHomoState ? "true" : "false") + ",";
   json += "\"cycle_day\":" + String(cycleDay) + ",";
   json += "\"phase\":\"" + String(p->name) + "\",";
   json += "\"phase_index\":" + String(phaseIdx) + ",";
@@ -385,6 +387,8 @@ String hidrofarm_register_json() {
   json += "\"pump\":" + String(pumpState ? "true" : "false") + ",";
   json += "\"ventilation\":" + String(ventilationState ? "true" : "false") + ",";
   json += "\"aeration\":" + String(aerationState ? "true" : "false") + ",";
+  json += "\"valve_entrada\":" + String(valveEntradaState ? "true" : "false") + ",";
+  json += "\"bomba_homo\":" + String(bombaHomoState ? "true" : "false") + ",";
   json += "\"mode\":\"" + String(modeAuto ? "auto" : "manual") + "\",";
   json += "\"phase\":\"" + String(p->name) + "\",";
   json += "\"phase_index\":" + String(phaseIdx) + ",";
@@ -433,6 +437,16 @@ void handleGpioFarm() {
       if (modeAuto) { modeAuto = false; }
       Serial.printf("GPIO: Aeracao %s\n", aerationState ? "ON" : "OFF");
     }
+  } else if (name == "valve_entrada") {
+    // Rele sempre manual — NAO interage com modeAuto
+    valveEntradaState = !valveEntradaState;
+    setRelayFarm(RELE_VALVULA_ENTRADA, valveEntradaState);
+    Serial.printf("GPIO: Valvula Entrada %s\n", valveEntradaState ? "ON" : "OFF");
+  } else if (name == "bomba_homo") {
+    // Rele sempre manual — NAO interage com modeAuto
+    bombaHomoState = !bombaHomoState;
+    setRelayFarm(RELE_BOMBA_HOMO, bombaHomoState);
+    Serial.printf("GPIO: Bomba Homogeneizacao %s\n", bombaHomoState ? "ON" : "OFF");
   } else if (name == "mode") {
     modeAuto = !modeAuto;
     if (!modeAuto) {
@@ -491,6 +505,16 @@ void handleRelayFarm() {
       if (!modeAuto) modeAuto = false;
       Serial.printf("Manual: Aeracao %s\n", aerationState ? "ON" : "OFF");
     }
+  } else if (device == "valve_entrada") {
+    // Rele sempre manual — NAO interage com modeAuto
+    valveEntradaState = !valveEntradaState;
+    setRelayFarm(RELE_VALVULA_ENTRADA, valveEntradaState);
+    Serial.printf("Manual: Valvula Entrada %s\n", valveEntradaState ? "ON" : "OFF");
+  } else if (device == "bomba_homo") {
+    // Rele sempre manual — NAO interage com modeAuto
+    bombaHomoState = !bombaHomoState;
+    setRelayFarm(RELE_BOMBA_HOMO, bombaHomoState);
+    Serial.printf("Manual: Bomba Homogeneizacao %s\n", bombaHomoState ? "ON" : "OFF");
   }
 
   sendCORS();
@@ -792,6 +816,20 @@ String hidrofarm_dashboard_html() {
     phasesHtml += "</div></div>";
   }
 
+  // Card "Controles Manuais" — sempre visivel (independente de modeAuto)
+  // Contem os 2 reles do hidro-farm que nao participam da automacao por fase
+  String manualFarmCard = "";
+  manualFarmCard += "<div class='card'>";
+  manualFarmCard += "<h3 style='font-size:0.9rem;margin-bottom:10px'>Controles Manuais</h3>";
+  manualFarmCard += "<div style='display:grid;grid-template-columns:1fr 1fr;gap:8px'>";
+  manualFarmCard += "<button id='bve' onclick=\"cmd('valve_entrada','toggle')\" style='padding:12px;border-radius:10px;border:none;font-weight:700;font-size:0.85rem;cursor:pointer;"
+    + String(valveEntradaState ? "background:#4ba3ff;color:#fff'" : "background:#2a2d35;color:#aaa;border:1px solid #3a3d45'")
+    + ">&#128167; VALVULA " + (valveEntradaState ? "ON" : "OFF") + "</button>";
+  manualFarmCard += "<button id='bbh' onclick=\"cmd('bomba_homo','toggle')\" style='padding:12px;border-radius:10px;border:none;font-weight:700;font-size:0.85rem;cursor:pointer;"
+    + String(bombaHomoState ? "background:#9b59b6;color:#fff'" : "background:#2a2d35;color:#aaa;border:1px solid #3a3d45'")
+    + ">&#128260; HOMOG " + (bombaHomoState ? "ON" : "OFF") + "</button>";
+  manualFarmCard += "</div></div>";
+
   String html = "";
   html += "<div class='card'>";
   html += "<div class='grid'>";
@@ -803,6 +841,8 @@ String hidrofarm_dashboard_html() {
   html += "<div class='ind'>" + lightIndicator + pumpIndicator + "</div><div class='ind'>" + ventIndicator + aerIndicator + "</div>";
   html += modeBtn + manualBtns;
   html += "</div>";
+
+  html += manualFarmCard;
 
   html += "<div class='card'><h3 style='font-size:0.9rem;margin-bottom:8px'>Fases Configuradas";
   html += "<a href='/config' style='float:right;color:#27ae60;font-size:0.8rem;text-decoration:none'>&#9881; Configurar</a></h3>";
@@ -828,6 +868,9 @@ if(iv){iv.style.color=s.ventilation?'#2ecc71':'#666';iv.innerHTML=s.ventilation?
 if(ia){ia.style.color=s.aeration?'#00bcd4':'#666';ia.innerHTML=s.aeration?'&#9679; Aera Ligada':'&#9679; Aera Desligada'}
 if(bv){bv.style.background=s.ventilation?'#2ecc71':'#2a2d35';bv.style.color=s.ventilation?'#fff':'#aaa';bv.textContent='VENT '+(s.ventilation?'ON':'OFF')}
 if(ba){ba.style.background=s.aeration?'#00bcd4':'#2a2d35';ba.style.color=s.aeration?'#fff':'#aaa';ba.textContent='AERA '+(s.aeration?'ON':'OFF')}
+var bve=document.getElementById('bve'),bbh=document.getElementById('bbh');
+if(bve){bve.style.background=s.valve_entrada?'#4ba3ff':'#2a2d35';bve.style.color=s.valve_entrada?'#fff':'#aaa';bve.innerHTML='&#128167; VALVULA '+(s.valve_entrada?'ON':'OFF')}
+if(bbh){bbh.style.background=s.bomba_homo?'#9b59b6':'#2a2d35';bbh.style.color=s.bomba_homo?'#fff':'#aaa';bbh.innerHTML='&#128260; HOMOG '+(s.bomba_homo?'ON':'OFF')}
 var isAuto=s.mode==='auto';
 if(bm){bm.style.borderColor=isAuto?'#27ae60':'#e67e22';bm.style.background=isAuto?'rgba(39,174,96,0.1)':'rgba(230,126,34,0.1)';bm.style.color=isAuto?'#27ae60':'#e67e22';bm.innerHTML=isAuto?'&#9881; Modo Automatico':'&#9995; Modo Manual'}
 if(isAuto&&mb){mb.remove()}
@@ -865,6 +908,16 @@ bool hidrofarm_process_command(String cmd, String obj) {
       setRelayFarm(RELE_AERACAO, aerationState);
       if (modeAuto) modeAuto = false;
       Serial.printf("Remoto: Aeracao %s\n", aerationState ? "ON" : "OFF");
+    } else if (device == "valve_entrada") {
+      // Rele sempre manual — NAO interage com modeAuto
+      valveEntradaState = !valveEntradaState;
+      setRelayFarm(RELE_VALVULA_ENTRADA, valveEntradaState);
+      Serial.printf("Remoto: Valvula Entrada %s\n", valveEntradaState ? "ON" : "OFF");
+    } else if (device == "bomba_homo") {
+      // Rele sempre manual — NAO interage com modeAuto
+      bombaHomoState = !bombaHomoState;
+      setRelayFarm(RELE_BOMBA_HOMO, bombaHomoState);
+      Serial.printf("Remoto: Bomba Homogeneizacao %s\n", bombaHomoState ? "ON" : "OFF");
     }
     return true;
   } else if (cmd == "add-phase") {
@@ -963,14 +1016,21 @@ void hidrofarm_setup() {
   rtcInit();
   if (rtcAvailable) rtcSeedFromCompileTime();
 
+  // Reles automatizados (controlados pelas fases/automacao)
   pinMode(RELE_LAMPADA, OUTPUT);
   pinMode(RELE_BOMBA, OUTPUT);
-  setRelayFarm(RELE_LAMPADA, false);
-  setRelayFarm(RELE_BOMBA, false);
   pinMode(RELE_VENTILACAO, OUTPUT);
   pinMode(RELE_AERACAO, OUTPUT);
+  setRelayFarm(RELE_LAMPADA, false);
+  setRelayFarm(RELE_BOMBA, false);
   setRelayFarm(RELE_VENTILACAO, false);
   setRelayFarm(RELE_AERACAO, false);
+
+  // Reles sempre manuais — independentes do modeAuto/fases
+  pinMode(RELE_VALVULA_ENTRADA, OUTPUT);
+  pinMode(RELE_BOMBA_HOMO, OUTPUT);
+  setRelayFarm(RELE_VALVULA_ENTRADA, false);
+  setRelayFarm(RELE_BOMBA_HOMO, false);
 
   loadPhasesFarm();
 }
@@ -1011,11 +1071,25 @@ void hidrofarm_serial_command(String cmd) {
   } else if (cmd == "A0") {
     aerationState = false; setRelayFarm(RELE_AERACAO, false); modeAuto = false;
     Serial.println("OK:A0");
+  } else if (cmd == "VE1") {
+    valveEntradaState = true; setRelayFarm(RELE_VALVULA_ENTRADA, true);
+    Serial.println("OK:VE1");
+  } else if (cmd == "VE0") {
+    valveEntradaState = false; setRelayFarm(RELE_VALVULA_ENTRADA, false);
+    Serial.println("OK:VE0");
+  } else if (cmd == "BH1") {
+    bombaHomoState = true; setRelayFarm(RELE_BOMBA_HOMO, true);
+    Serial.println("OK:BH1");
+  } else if (cmd == "BH0") {
+    bombaHomoState = false; setRelayFarm(RELE_BOMBA_HOMO, false);
+    Serial.println("OK:BH0");
   } else if (cmd == "AUTO") {
     modeAuto = true;
     Serial.println("OK:AUTO");
   } else if (cmd == "STATUS") {
-    Serial.printf("L:%d P:%d V:%d A:%d M:%s\n", lightState, pumpState, ventilationState, aerationState, modeAuto ? "auto" : "manual");
+    Serial.printf("L:%d P:%d V:%d A:%d VE:%d BH:%d M:%s\n",
+      lightState, pumpState, ventilationState, aerationState,
+      valveEntradaState, bombaHomoState, modeAuto ? "auto" : "manual");
   }
 }
 

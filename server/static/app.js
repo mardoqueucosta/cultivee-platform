@@ -57,7 +57,9 @@ const moduleRenderers = {
             const p = data.pump ? 'Bomba ON' : 'Bomba OFF';
             const v = data.ventilation ? 'Vent ON' : 'Vent OFF';
             const a = data.aeration ? 'Aera ON' : 'Aera OFF';
-            return `${l} · ${p} · ${v} · ${a}`;
+            const vl = data.valve_entrada ? 'Válv ON' : 'Válv OFF';
+            const h = data.bomba_homo ? 'Hom ON' : 'Hom OFF';
+            return `${l} · ${p} · ${v} · ${a} · ${vl} · ${h}`;
         }
     },
     cam: {
@@ -495,7 +497,7 @@ async function loadCtrlStatus(chipId, moduleType, container) {
             data.aeration = localState.aeration;
             data.mode = localState.mode;
         }
-        const key = `${data.light}:${data.pump}:${data.mode}:${data.phase}:${data.phase_index}:${data.cycle_day}:${data.start_date}`;
+        const key = `${data.light}:${data.pump}:${data.ventilation}:${data.aeration}:${data.valve_entrada}:${data.bomba_homo}:${data.mode}:${data.phase}:${data.phase_index}:${data.cycle_day}:${data.start_date}`;
         if (key === _lastCtrlKey && !container) return;
         _lastCtrlKey = key;
         renderDashboard(ct, chipId, moduleType, data);
@@ -563,6 +565,31 @@ function renderDashboard(container, chipId, moduleType, data) {
     const aerPending = pendingCommands.has('aeration');
     const modePending = pendingCommands.has('mode');
 
+    // Hidro-Farm: 2 reles sempre manuais (valvula entrada + bomba homogeneizacao)
+    // Detectados pelos proprios campos no data — compatibilidade retroativa com o hidro legado.
+    const hasFarmControls = data.valve_entrada !== undefined || data.bomba_homo !== undefined;
+    const valveOn = data.valve_entrada || false;
+    const homoOn = data.bomba_homo || false;
+    const valvePending = pendingCommands.has('valve_entrada');
+    const homoPending = pendingCommands.has('bomba_homo');
+
+    let farmControlsHtml = '';
+    if (hasFarmControls) {
+        farmControlsHtml = `<div class="card">
+            <div class="card-header"><div class="card-title"><h2>Controles Manuais</h2></div></div>
+            <div class="controls-row">
+                <button class="ctrl-btn ${valveOn ? 'on' : 'off'} ${valvePending ? 'pending' : ''}" style="${valveOn ? 'border-color:#4ba3ff;background:rgba(75,163,255,0.15);color:#4ba3ff' : ''}" onclick="toggleRelay('${chipId}','${moduleType}','valve_entrada')" ${valvePending ? 'disabled' : ''}>
+                    ${valvePending ? '<span class="btn-spinner"></span>' : `<span class="ctrl-btn-icon">${valveOn ? '&#128167;' : '&#9899;'}</span>`}
+                    <span>${valvePending ? 'Enviando...' : `VALVULA ${valveOn ? 'ON' : 'OFF'}`}</span>
+                </button>
+                <button class="ctrl-btn ${homoOn ? 'on' : 'off'} ${homoPending ? 'pending' : ''}" style="${homoOn ? 'border-color:#9b59b6;background:rgba(155,89,182,0.15);color:#9b59b6' : ''}" onclick="toggleRelay('${chipId}','${moduleType}','bomba_homo')" ${homoPending ? 'disabled' : ''}>
+                    ${homoPending ? '<span class="btn-spinner"></span>' : `<span class="ctrl-btn-icon">${homoOn ? '&#128260;' : '&#9899;'}</span>`}
+                    <span>${homoPending ? 'Enviando...' : `HOMOG ${homoOn ? 'ON' : 'OFF'}`}</span>
+                </button>
+            </div>
+        </div>`;
+    }
+
     let controlsHtml = '';
     if (!modeAuto) {
         controlsHtml = `<div class="controls-row">
@@ -612,6 +639,7 @@ function renderDashboard(container, chipId, moduleType, data) {
             </button>
             ${controlsHtml}
         </div>
+        ${farmControlsHtml}
         ${phasesHtml ? `<div class="card">
             <div class="card-header">
                 <div class="card-title"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg><h2>Fases</h2></div>
@@ -627,6 +655,8 @@ async function toggleRelay(chipId, moduleType, device) {
         else if (device === "pump") localState.pump = !localState.pump;
         else if (device === "ventilation") localState.ventilation = !localState.ventilation;
         else if (device === "aeration") localState.aeration = !localState.aeration;
+        else if (device === "valve_entrada") localState.valve_entrada = !localState.valve_entrada;
+        else if (device === "bomba_homo") localState.bomba_homo = !localState.bomba_homo;
         else if (device === "mode") localState.mode = localState.mode === "auto" ? "manual" : "auto";
         lastToggleTime = Date.now();
         pendingCommands.add(device);
@@ -646,6 +676,8 @@ async function toggleRelay(chipId, moduleType, device) {
             if (device === "pump" && data.pump === localState.pump) { confirmed = true; break; }
             if (device === "ventilation" && data.ventilation === localState.ventilation) { confirmed = true; break; }
             if (device === "aeration" && data.aeration === localState.aeration) { confirmed = true; break; }
+            if (device === "valve_entrada" && data.valve_entrada === localState.valve_entrada) { confirmed = true; break; }
+            if (device === "bomba_homo" && data.bomba_homo === localState.bomba_homo) { confirmed = true; break; }
             if (device === "mode" && data.mode === localState.mode) {
                 // Ao trocar modo, sincroniza estados reais dos reles
                 localState.light = data.light;
