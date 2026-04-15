@@ -60,6 +60,11 @@
 #define SENSOR_NIVEL_BAIXO   14   // Boia baixa — ativa quando reservatorio atinge nivel minimo
 #define LEVEL_SENSOR_ACTIVE  LOW  // Leitura ativa (INPUT_PULLUP)
 
+// ===== SENSOR DHT11 (temperatura + umidade ambiente) =====
+// Modulo de 3 pinos (+ / out / -). Output digital 1-wire.
+// Leitura inteira (sem casa decimal). Minimo 1s entre leituras — usamos 5s.
+#define DHT_PIN              25   // Pino "out" do modulo DHT11
+
 // ===== RTC DS3231 (I2C) =====
 #define RTC_SDA        21   // I2C Data (GPIO21)
 #define RTC_SCL        22   // I2C Clock (GPIO22)

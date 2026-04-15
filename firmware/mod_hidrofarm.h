@@ -191,6 +191,53 @@ bool isDayTimeFarm(Phase *p) {
   return isLightTimeFarm(p);
 }
 
+// ===================== SENSOR DHT11 (inline — sem bibliotecas externas) =====================
+
+// Le o DHT11 via protocolo 1-wire bit-banging. Bloqueante (~22ms), chamar so
+// a cada >= 1s conforme spec do chip. Retorna true se leitura + checksum OK.
+bool readDHT11Farm() {
+  uint8_t data[5] = {0, 0, 0, 0, 0};
+
+  // Start signal: pino LOW ~20ms, depois HIGH 40us, solta pino para leitura
+  pinMode(DHT_PIN, OUTPUT);
+  digitalWrite(DHT_PIN, LOW);
+  delay(20);
+  digitalWrite(DHT_PIN, HIGH);
+  delayMicroseconds(40);
+  pinMode(DHT_PIN, INPUT_PULLUP);
+
+  // Resposta do DHT11: LOW ~80us, HIGH ~80us
+  unsigned long timeout;
+  timeout = micros() + 200;
+  while (digitalRead(DHT_PIN) == HIGH) { if ((long)(micros() - timeout) >= 0) return false; }
+  timeout = micros() + 200;
+  while (digitalRead(DHT_PIN) == LOW)  { if ((long)(micros() - timeout) >= 0) return false; }
+  timeout = micros() + 200;
+  while (digitalRead(DHT_PIN) == HIGH) { if ((long)(micros() - timeout) >= 0) return false; }
+
+  // 40 bits: cada bit = LOW 50us + HIGH (26us=0 / 70us=1)
+  for (int i = 0; i < 40; i++) {
+    timeout = micros() + 200;
+    while (digitalRead(DHT_PIN) == LOW)  { if ((long)(micros() - timeout) >= 0) return false; }
+    unsigned long t0 = micros();
+    timeout = micros() + 200;
+    while (digitalRead(DHT_PIN) == HIGH) { if ((long)(micros() - timeout) >= 0) return false; }
+    unsigned long len = micros() - t0;
+    if (len > 40) data[i / 8] |= (0x80 >> (i % 8));
+  }
+
+  // Checksum: byte0 + byte1 + byte2 + byte3 == byte4 (low 8 bits)
+  uint8_t checksum = (data[0] + data[1] + data[2] + data[3]) & 0xFF;
+  if (checksum != data[4]) return false;
+
+  // DHT11: byte0 = umidade inteira, byte2 = temperatura inteira (byte1 e byte3 sempre 0)
+  dhtHumidity    = data[0];
+  dhtTemperature = data[2];
+  dhtValid       = true;
+  lastDhtOk      = millis();
+  return true;
+}
+
 // ===================== RESERVATORIO (BOIAS + VALVULA) =====================
 
 // Le os sensores de nivel com debounce de 2 amostras consecutivas.
@@ -271,6 +318,14 @@ void hidrofarm_loop() {
   // Sensores e automacao de nivel rodam SEMPRE (nao dependem do modeAuto global das fases)
   readLevelSensorsFarm();
   reservoirControlFarm();
+
+  // DHT11: leitura a cada 5s (spec minima: 1s). Bloqueante ~22ms.
+  if (millis() - lastDhtRead > 5000) {
+    lastDhtRead = millis();
+    if (!readDHT11Farm()) {
+      dhtValid = false;  // Marca como invalido — UI mostra "--"
+    }
+  }
 
   if (!modeAuto) return;
   if (!modeAuto) return;
@@ -389,6 +444,9 @@ String hidrofarm_status_json() {
   json += "\"level_high\":" + String(highLevelState ? "true" : "false") + ",";
   json += "\"level_low\":" + String(lowLevelState ? "true" : "false") + ",";
   json += "\"reservoir_state\":\"" + String(reservoirStateStrFarm()) + "\",";
+  json += "\"temperature\":" + String(dhtTemperature) + ",";
+  json += "\"humidity\":" + String(dhtHumidity) + ",";
+  json += "\"dht_valid\":" + String(dhtValid ? "true" : "false") + ",";
   json += "\"cycle_day\":" + String(cycleDay) + ",";
   json += "\"phase\":\"" + String(p->name) + "\",";
   json += "\"phase_index\":" + String(phaseIdx) + ",";
@@ -478,6 +536,9 @@ String hidrofarm_register_json() {
   json += "\"level_high\":" + String(highLevelState ? "true" : "false") + ",";
   json += "\"level_low\":" + String(lowLevelState ? "true" : "false") + ",";
   json += "\"reservoir_state\":\"" + String(reservoirStateStrFarm()) + "\",";
+  json += "\"temperature\":" + String(dhtTemperature) + ",";
+  json += "\"humidity\":" + String(dhtHumidity) + ",";
+  json += "\"dht_valid\":" + String(dhtValid ? "true" : "false") + ",";
   json += "\"mode\":\"" + String(modeAuto ? "auto" : "manual") + "\",";
   json += "\"phase\":\"" + String(p->name) + "\",";
   json += "\"phase_index\":" + String(phaseIdx) + ",";
@@ -885,6 +946,24 @@ String hidrofarm_dashboard_html() {
     + ">&#128260; HOMOG " + (bombaHomoState ? "ON" : "OFF") + "</button>";
   extrasCard += "</div>";
 
+  // Card "Ambiente" — temperatura + umidade do DHT11
+  String ambientCard = "";
+  ambientCard += "<div class='card'>";
+  ambientCard += "<h3 style='font-size:0.9rem;margin-bottom:10px'>&#127777; Ambiente</h3>";
+  ambientCard += "<div class='grid'>";
+  ambientCard += "<div class='stat'><div class='lb'>&#127777; Temperatura</div>";
+  ambientCard += "<div id='atv' class='vl' style='color:#e67e22'>" + String(dhtValid ? String(dhtTemperature) + " &deg;C" : "--") + "</div></div>";
+  ambientCard += "<div class='stat'><div class='lb'>&#128167; Umidade</div>";
+  ambientCard += "<div id='ahv' class='vl' style='color:#4ba3ff'>" + String(dhtValid ? String(dhtHumidity) + " %" : "--") + "</div></div>";
+  ambientCard += "</div>";
+  if (dhtValid && lastDhtOk > 0) {
+    unsigned long ago = (millis() - lastDhtOk) / 1000;
+    ambientCard += "<div id='adu' style='text-align:center;font-size:0.7rem;color:#666;margin-top:6px'>atualizado ha " + String(ago) + "s</div>";
+  } else {
+    ambientCard += "<div id='adu' style='text-align:center;font-size:0.7rem;color:#e74c3c;margin-top:6px'>sensor offline</div>";
+  }
+  ambientCard += "</div>";
+
   String modeBtn = modeAuto
     ? "<button id='bm' onclick=\"cmd('mode','toggle')\" style='width:100%;padding:12px;border-radius:10px;border:1px solid #27ae60;background:rgba(39,174,96,0.1);color:#27ae60;font-weight:700;cursor:pointer'>&#9881; Modo Automatico</button>"
     : "<button id='bm' onclick=\"cmd('mode','toggle')\" style='width:100%;padding:12px;border-radius:10px;border:1px solid #e67e22;background:rgba(230,126,34,0.1);color:#e67e22;font-weight:700;cursor:pointer'>&#9995; Modo Manual</button>";
@@ -981,15 +1060,12 @@ String hidrofarm_dashboard_html() {
   reservoirCard += "<div id='irv' style='font-size:0.85rem'><b>Valvula:</b> <span style='color:" + String(valveEntradaState ? "#4ba3ff" : "#888") + "'>" + String(valveEntradaState ? "ABERTA" : "FECHADA") + "</span></div>";
   reservoirCard += "</div></div>";
 
-  // Botoes manuais (so aparecem em modo MANUAL da valvula)
+  // Botao unico de toggle (so aparece em modo MANUAL da valvula)
   if (!valveAuto) {
-    reservoirCard += "<div id='vmb' style='display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px'>";
-    reservoirCard += "<button id='bvo' onclick=\"if(!" + String(valveEntradaState ? "1" : "0") + ")cmd('valve_entrada','toggle')\" style='padding:12px;border-radius:10px;border:none;font-weight:700;font-size:0.85rem;cursor:pointer;"
-      + String(valveEntradaState ? "background:#4ba3ff;color:#fff'" : "background:#2a2d35;color:#aaa;border:1px solid #3a3d45'")
-      + ">&#128167; ABRIR</button>";
-    reservoirCard += "<button id='bvc' onclick=\"if(" + String(valveEntradaState ? "1" : "0") + ")cmd('valve_entrada','toggle')\" style='padding:12px;border-radius:10px;border:none;font-weight:700;font-size:0.85rem;cursor:pointer;"
-      + String(!valveEntradaState ? "background:#e74c3c;color:#fff'" : "background:#2a2d35;color:#aaa;border:1px solid #3a3d45'")
-      + ">&#9940; FECHAR</button>";
+    reservoirCard += "<div id='vmb' style='margin-top:12px'>";
+    reservoirCard += "<button id='bvt' onclick=\"cmd('valve_entrada','toggle')\" style='width:100%;padding:12px;border-radius:10px;border:none;font-weight:700;font-size:0.9rem;cursor:pointer;"
+      + String(valveEntradaState ? "background:#e74c3c;color:#fff'" : "background:#4ba3ff;color:#fff'")
+      + ">" + String(valveEntradaState ? "&#9940; FECHAR VALVULA" : "&#128167; ABRIR VALVULA") + "</button>";
     reservoirCard += "</div>";
   }
   reservoirCard += "</div>";
@@ -1007,6 +1083,7 @@ String hidrofarm_dashboard_html() {
   html += "</div>";
 
   html += extrasCard;
+  html += ambientCard;
   html += reservoirCard;
 
   html += "<div class='card'><h3 style='font-size:0.9rem;margin-bottom:8px'>Fases Configuradas";
@@ -1036,15 +1113,19 @@ if(ba){ba.style.background=s.aeration?'#00bcd4':'#2a2d35';ba.style.color=s.aerat
 var bbh=document.getElementById('bbh');
 if(bbh){bbh.style.background=s.bomba_homo?'#9b59b6':'#2a2d35';bbh.style.color=s.bomba_homo?'#fff':'#aaa';bbh.innerHTML='&#128260; HOMOG '+(s.bomba_homo?'ON':'OFF')}
 // Reservatorio
-var ilh=document.getElementById('ilh'),ill=document.getElementById('ill'),irs=document.getElementById('irs'),irv=document.getElementById('irv'),tw=document.getElementById('tankWater'),bva=document.getElementById('bva'),bvo=document.getElementById('bvo'),bvc=document.getElementById('bvc'),vmb=document.getElementById('vmb');
+var ilh=document.getElementById('ilh'),ill=document.getElementById('ill'),irs=document.getElementById('irs'),irv=document.getElementById('irv'),tw=document.getElementById('tankWater'),bva=document.getElementById('bva'),bvt=document.getElementById('bvt'),vmb=document.getElementById('vmb');
 if(ilh){ilh.style.color=s.level_high?'#27ae60':'#666';ilh.innerHTML='&#9679; Alto: '+(s.level_high?'ATIVO':'inativo')}
 if(ill){ill.style.color=s.level_low?'#27ae60':'#666';ill.innerHTML='&#9679; Baixo: '+(s.level_low?'ATIVO':'inativo')}
 if(irs){var lbl='',col='#888';if(s.reservoir_state==='full'){lbl='CHEIO';col='#27ae60'}else if(s.reservoir_state==='filling'){lbl='ENCHENDO';col='#3498db'}else if(s.reservoir_state==='empty'){lbl='VAZIO';col='#e67e22'}else if(s.reservoir_state==='error'){lbl='ERRO';col='#e74c3c'}irs.innerHTML='<b>Estado:</b> <span style="color:'+col+'">'+lbl+'</span>'}
 if(irv){irv.innerHTML='<b>Valvula:</b> <span style="color:'+(s.valve_entrada?'#4ba3ff':'#888')+'">'+(s.valve_entrada?'ABERTA':'FECHADA')+'</span>'}
 if(tw){var h='50%',t='50%';if(s.reservoir_state==='full'){h='92%';t='8%'}else if(s.reservoir_state==='filling'){h='55%';t='45%'}else if(s.reservoir_state==='empty'){h='8%';t='92%'}tw.style.height=h;tw.style.top=t}
 if(bva){var va=s.valve_auto;bva.style.borderColor=va?'#27ae60':'#e67e22';bva.style.background=va?'rgba(39,174,96,0.15)':'rgba(230,126,34,0.15)';bva.style.color=va?'#27ae60':'#e67e22';bva.textContent='Modo: '+(va?'AUTO':'MANUAL');if(va&&vmb){vmb.remove()}else if(!va&&!vmb){location.reload()}}
-if(bvo){bvo.style.background=s.valve_entrada?'#4ba3ff':'#2a2d35';bvo.style.color=s.valve_entrada?'#fff':'#aaa'}
-if(bvc){bvc.style.background=!s.valve_entrada?'#e74c3c':'#2a2d35';bvc.style.color=!s.valve_entrada?'#fff':'#aaa'}
+if(bvt){bvt.style.background=s.valve_entrada?'#e74c3c':'#4ba3ff';bvt.innerHTML=s.valve_entrada?'&#9940; FECHAR VALVULA':'&#128167; ABRIR VALVULA'}
+// Ambiente (DHT11)
+var atv=document.getElementById('atv'),ahv=document.getElementById('ahv'),adu=document.getElementById('adu');
+if(atv){atv.innerHTML=s.dht_valid?(s.temperature+' &deg;C'):'--'}
+if(ahv){ahv.innerHTML=s.dht_valid?(s.humidity+' %'):'--'}
+if(adu){if(s.dht_valid){adu.style.color='#666';adu.textContent='atualizado agora'}else{adu.style.color='#e74c3c';adu.textContent='sensor offline'}}
 var isAuto=s.mode==='auto';
 if(bm){bm.style.borderColor=isAuto?'#27ae60':'#e67e22';bm.style.background=isAuto?'rgba(39,174,96,0.1)':'rgba(230,126,34,0.1)';bm.style.color=isAuto?'#27ae60':'#e67e22';bm.innerHTML=isAuto?'&#9881; Modo Automatico':'&#9995; Modo Manual'}
 if(isAuto&&mb){mb.remove()}
@@ -1215,6 +1296,9 @@ void hidrofarm_setup() {
   // Sensores de nivel (boias) — INPUT_PULLUP (fail-safe: sem cabo = inativo)
   pinMode(SENSOR_NIVEL_ALTO, INPUT_PULLUP);
   pinMode(SENSOR_NIVEL_BAIXO, INPUT_PULLUP);
+
+  // DHT11: pino em INPUT_PULLUP por default — a funcao de leitura alterna pra OUTPUT temporariamente
+  pinMode(DHT_PIN, INPUT_PULLUP);
 
   // Carrega preferencia do modo da valvula (default: auto)
   prefs.begin("hydrofarm", true);

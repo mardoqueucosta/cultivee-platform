@@ -61,7 +61,9 @@ const moduleRenderers = {
             const stateMap = { full: 'Cheio', filling: 'Enchendo', empty: 'Vazio', error: 'ERRO' };
             const r = data.reservoir_state ? `Res: ${stateMap[data.reservoir_state] || '?'}` : '';
             const h = data.bomba_homo ? 'Hom ON' : 'Hom OFF';
-            return [l, p, v, a, r, h].filter(Boolean).join(' · ');
+            // Ambiente: temperatura/umidade quando disponiveis
+            const amb = data.dht_valid && data.temperature !== undefined ? `${data.temperature}°C/${data.humidity}%` : '';
+            return [l, p, v, a, r, h, amb].filter(Boolean).join(' · ');
         }
     },
     cam: {
@@ -513,7 +515,7 @@ async function loadCtrlStatus(chipId, moduleType, container) {
             data.aeration = localState.aeration;
             data.mode = localState.mode;
         }
-        const key = `${data.light}:${data.pump}:${data.ventilation}:${data.aeration}:${data.valve_entrada}:${data.bomba_homo}:${data.valve_auto}:${data.level_high}:${data.level_low}:${data.reservoir_state}:${data.mode}:${data.phase}:${data.phase_index}:${data.cycle_day}:${data.start_date}`;
+        const key = `${data.light}:${data.pump}:${data.ventilation}:${data.aeration}:${data.valve_entrada}:${data.bomba_homo}:${data.valve_auto}:${data.level_high}:${data.level_low}:${data.reservoir_state}:${data.temperature}:${data.humidity}:${data.dht_valid}:${data.mode}:${data.phase}:${data.phase_index}:${data.cycle_day}:${data.start_date}`;
         if (key === _lastCtrlKey && !container) return;
         _lastCtrlKey = key;
         renderDashboard(ct, chipId, moduleType, data);
@@ -581,18 +583,20 @@ function renderDashboard(container, chipId, moduleType, data) {
     const aerPending = pendingCommands.has('aeration');
     const modePending = pendingCommands.has('mode');
 
-    // Hidro-Farm: reles extras e reservatorio
+    // Hidro-Farm: reles extras, reservatorio e ambiente (DHT11)
     // Detectados pelos proprios campos no data — compatibilidade retroativa com o hidro legado.
-    // HOMOG fica no bloco de controles manuais (so em modeAuto === false).
-    // VALVULA foi movida para o card dedicado "Reservatorio" (com seu proprio modo auto/manual).
     const hasFarmControls = data.bomba_homo !== undefined;
     const hasReservoir = data.level_high !== undefined || data.level_low !== undefined;
+    const hasAmbient = data.temperature !== undefined || data.humidity !== undefined || data.dht_valid !== undefined;
     const valveOn = data.valve_entrada || false;
     const homoOn = data.bomba_homo || false;
     const valveAutoOn = data.valve_auto !== false; // default true (retrocompat)
     const levelHigh = data.level_high || false;
     const levelLow = data.level_low || false;
     const reservoirState = data.reservoir_state || 'unknown';
+    const dhtValid = data.dht_valid === true;
+    const temperature = data.temperature;
+    const humidity = data.humidity;
     const homoPending = pendingCommands.has('bomba_homo');
     const valvePending = pendingCommands.has('valve_entrada');
     const valveAutoPending = pendingCommands.has('valve_auto');
@@ -636,6 +640,30 @@ function renderDashboard(container, chipId, moduleType, data) {
         </div>`;
     }
 
+    // Card "Ambiente" — DHT11 (temperatura + umidade)
+    let ambientHtml = '';
+    if (hasAmbient) {
+        const tempDisplay = dhtValid && temperature !== undefined ? `${temperature} &deg;C` : '--';
+        const humidDisplay = dhtValid && humidity !== undefined ? `${humidity} %` : '--';
+        const statusMsg = dhtValid ? 'atualizado agora' : 'sensor offline';
+        const statusColor = dhtValid ? 'var(--text-muted)' : '#e74c3c';
+
+        ambientHtml = `<div class="card ambient-card">
+            <div class="card-header"><div class="card-title"><h2>&#127777; Ambiente</h2></div></div>
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="label">&#127777; Temperatura</div>
+                    <div class="value" style="color:#e67e22">${tempDisplay}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="label">&#128167; Umidade</div>
+                    <div class="value" style="color:#4ba3ff">${humidDisplay}</div>
+                </div>
+            </div>
+            <div class="ambient-status" style="color:${statusColor}">${statusMsg}</div>
+        </div>`;
+    }
+
     // Card "Reservatorio" — sempre visivel quando o modulo tem boias (hidro-farm)
     // Tem seu proprio modo auto/manual independente do modeAuto global
     let reservoirHtml = '';
@@ -646,17 +674,13 @@ function renderDashboard(container, chipId, moduleType, data) {
         else if (reservoirState === 'empty')  { stateLabel = 'VAZIO';    stateColor = '#e67e22'; waterH = '8%';  waterT = '92%'; }
         else                                  { stateLabel = 'ERRO';     stateColor = '#e74c3c'; waterH = '50%'; waterT = '50%'; }
 
+        // Botao unico de toggle — muda cor e texto conforme o estado atual da valvula
         const manualBtnsHtml = !valveAutoOn ? `
-            <div class="reservoir-manual">
-                <button class="ctrl-btn ${valveOn ? 'on' : 'off'} ${valvePending ? 'pending' : ''}" style="${valveOn ? 'border-color:#4ba3ff;background:rgba(75,163,255,0.15);color:#4ba3ff' : ''}"
-                        onclick="if(!${valveOn})toggleRelay('${chipId}','${moduleType}','valve_entrada')" ${valvePending || valveOn ? 'disabled' : ''}>
-                    ${valvePending ? '<span class="btn-spinner"></span>' : '<span class="ctrl-btn-icon">&#128167;</span>'}
-                    <span>${valvePending ? 'Enviando...' : 'ABRIR'}</span>
-                </button>
-                <button class="ctrl-btn ${!valveOn ? 'on' : 'off'} ${valvePending ? 'pending' : ''}" style="${!valveOn ? 'border-color:#e74c3c;background:rgba(231,76,60,0.15);color:#e74c3c' : ''}"
-                        onclick="if(${valveOn})toggleRelay('${chipId}','${moduleType}','valve_entrada')" ${valvePending || !valveOn ? 'disabled' : ''}>
-                    ${valvePending ? '<span class="btn-spinner"></span>' : '<span class="ctrl-btn-icon">&#9940;</span>'}
-                    <span>${valvePending ? 'Enviando...' : 'FECHAR'}</span>
+            <div class="reservoir-manual" style="grid-template-columns: 1fr">
+                <button class="ctrl-btn ${valvePending ? 'pending' : ''}" style="border-color:${valveOn ? '#e74c3c' : '#4ba3ff'};background:${valveOn ? 'rgba(231,76,60,0.15)' : 'rgba(75,163,255,0.15)'};color:${valveOn ? '#e74c3c' : '#4ba3ff'}"
+                        onclick="toggleRelay('${chipId}','${moduleType}','valve_entrada')" ${valvePending ? 'disabled' : ''}>
+                    ${valvePending ? '<span class="btn-spinner"></span>' : `<span class="ctrl-btn-icon">${valveOn ? '&#9940;' : '&#128167;'}</span>`}
+                    <span>${valvePending ? 'Enviando...' : (valveOn ? 'FECHAR VALVULA' : 'ABRIR VALVULA')}</span>
                 </button>
             </div>` : '';
 
@@ -716,6 +740,7 @@ function renderDashboard(container, chipId, moduleType, data) {
             ${controlsHtml}
         </div>
         ${extrasHtml}
+        ${ambientHtml}
         ${reservoirHtml}
         ${phasesHtml ? `<div class="card">
             <div class="card-header">

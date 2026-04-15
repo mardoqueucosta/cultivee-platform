@@ -109,6 +109,13 @@ bool lowLevelState     = false;   // Estado confirmado (pos-debounce) da boia BA
 bool highLevelRaw      = false;   // Ultima leitura raw (para debounce de 2 amostras)
 bool lowLevelRaw       = false;
 unsigned long lastLevelRead = 0;  // Timestamp da ultima leitura (debounce + throttle)
+
+// Sensor DHT11 (temperatura + umidade)
+int dhtTemperature       = 0;     // Temperatura em graus Celsius (inteiro)
+int dhtHumidity          = 0;     // Umidade relativa em % (inteiro)
+bool dhtValid            = false; // true se a ultima leitura foi bem-sucedida
+unsigned long lastDhtRead = 0;    // Timestamp da ultima tentativa de leitura
+unsigned long lastDhtOk   = 0;    // Timestamp da ultima leitura bem-sucedida (para "atualizado ha Xs")
 #endif
 
 // ===== VARIAVEIS GLOBAIS CAMERA =====
