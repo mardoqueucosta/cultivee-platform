@@ -95,10 +95,20 @@ unsigned long lastAutoCheck = 0;
 #endif
 
 // ===== VARIAVEIS GLOBAIS HIDRO-FARM EXTRA =====
-// Reles sempre manuais — NAO participam da automacao por fase nem do modeAuto
+// Reles extras do hidro-farm — NAO participam da automacao por fase nem do modeAuto global
 #ifdef MOD_HIDROFARM
-bool valveEntradaState = false;   // RELE_VALVULA_ENTRADA (GPIO18)
-bool bombaHomoState    = false;   // RELE_BOMBA_HOMO      (GPIO19)
+// Rele da valvula de entrada — controlado pela automacao de nivel (se valveAuto=true) ou manual
+bool valveEntradaState = false;
+// Rele da bomba de homogeneizacao — sempre manual puro
+bool bombaHomoState    = false;
+
+// Sistema de reposicao automatica do reservatorio
+bool valveAuto         = true;    // true = automacao por boias controla a valvula; false = manual puro
+bool highLevelState    = false;   // Estado confirmado (pos-debounce) da boia ALTA
+bool lowLevelState     = false;   // Estado confirmado (pos-debounce) da boia BAIXA
+bool highLevelRaw      = false;   // Ultima leitura raw (para debounce de 2 amostras)
+bool lowLevelRaw       = false;
+unsigned long lastLevelRead = 0;  // Timestamp da ultima leitura (debounce + throttle)
 #endif
 
 // ===== VARIAVEIS GLOBAIS CAMERA =====

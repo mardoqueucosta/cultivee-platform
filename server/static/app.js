@@ -57,9 +57,11 @@ const moduleRenderers = {
             const p = data.pump ? 'Bomba ON' : 'Bomba OFF';
             const v = data.ventilation ? 'Vent ON' : 'Vent OFF';
             const a = data.aeration ? 'Aera ON' : 'Aera OFF';
-            const vl = data.valve_entrada ? 'Válv ON' : 'Válv OFF';
+            // Reservatorio: prioriza estado logico (cheio/enchendo/vazio/erro) sobre valvula
+            const stateMap = { full: 'Cheio', filling: 'Enchendo', empty: 'Vazio', error: 'ERRO' };
+            const r = data.reservoir_state ? `Res: ${stateMap[data.reservoir_state] || '?'}` : '';
             const h = data.bomba_homo ? 'Hom ON' : 'Hom OFF';
-            return `${l} · ${p} · ${v} · ${a} · ${vl} · ${h}`;
+            return [l, p, v, a, r, h].filter(Boolean).join(' · ');
         }
     },
     cam: {
@@ -511,7 +513,7 @@ async function loadCtrlStatus(chipId, moduleType, container) {
             data.aeration = localState.aeration;
             data.mode = localState.mode;
         }
-        const key = `${data.light}:${data.pump}:${data.ventilation}:${data.aeration}:${data.valve_entrada}:${data.bomba_homo}:${data.mode}:${data.phase}:${data.phase_index}:${data.cycle_day}:${data.start_date}`;
+        const key = `${data.light}:${data.pump}:${data.ventilation}:${data.aeration}:${data.valve_entrada}:${data.bomba_homo}:${data.valve_auto}:${data.level_high}:${data.level_low}:${data.reservoir_state}:${data.mode}:${data.phase}:${data.phase_index}:${data.cycle_day}:${data.start_date}`;
         if (key === _lastCtrlKey && !container) return;
         _lastCtrlKey = key;
         renderDashboard(ct, chipId, moduleType, data);
@@ -579,14 +581,21 @@ function renderDashboard(container, chipId, moduleType, data) {
     const aerPending = pendingCommands.has('aeration');
     const modePending = pendingCommands.has('mode');
 
-    // Hidro-Farm: 2 reles sempre manuais (valvula entrada + bomba homogeneizacao)
+    // Hidro-Farm: reles extras e reservatorio
     // Detectados pelos proprios campos no data — compatibilidade retroativa com o hidro legado.
-    // Como todos os controles manuais, so aparecem quando modeAuto === false.
-    const hasFarmControls = data.valve_entrada !== undefined || data.bomba_homo !== undefined;
+    // HOMOG fica no bloco de controles manuais (so em modeAuto === false).
+    // VALVULA foi movida para o card dedicado "Reservatorio" (com seu proprio modo auto/manual).
+    const hasFarmControls = data.bomba_homo !== undefined;
+    const hasReservoir = data.level_high !== undefined || data.level_low !== undefined;
     const valveOn = data.valve_entrada || false;
     const homoOn = data.bomba_homo || false;
-    const valvePending = pendingCommands.has('valve_entrada');
+    const valveAutoOn = data.valve_auto !== false; // default true (retrocompat)
+    const levelHigh = data.level_high || false;
+    const levelLow = data.level_low || false;
+    const reservoirState = data.reservoir_state || 'unknown';
     const homoPending = pendingCommands.has('bomba_homo');
+    const valvePending = pendingCommands.has('valve_entrada');
+    const valveAutoPending = pendingCommands.has('valve_auto');
 
     let controlsHtml = '';
     if (!modeAuto) {
@@ -611,15 +620,65 @@ function renderDashboard(container, chipId, moduleType, data) {
             </button>
         </div>` + (hasFarmControls ? `
         <div class="controls-row">
-            <button class="ctrl-btn ${valveOn ? 'on' : 'off'} ${valvePending ? 'pending' : ''}" style="${valveOn ? 'border-color:#4ba3ff;background:rgba(75,163,255,0.15);color:#4ba3ff' : ''}" onclick="toggleRelay('${chipId}','${moduleType}','valve_entrada')" ${valvePending ? 'disabled' : ''}>
-                ${valvePending ? '<span class="btn-spinner"></span>' : `<span class="ctrl-btn-icon">${valveOn ? '&#128167;' : '&#9899;'}</span>`}
-                <span>${valvePending ? 'Enviando...' : `VALVULA ${valveOn ? 'ON' : 'OFF'}`}</span>
-            </button>
-            <button class="ctrl-btn ${homoOn ? 'on' : 'off'} ${homoPending ? 'pending' : ''}" style="${homoOn ? 'border-color:#9b59b6;background:rgba(155,89,182,0.15);color:#9b59b6' : ''}" onclick="toggleRelay('${chipId}','${moduleType}','bomba_homo')" ${homoPending ? 'disabled' : ''}>
+            <button class="ctrl-btn ${homoOn ? 'on' : 'off'} ${homoPending ? 'pending' : ''}" style="flex: 1 1 100%; ${homoOn ? 'border-color:#9b59b6;background:rgba(155,89,182,0.15);color:#9b59b6' : ''}" onclick="toggleRelay('${chipId}','${moduleType}','bomba_homo')" ${homoPending ? 'disabled' : ''}>
                 ${homoPending ? '<span class="btn-spinner"></span>' : `<span class="ctrl-btn-icon">${homoOn ? '&#128260;' : '&#9899;'}</span>`}
                 <span>${homoPending ? 'Enviando...' : `HOMOG ${homoOn ? 'ON' : 'OFF'}`}</span>
             </button>
         </div>` : '');
+    }
+
+    // Card "Reservatorio" — sempre visivel quando o modulo tem boias (hidro-farm)
+    // Tem seu proprio modo auto/manual independente do modeAuto global
+    let reservoirHtml = '';
+    if (hasReservoir) {
+        let stateLabel, stateColor, waterH, waterT;
+        if (reservoirState === 'full')        { stateLabel = 'CHEIO';    stateColor = '#27ae60'; waterH = '92%'; waterT = '8%';  }
+        else if (reservoirState === 'filling'){ stateLabel = 'ENCHENDO'; stateColor = '#3498db'; waterH = '55%'; waterT = '45%'; }
+        else if (reservoirState === 'empty')  { stateLabel = 'VAZIO';    stateColor = '#e67e22'; waterH = '8%';  waterT = '92%'; }
+        else                                  { stateLabel = 'ERRO';     stateColor = '#e74c3c'; waterH = '50%'; waterT = '50%'; }
+
+        const manualBtnsHtml = !valveAutoOn ? `
+            <div class="reservoir-manual">
+                <button class="ctrl-btn ${valveOn ? 'on' : 'off'} ${valvePending ? 'pending' : ''}" style="${valveOn ? 'border-color:#4ba3ff;background:rgba(75,163,255,0.15);color:#4ba3ff' : ''}"
+                        onclick="if(!${valveOn})toggleRelay('${chipId}','${moduleType}','valve_entrada')" ${valvePending || valveOn ? 'disabled' : ''}>
+                    ${valvePending ? '<span class="btn-spinner"></span>' : '<span class="ctrl-btn-icon">&#128167;</span>'}
+                    <span>${valvePending ? 'Enviando...' : 'ABRIR'}</span>
+                </button>
+                <button class="ctrl-btn ${!valveOn ? 'on' : 'off'} ${valvePending ? 'pending' : ''}" style="${!valveOn ? 'border-color:#e74c3c;background:rgba(231,76,60,0.15);color:#e74c3c' : ''}"
+                        onclick="if(${valveOn})toggleRelay('${chipId}','${moduleType}','valve_entrada')" ${valvePending || !valveOn ? 'disabled' : ''}>
+                    ${valvePending ? '<span class="btn-spinner"></span>' : '<span class="ctrl-btn-icon">&#9940;</span>'}
+                    <span>${valvePending ? 'Enviando...' : 'FECHAR'}</span>
+                </button>
+            </div>` : '';
+
+        reservoirHtml = `<div class="card reservoir-card">
+            <div class="reservoir-header">
+                <h2>&#128167; Reservatorio</h2>
+                <button class="reservoir-mode-btn ${valveAutoOn ? 'auto' : 'manual'} ${valveAutoPending ? 'pending' : ''}" onclick="toggleRelay('${chipId}','${moduleType}','valve_auto')" ${valveAutoPending ? 'disabled' : ''}>
+                    ${valveAutoPending ? '<span class="btn-spinner"></span>' : (valveAutoOn ? 'Modo: AUTO' : 'Modo: MANUAL')}
+                </button>
+            </div>
+            <div class="reservoir-body">
+                <div class="reservoir-tank">
+                    <div class="tank-outline">
+                        <div class="tank-water ${reservoirState}" style="height:${waterH};top:${waterT}"></div>
+                        <div class="tank-mark-high"></div>
+                        <div class="tank-mark-low"></div>
+                    </div>
+                </div>
+                <div class="reservoir-info">
+                    <div class="level-indicator ${levelHigh ? 'active' : ''}">
+                        <span class="dot"></span><span>Alto: ${levelHigh ? 'ATIVO' : 'inativo'}</span>
+                    </div>
+                    <div class="level-indicator ${levelLow ? 'active' : ''}">
+                        <span class="dot"></span><span>Baixo: ${levelLow ? 'ATIVO' : 'inativo'}</span>
+                    </div>
+                    <div class="reservoir-state"><b>Estado:</b> <span style="color:${stateColor}">${stateLabel}</span></div>
+                    <div class="reservoir-valve"><b>Valvula:</b> <span style="color:${valveOn ? '#4ba3ff' : '#888'}">${valveOn ? 'ABERTA' : 'FECHADA'}</span></div>
+                </div>
+            </div>
+            ${manualBtnsHtml}
+        </div>`;
     }
 
     const now = new Date();
@@ -647,6 +706,7 @@ function renderDashboard(container, chipId, moduleType, data) {
             </button>
             ${controlsHtml}
         </div>
+        ${reservoirHtml}
         ${phasesHtml ? `<div class="card">
             <div class="card-header">
                 <div class="card-title"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg><h2>Fases</h2></div>
@@ -664,6 +724,7 @@ async function toggleRelay(chipId, moduleType, device) {
         else if (device === "aeration") localState.aeration = !localState.aeration;
         else if (device === "valve_entrada") localState.valve_entrada = !localState.valve_entrada;
         else if (device === "bomba_homo") localState.bomba_homo = !localState.bomba_homo;
+        else if (device === "valve_auto") localState.valve_auto = !(localState.valve_auto !== false);
         else if (device === "mode") localState.mode = localState.mode === "auto" ? "manual" : "auto";
         lastToggleTime = Date.now();
         pendingCommands.add(device);
@@ -685,6 +746,7 @@ async function toggleRelay(chipId, moduleType, device) {
             if (device === "aeration" && data.aeration === localState.aeration) { confirmed = true; break; }
             if (device === "valve_entrada" && data.valve_entrada === localState.valve_entrada) { confirmed = true; break; }
             if (device === "bomba_homo" && data.bomba_homo === localState.bomba_homo) { confirmed = true; break; }
+            if (device === "valve_auto" && data.valve_auto === localState.valve_auto) { confirmed = true; break; }
             if (device === "mode" && data.mode === localState.mode) {
                 // Ao trocar modo, sincroniza estados reais dos reles
                 localState.light = data.light;

@@ -1348,6 +1348,171 @@ main { max-width: 1400px; margin: 0 auto; padding: 0 0.75rem; }
 }
 
 /* =====================================================================
+   Reservoir Card (hidro-farm)
+   ===================================================================== */
+
+.reservoir-card {
+    /* Usa as classes .card existentes via composicao no HTML */
+}
+
+.reservoir-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.75rem;
+}
+
+.reservoir-header h2 {
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--text-bright);
+    margin: 0;
+}
+
+.reservoir-mode-btn {
+    padding: 0.3rem 0.7rem;
+    border-radius: 0.5rem;
+    font-size: 0.7rem;
+    font-weight: 700;
+    cursor: pointer;
+    border: 1px solid;
+    transition: all 0.2s;
+    min-width: 100px;
+}
+
+.reservoir-mode-btn.auto {
+    border-color: hsl(142, 71%, 45%);
+    background: hsla(142, 71%, 45%, 0.15);
+    color: hsl(142, 71%, 45%);
+}
+
+.reservoir-mode-btn.manual {
+    border-color: hsl(27, 84%, 52%);
+    background: hsla(27, 84%, 52%, 0.15);
+    color: hsl(27, 84%, 52%);
+}
+
+.reservoir-mode-btn.pending {
+    opacity: 0.6;
+    cursor: wait;
+}
+
+.reservoir-body {
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+    padding: 0.5rem 0;
+}
+
+/* Tank visual */
+.reservoir-tank {
+    flex-shrink: 0;
+    width: 60px;
+    height: 160px;
+}
+
+.tank-outline {
+    width: 100%;
+    height: 100%;
+    border: 2px solid hsl(210, 15%, 25%);
+    border-radius: 6px;
+    background: hsl(210, 20%, 8%);
+    position: relative;
+    overflow: hidden;
+}
+
+.tank-water {
+    position: absolute;
+    left: 0;
+    right: 0;
+    background: linear-gradient(to top, #2980b9, #4ba3ff);
+    transition: all 0.5s ease;
+    box-shadow: 0 -2px 8px rgba(75, 163, 255, 0.4);
+}
+
+.tank-water.error {
+    background: linear-gradient(to top, #c0392b, #e74c3c);
+    animation: tank-error-pulse 1s infinite;
+}
+
+.tank-water.empty {
+    background: linear-gradient(to top, #d35400, #e67e22);
+}
+
+.tank-water.filling {
+    animation: tank-filling-shimmer 2s ease-in-out infinite;
+}
+
+@keyframes tank-filling-shimmer {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.75; }
+}
+
+@keyframes tank-error-pulse {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.5; }
+}
+
+.tank-mark-high,
+.tank-mark-low {
+    position: absolute;
+    left: -4px;
+    right: -4px;
+    height: 0;
+    border-top: 1px dashed hsl(210, 15%, 55%);
+    pointer-events: none;
+}
+
+.tank-mark-high { top: 13%; }
+.tank-mark-low  { top: 70%; }
+
+/* Info column */
+.reservoir-info {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    font-size: 0.85rem;
+}
+
+.level-indicator {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: hsl(210, 15%, 45%);
+}
+
+.level-indicator .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: hsl(210, 15%, 35%);
+}
+
+.level-indicator.active {
+    color: hsl(142, 71%, 45%);
+}
+
+.level-indicator.active .dot {
+    background: hsl(142, 71%, 45%);
+    box-shadow: 0 0 6px hsla(142, 71%, 45%, 0.6);
+}
+
+.reservoir-state,
+.reservoir-valve {
+    font-size: 0.85rem;
+    color: var(--text);
+}
+
+/* Manual controls (below body, only when valveAuto === false) */
+.reservoir-manual {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+}
+
+/* =====================================================================
    Responsive
    ===================================================================== */
 

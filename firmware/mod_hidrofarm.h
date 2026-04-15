@@ -191,7 +191,88 @@ bool isDayTimeFarm(Phase *p) {
   return isLightTimeFarm(p);
 }
 
+// ===================== RESERVATORIO (BOIAS + VALVULA) =====================
+
+// Le os sensores de nivel com debounce de 2 amostras consecutivas.
+// Chamada no loop principal; efetiva uma mudanca so apos 2 leituras iguais (~600ms).
+void readLevelSensorsFarm() {
+  unsigned long now = millis();
+  if (now - lastLevelRead < 300) return;
+  lastLevelRead = now;
+
+  bool altoRaw  = (digitalRead(SENSOR_NIVEL_ALTO)  == LEVEL_SENSOR_ACTIVE);
+  bool baixoRaw = (digitalRead(SENSOR_NIVEL_BAIXO) == LEVEL_SENSOR_ACTIVE);
+
+  // Debounce: confirma mudanca so se leitura raw atual igual a anterior E diferente do estado atual
+  if (altoRaw == highLevelRaw && altoRaw != highLevelState) {
+    highLevelState = altoRaw;
+    Serial.printf("Boia ALTA: %s\n", highLevelState ? "ATIVA" : "INATIVA");
+  }
+  if (baixoRaw == lowLevelRaw && baixoRaw != lowLevelState) {
+    lowLevelState = baixoRaw;
+    Serial.printf("Boia BAIXA: %s\n", lowLevelState ? "ATIVA" : "INATIVA");
+  }
+
+  highLevelRaw = altoRaw;
+  lowLevelRaw  = baixoRaw;
+}
+
+// Retorna string com o estado logico do reservatorio (usado no JSON e dashboard).
+// "full"    — ambos os sensores ativos, reservatorio cheio
+// "filling" — so baixo ativo, agua entre os sensores
+// "empty"   — ambos inativos, reservatorio abaixo do minimo
+// "error"   — alto ativo mas baixo inativo (fisicamente impossivel — sensor defeituoso)
+const char* reservoirStateStrFarm() {
+  if (highLevelState && lowLevelState)  return "full";
+  if (!highLevelState && lowLevelState) return "filling";
+  if (!highLevelState && !lowLevelState) return "empty";
+  return "error"; // alto ON + baixo OFF
+}
+
+// Maquina de estados da reposicao automatica.
+// So atua se valveAuto == true. Em caso de erro de sensor, fecha valvula por seguranca.
+void reservoirControlFarm() {
+  if (!valveAuto) return;
+
+  // ERRO: sensor alto ativo sem o baixo — fisicamente impossivel. Fecha por seguranca.
+  if (highLevelState && !lowLevelState) {
+    if (valveEntradaState) {
+      valveEntradaState = false;
+      setRelayFarm(RELE_VALVULA_ENTRADA, false);
+      Serial.println("Auto: Valvula FECHADA (ERRO DE SENSOR — seguranca)");
+    }
+    return;
+  }
+
+  // CHEIO: alto ativo → fechar valvula
+  if (highLevelState) {
+    if (valveEntradaState) {
+      valveEntradaState = false;
+      setRelayFarm(RELE_VALVULA_ENTRADA, false);
+      Serial.println("Auto: Valvula FECHADA (reservatorio cheio)");
+    }
+    return;
+  }
+
+  // VAZIO: ambos inativos → abrir valvula
+  if (!highLevelState && !lowLevelState) {
+    if (!valveEntradaState) {
+      valveEntradaState = true;
+      setRelayFarm(RELE_VALVULA_ENTRADA, true);
+      Serial.println("Auto: Valvula ABERTA (reservatorio vazio)");
+    }
+    return;
+  }
+
+  // ENCHENDO: baixo ativo, alto inativo — manter estado atual (histerese)
+}
+
 void hidrofarm_loop() {
+  // Sensores e automacao de nivel rodam SEMPRE (nao dependem do modeAuto global das fases)
+  readLevelSensorsFarm();
+  reservoirControlFarm();
+
+  if (!modeAuto) return;
   if (!modeAuto) return;
   struct tm testTime;
   if (!getCurrentTime(&testTime)) return;
@@ -304,6 +385,10 @@ String hidrofarm_status_json() {
   json += "\"aeration\":" + String(aerationState ? "true" : "false") + ",";
   json += "\"valve_entrada\":" + String(valveEntradaState ? "true" : "false") + ",";
   json += "\"bomba_homo\":" + String(bombaHomoState ? "true" : "false") + ",";
+  json += "\"valve_auto\":" + String(valveAuto ? "true" : "false") + ",";
+  json += "\"level_high\":" + String(highLevelState ? "true" : "false") + ",";
+  json += "\"level_low\":" + String(lowLevelState ? "true" : "false") + ",";
+  json += "\"reservoir_state\":\"" + String(reservoirStateStrFarm()) + "\",";
   json += "\"cycle_day\":" + String(cycleDay) + ",";
   json += "\"phase\":\"" + String(p->name) + "\",";
   json += "\"phase_index\":" + String(phaseIdx) + ",";
@@ -389,6 +474,10 @@ String hidrofarm_register_json() {
   json += "\"aeration\":" + String(aerationState ? "true" : "false") + ",";
   json += "\"valve_entrada\":" + String(valveEntradaState ? "true" : "false") + ",";
   json += "\"bomba_homo\":" + String(bombaHomoState ? "true" : "false") + ",";
+  json += "\"valve_auto\":" + String(valveAuto ? "true" : "false") + ",";
+  json += "\"level_high\":" + String(highLevelState ? "true" : "false") + ",";
+  json += "\"level_low\":" + String(lowLevelState ? "true" : "false") + ",";
+  json += "\"reservoir_state\":\"" + String(reservoirStateStrFarm()) + "\",";
   json += "\"mode\":\"" + String(modeAuto ? "auto" : "manual") + "\",";
   json += "\"phase\":\"" + String(p->name) + "\",";
   json += "\"phase_index\":" + String(phaseIdx) + ",";
@@ -438,10 +527,17 @@ void handleGpioFarm() {
       Serial.printf("GPIO: Aeracao %s\n", aerationState ? "ON" : "OFF");
     }
   } else if (name == "valve_entrada") {
-    // Rele sempre manual — NAO interage com modeAuto
+    // Toggle manual da valvula — so tem efeito se valveAuto=false (senao a automacao sobrepoe)
     valveEntradaState = !valveEntradaState;
     setRelayFarm(RELE_VALVULA_ENTRADA, valveEntradaState);
     Serial.printf("GPIO: Valvula Entrada %s\n", valveEntradaState ? "ON" : "OFF");
+  } else if (name == "valve_auto") {
+    // Toggle do modo da valvula — persiste no NVS
+    valveAuto = !valveAuto;
+    prefs.begin("hydrofarm", false);
+    prefs.putBool("valve_auto", valveAuto);
+    prefs.end();
+    Serial.printf("GPIO: Valvula modo %s\n", valveAuto ? "AUTO (boias)" : "MANUAL");
   } else if (name == "bomba_homo") {
     // Rele sempre manual — NAO interage com modeAuto
     bombaHomoState = !bombaHomoState;
@@ -506,10 +602,17 @@ void handleRelayFarm() {
       Serial.printf("Manual: Aeracao %s\n", aerationState ? "ON" : "OFF");
     }
   } else if (device == "valve_entrada") {
-    // Rele sempre manual — NAO interage com modeAuto
+    // Toggle manual da valvula — so tem efeito se valveAuto=false
     valveEntradaState = !valveEntradaState;
     setRelayFarm(RELE_VALVULA_ENTRADA, valveEntradaState);
     Serial.printf("Manual: Valvula Entrada %s\n", valveEntradaState ? "ON" : "OFF");
+  } else if (device == "valve_auto") {
+    // Toggle do modo da valvula — persiste no NVS
+    valveAuto = !valveAuto;
+    prefs.begin("hydrofarm", false);
+    prefs.putBool("valve_auto", valveAuto);
+    prefs.end();
+    Serial.printf("Manual: Valvula modo %s\n", valveAuto ? "AUTO (boias)" : "MANUAL");
   } else if (device == "bomba_homo") {
     // Rele sempre manual — NAO interage com modeAuto
     bombaHomoState = !bombaHomoState;
@@ -759,6 +862,7 @@ String hidrofarm_dashboard_html() {
 
   String manualBtns = "";
   if (!modeAuto) {
+    // Grid 2 colunas: LUZ/BOMBA, VENT/AERA, HOMOG span 2
     manualBtns = "<div id='mb' style='display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px'>"
       "<button id='bl' onclick=\"cmd('light','toggle')\" style='padding:12px;border-radius:10px;border:none;font-weight:700;font-size:0.9rem;cursor:pointer;"
       + String(lightState ? "background:#27ae60;color:#fff'" : "background:#2a2d35;color:#aaa;border:1px solid #3a3d45'") + ">LUZ " + (lightState ? "ON" : "OFF") + "</button>"
@@ -768,9 +872,7 @@ String hidrofarm_dashboard_html() {
       + String(ventilationState ? "background:#2ecc71;color:#fff'" : "background:#2a2d35;color:#aaa;border:1px solid #3a3d45'") + ">VENT " + (ventilationState ? "ON" : "OFF") + "</button>"
       "<button id='ba' onclick=\"cmd('aeration','toggle')\" style='padding:12px;border-radius:10px;border:none;font-weight:700;font-size:0.9rem;cursor:pointer;"
       + String(aerationState ? "background:#00bcd4;color:#fff'" : "background:#2a2d35;color:#aaa;border:1px solid #3a3d45'") + ">AERA " + (aerationState ? "ON" : "OFF") + "</button>"
-      "<button id='bve' onclick=\"cmd('valve_entrada','toggle')\" style='padding:12px;border-radius:10px;border:none;font-weight:700;font-size:0.85rem;cursor:pointer;"
-      + String(valveEntradaState ? "background:#4ba3ff;color:#fff'" : "background:#2a2d35;color:#aaa;border:1px solid #3a3d45'") + ">&#128167; VALVULA " + (valveEntradaState ? "ON" : "OFF") + "</button>"
-      "<button id='bbh' onclick=\"cmd('bomba_homo','toggle')\" style='padding:12px;border-radius:10px;border:none;font-weight:700;font-size:0.85rem;cursor:pointer;"
+      "<button id='bbh' onclick=\"cmd('bomba_homo','toggle')\" style='grid-column:1/-1;padding:12px;border-radius:10px;border:none;font-weight:700;font-size:0.85rem;cursor:pointer;"
       + String(bombaHomoState ? "background:#9b59b6;color:#fff'" : "background:#2a2d35;color:#aaa;border:1px solid #3a3d45'") + ">&#128260; HOMOG " + (bombaHomoState ? "ON" : "OFF") + "</button></div>";
   }
 
@@ -820,6 +922,69 @@ String hidrofarm_dashboard_html() {
     phasesHtml += "</div></div>";
   }
 
+  // Card "Reservatorio" — sempre visivel, com tanque visual, indicadores e controles
+  const char* reservoirState = reservoirStateStrFarm();
+  String stateLabel, stateColor, waterHeight, waterTop;
+  if (strcmp(reservoirState, "full") == 0) {
+    stateLabel = "CHEIO"; stateColor = "#27ae60";
+    waterHeight = "92%"; waterTop = "8%";
+  } else if (strcmp(reservoirState, "filling") == 0) {
+    stateLabel = "ENCHENDO"; stateColor = "#3498db";
+    waterHeight = "55%"; waterTop = "45%";
+  } else if (strcmp(reservoirState, "empty") == 0) {
+    stateLabel = "VAZIO"; stateColor = "#e67e22";
+    waterHeight = "8%"; waterTop = "92%";
+  } else {
+    stateLabel = "ERRO"; stateColor = "#e74c3c";
+    waterHeight = "50%"; waterTop = "50%";
+  }
+
+  String reservoirCard = "";
+  reservoirCard += "<div class='card'>";
+  reservoirCard += "<div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:10px'>";
+  reservoirCard += "<h3 style='font-size:0.9rem'>&#128167; Reservatorio</h3>";
+  reservoirCard += "<button id='bva' onclick=\"cmd('valve_auto','toggle')\" style='padding:4px 10px;border-radius:6px;font-size:0.7rem;font-weight:700;cursor:pointer;border:1px solid "
+    + String(valveAuto ? "#27ae60;background:rgba(39,174,96,0.15);color:#27ae60'" : "#e67e22;background:rgba(230,126,34,0.15);color:#e67e22'")
+    + ">Modo: " + String(valveAuto ? "AUTO" : "MANUAL") + "</button>";
+  reservoirCard += "</div>";
+
+  // Corpo: tanque a esquerda, indicadores/botoes a direita
+  reservoirCard += "<div style='display:flex;gap:14px;align-items:center'>";
+
+  // Tanque (60x160px)
+  reservoirCard += "<div id='tank' style='position:relative;width:60px;height:160px;flex-shrink:0'>";
+  reservoirCard += "<div style='width:100%;height:100%;border:2px solid #3a3d45;border-radius:6px;background:#1a1d23;position:relative;overflow:hidden'>";
+  reservoirCard += "<div id='tankWater' style='position:absolute;left:0;right:0;top:" + waterTop + ";height:" + waterHeight
+    + ";background:linear-gradient(to top,#2980b9,#4ba3ff);transition:all 0.5s ease'></div>";
+  // Linha do sensor ALTO em ~13% do topo
+  reservoirCard += "<div style='position:absolute;left:-4px;right:-4px;top:13%;border-top:1px dashed #888;pointer-events:none'></div>";
+  // Linha do sensor BAIXO em ~70% do topo
+  reservoirCard += "<div style='position:absolute;left:-4px;right:-4px;top:70%;border-top:1px dashed #888;pointer-events:none'></div>";
+  reservoirCard += "</div></div>";
+
+  // Coluna da direita
+  reservoirCard += "<div style='flex:1;display:flex;flex-direction:column;gap:8px'>";
+  // Indicadores dos sensores
+  reservoirCard += "<div id='ilh' style='font-size:0.8rem;color:" + String(highLevelState ? "#27ae60" : "#666") + "'>&#9679; Alto: " + String(highLevelState ? "ATIVO" : "inativo") + "</div>";
+  reservoirCard += "<div id='ill' style='font-size:0.8rem;color:" + String(lowLevelState ? "#27ae60" : "#666") + "'>&#9679; Baixo: " + String(lowLevelState ? "ATIVO" : "inativo") + "</div>";
+  // Estado + valvula
+  reservoirCard += "<div id='irs' style='font-size:0.85rem;margin-top:4px'><b>Estado:</b> <span style='color:" + stateColor + "'>" + stateLabel + "</span></div>";
+  reservoirCard += "<div id='irv' style='font-size:0.85rem'><b>Valvula:</b> <span style='color:" + String(valveEntradaState ? "#4ba3ff" : "#888") + "'>" + String(valveEntradaState ? "ABERTA" : "FECHADA") + "</span></div>";
+  reservoirCard += "</div></div>";
+
+  // Botoes manuais (so aparecem em modo MANUAL da valvula)
+  if (!valveAuto) {
+    reservoirCard += "<div id='vmb' style='display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px'>";
+    reservoirCard += "<button id='bvo' onclick=\"if(!" + String(valveEntradaState ? "1" : "0") + ")cmd('valve_entrada','toggle')\" style='padding:12px;border-radius:10px;border:none;font-weight:700;font-size:0.85rem;cursor:pointer;"
+      + String(valveEntradaState ? "background:#4ba3ff;color:#fff'" : "background:#2a2d35;color:#aaa;border:1px solid #3a3d45'")
+      + ">&#128167; ABRIR</button>";
+    reservoirCard += "<button id='bvc' onclick=\"if(" + String(valveEntradaState ? "1" : "0") + ")cmd('valve_entrada','toggle')\" style='padding:12px;border-radius:10px;border:none;font-weight:700;font-size:0.85rem;cursor:pointer;"
+      + String(!valveEntradaState ? "background:#e74c3c;color:#fff'" : "background:#2a2d35;color:#aaa;border:1px solid #3a3d45'")
+      + ">&#9940; FECHAR</button>";
+    reservoirCard += "</div>";
+  }
+  reservoirCard += "</div>";
+
   String html = "";
   html += "<div class='card'>";
   html += "<div class='grid'>";
@@ -831,6 +996,8 @@ String hidrofarm_dashboard_html() {
   html += "<div class='ind'>" + lightIndicator + pumpIndicator + "</div><div class='ind'>" + ventIndicator + aerIndicator + "</div>";
   html += modeBtn + manualBtns;
   html += "</div>";
+
+  html += reservoirCard;
 
   html += "<div class='card'><h3 style='font-size:0.9rem;margin-bottom:8px'>Fases Configuradas";
   html += "<a href='/config' style='float:right;color:#27ae60;font-size:0.8rem;text-decoration:none'>&#9881; Configurar</a></h3>";
@@ -856,9 +1023,18 @@ if(iv){iv.style.color=s.ventilation?'#2ecc71':'#666';iv.innerHTML=s.ventilation?
 if(ia){ia.style.color=s.aeration?'#00bcd4':'#666';ia.innerHTML=s.aeration?'&#9679; Aera Ligada':'&#9679; Aera Desligada'}
 if(bv){bv.style.background=s.ventilation?'#2ecc71':'#2a2d35';bv.style.color=s.ventilation?'#fff':'#aaa';bv.textContent='VENT '+(s.ventilation?'ON':'OFF')}
 if(ba){ba.style.background=s.aeration?'#00bcd4':'#2a2d35';ba.style.color=s.aeration?'#fff':'#aaa';ba.textContent='AERA '+(s.aeration?'ON':'OFF')}
-var bve=document.getElementById('bve'),bbh=document.getElementById('bbh');
-if(bve){bve.style.background=s.valve_entrada?'#4ba3ff':'#2a2d35';bve.style.color=s.valve_entrada?'#fff':'#aaa';bve.innerHTML='&#128167; VALVULA '+(s.valve_entrada?'ON':'OFF')}
+var bbh=document.getElementById('bbh');
 if(bbh){bbh.style.background=s.bomba_homo?'#9b59b6':'#2a2d35';bbh.style.color=s.bomba_homo?'#fff':'#aaa';bbh.innerHTML='&#128260; HOMOG '+(s.bomba_homo?'ON':'OFF')}
+// Reservatorio
+var ilh=document.getElementById('ilh'),ill=document.getElementById('ill'),irs=document.getElementById('irs'),irv=document.getElementById('irv'),tw=document.getElementById('tankWater'),bva=document.getElementById('bva'),bvo=document.getElementById('bvo'),bvc=document.getElementById('bvc'),vmb=document.getElementById('vmb');
+if(ilh){ilh.style.color=s.level_high?'#27ae60':'#666';ilh.innerHTML='&#9679; Alto: '+(s.level_high?'ATIVO':'inativo')}
+if(ill){ill.style.color=s.level_low?'#27ae60':'#666';ill.innerHTML='&#9679; Baixo: '+(s.level_low?'ATIVO':'inativo')}
+if(irs){var lbl='',col='#888';if(s.reservoir_state==='full'){lbl='CHEIO';col='#27ae60'}else if(s.reservoir_state==='filling'){lbl='ENCHENDO';col='#3498db'}else if(s.reservoir_state==='empty'){lbl='VAZIO';col='#e67e22'}else if(s.reservoir_state==='error'){lbl='ERRO';col='#e74c3c'}irs.innerHTML='<b>Estado:</b> <span style="color:'+col+'">'+lbl+'</span>'}
+if(irv){irv.innerHTML='<b>Valvula:</b> <span style="color:'+(s.valve_entrada?'#4ba3ff':'#888')+'">'+(s.valve_entrada?'ABERTA':'FECHADA')+'</span>'}
+if(tw){var h='50%',t='50%';if(s.reservoir_state==='full'){h='92%';t='8%'}else if(s.reservoir_state==='filling'){h='55%';t='45%'}else if(s.reservoir_state==='empty'){h='8%';t='92%'}tw.style.height=h;tw.style.top=t}
+if(bva){var va=s.valve_auto;bva.style.borderColor=va?'#27ae60':'#e67e22';bva.style.background=va?'rgba(39,174,96,0.15)':'rgba(230,126,34,0.15)';bva.style.color=va?'#27ae60':'#e67e22';bva.textContent='Modo: '+(va?'AUTO':'MANUAL');if(va&&vmb){vmb.remove()}else if(!va&&!vmb){location.reload()}}
+if(bvo){bvo.style.background=s.valve_entrada?'#4ba3ff':'#2a2d35';bvo.style.color=s.valve_entrada?'#fff':'#aaa'}
+if(bvc){bvc.style.background=!s.valve_entrada?'#e74c3c':'#2a2d35';bvc.style.color=!s.valve_entrada?'#fff':'#aaa'}
 var isAuto=s.mode==='auto';
 if(bm){bm.style.borderColor=isAuto?'#27ae60':'#e67e22';bm.style.background=isAuto?'rgba(39,174,96,0.1)':'rgba(230,126,34,0.1)';bm.style.color=isAuto?'#27ae60':'#e67e22';bm.innerHTML=isAuto?'&#9881; Modo Automatico':'&#9995; Modo Manual'}
 if(isAuto&&mb){mb.remove()}
@@ -897,10 +1073,16 @@ bool hidrofarm_process_command(String cmd, String obj) {
       if (modeAuto) modeAuto = false;
       Serial.printf("Remoto: Aeracao %s\n", aerationState ? "ON" : "OFF");
     } else if (device == "valve_entrada") {
-      // Rele sempre manual — NAO interage com modeAuto
+      // Toggle manual da valvula — so tem efeito se valveAuto=false
       valveEntradaState = !valveEntradaState;
       setRelayFarm(RELE_VALVULA_ENTRADA, valveEntradaState);
       Serial.printf("Remoto: Valvula Entrada %s\n", valveEntradaState ? "ON" : "OFF");
+    } else if (device == "valve_auto") {
+      valveAuto = !valveAuto;
+      prefs.begin("hydrofarm", false);
+      prefs.putBool("valve_auto", valveAuto);
+      prefs.end();
+      Serial.printf("Remoto: Valvula modo %s\n", valveAuto ? "AUTO (boias)" : "MANUAL");
     } else if (device == "bomba_homo") {
       // Rele sempre manual — NAO interage com modeAuto
       bombaHomoState = !bombaHomoState;
@@ -1014,11 +1196,21 @@ void hidrofarm_setup() {
   setRelayFarm(RELE_VENTILACAO, false);
   setRelayFarm(RELE_AERACAO, false);
 
-  // Reles sempre manuais — independentes do modeAuto/fases
+  // Reles extras do hidro-farm
   pinMode(RELE_VALVULA_ENTRADA, OUTPUT);
   pinMode(RELE_BOMBA_HOMO, OUTPUT);
   setRelayFarm(RELE_VALVULA_ENTRADA, false);
   setRelayFarm(RELE_BOMBA_HOMO, false);
+
+  // Sensores de nivel (boias) — INPUT_PULLUP (fail-safe: sem cabo = inativo)
+  pinMode(SENSOR_NIVEL_ALTO, INPUT_PULLUP);
+  pinMode(SENSOR_NIVEL_BAIXO, INPUT_PULLUP);
+
+  // Carrega preferencia do modo da valvula (default: auto)
+  prefs.begin("hydrofarm", true);
+  valveAuto = prefs.getBool("valve_auto", true);
+  prefs.end();
+  Serial.printf("Valvula: modo %s (NVS)\n", valveAuto ? "AUTO (boias)" : "MANUAL");
 
   loadPhasesFarm();
 }
@@ -1071,13 +1263,27 @@ void hidrofarm_serial_command(String cmd) {
   } else if (cmd == "BH0") {
     bombaHomoState = false; setRelayFarm(RELE_BOMBA_HOMO, false);
     Serial.println("OK:BH0");
+  } else if (cmd == "VA1") {
+    valveAuto = true;
+    prefs.begin("hydrofarm", false); prefs.putBool("valve_auto", true); prefs.end();
+    Serial.println("OK:VA1 (valvula AUTO)");
+  } else if (cmd == "VA0") {
+    valveAuto = false;
+    prefs.begin("hydrofarm", false); prefs.putBool("valve_auto", false); prefs.end();
+    Serial.println("OK:VA0 (valvula MANUAL)");
+  } else if (cmd == "LEVEL") {
+    Serial.printf("Nivel ALTO:%d BAIXO:%d Estado:%s Valvula:%s Modo:%s\n",
+      highLevelState, lowLevelState, reservoirStateStrFarm(),
+      valveEntradaState ? "ABERTA" : "FECHADA",
+      valveAuto ? "auto" : "manual");
   } else if (cmd == "AUTO") {
     modeAuto = true;
     Serial.println("OK:AUTO");
   } else if (cmd == "STATUS") {
-    Serial.printf("L:%d P:%d V:%d A:%d VE:%d BH:%d M:%s\n",
+    Serial.printf("L:%d P:%d V:%d A:%d VE:%d BH:%d VA:%d LH:%d LL:%d M:%s\n",
       lightState, pumpState, ventilationState, aerationState,
-      valveEntradaState, bombaHomoState, modeAuto ? "auto" : "manual");
+      valveEntradaState, bombaHomoState, valveAuto, highLevelState, lowLevelState,
+      modeAuto ? "auto" : "manual");
   }
 }
 

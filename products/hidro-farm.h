@@ -53,6 +53,13 @@
 #define RELE_ON              LOW    // Modulo rele ativa em LOW
 #define RELE_OFF             HIGH
 
+// ===== SENSORES DE NIVEL (boias reed-switch) =====
+// Entrada com pullup interno — boia fecha contato para GND quando ATIVA (LOW = ativo).
+// Se o fio quebrar, o pullup mantem HIGH (inativo) — fail-safe.
+#define SENSOR_NIVEL_ALTO    13   // Boia alta — ativa quando reservatorio atinge nivel maximo
+#define SENSOR_NIVEL_BAIXO   14   // Boia baixa — ativa quando reservatorio atinge nivel minimo
+#define LEVEL_SENSOR_ACTIVE  LOW  // Leitura ativa (INPUT_PULLUP)
+
 // ===== RTC DS3231 (I2C) =====
 #define RTC_SDA        21   // I2C Data (GPIO21)
 #define RTC_SCL        22   // I2C Clock (GPIO22)
@@ -63,7 +70,7 @@
 // #define PIN_PH           34   // ADC1_CH6, input-only
 // #define PIN_EC           35   // ADC1_CH7, input-only
 // #define PIN_TEMP_WATER   32   // ADC1_CH4 (DS18B20 tambem funciona em digital)
-// #define PIN_LEVEL        33   // ADC1_CH5 (sensor de nivel d'agua)
+// #define PIN_CO2          33   // ADC1_CH5 (sensor de CO2 ou outro)
 
 // ===== NTP =====
 #define NTP_SERVER     "pool.ntp.org"
