@@ -31,7 +31,7 @@ Plataforma IoT para cultivo inteligente. Arquitetura modular:
 Hardware especializado: cada ESP32 faz uma coisa so.
 Composicao por software: o app mostra os modulos que o usuario adicionar.
 
-Versao ativa: **v4.0.5** — definida como fonte unica em [`server/config.py:24`](./server/config.py) (`APP_VERSION`) e replicada manualmente em [`products/hidro.h:11`](./products/hidro.h), [`products/hidro-farm.h:16`](./products/hidro-farm.h) e [`products/cam.h:11`](./products/cam.h) (`FIRMWARE_VERSION`).
+Versao ativa: **v4.0.11** — definida como fonte unica em [`server/config.py:24`](./server/config.py) (`APP_VERSION`) e replicada manualmente em [`products/hidro.h:11`](./products/hidro.h), [`products/hidro-farm.h:16`](./products/hidro-farm.h) e [`products/cam.h:11`](./products/cam.h) (`FIRMWARE_VERSION`).
 
 Tres produtos ativos: **HIDRO** (4 reles, automacao por fase), **HIDRO-FARM** (Premium — 6 reles, 4 automatizados + 2 manuais puros), **CAM** (camera standalone).
 
@@ -200,33 +200,114 @@ ESP32 boot → connectWiFi → registerOnServer (POST /api/modules/register)
 
 ### HIDRO-FARM (ESP32-WROOM-32D) — versao Premium
 
-Variante avancada do HIDRO: mesma placa e RTC, mesmo sistema de fases, mas com **6 reles** em vez de 4 — os 2 extras sao sempre manuais (fora da automacao por fase), para controle de reservatorio/nutrientes.
+Variante avancada do HIDRO: mesma placa, mesmo RTC, mesmo sistema de fases. Adiciona **6 reles**, **reposicao automatica de agua** no reservatorio (2 boias + valvula) e **sensor DHT11** (temperatura + umidade ambiente).
 
 - **Porta (sugerida):** COM16 (definida em [`compile-hidrofarm.sh`](./compile-hidrofarm.sh))
 - **Board:** `esp32:esp32:esp32doit-devkit-v1` com particao `min_spiffs` (OTA habilitado — identico ao HIDRO)
-- **Reles (6 canais ativos em LOW).** Pinos em [`products/hidro-farm.h:44-49`](./products/hidro-farm.h):
-  - **Automatizados (controlados por fase, como no HIDRO):**
-    - `RELE_LAMPADA` GPIO4 — Luz
-    - `RELE_BOMBA` GPIO5 — Bomba de irrigacao (NFT/gotejamento)
-    - `RELE_VENTILACAO` GPIO16 — Ventilacao (exaustor) *(difere do HIDRO que usa GPIO18)*
-    - `RELE_AERACAO` GPIO17 — Aeracao *(difere do HIDRO que usa GPIO19)*
-  - **Manuais puros (nao participam do modeAuto, nao tocam em fases):**
-    - `RELE_VALVULA_ENTRADA` GPIO18 — Valvula de entrada de agua no reservatorio
-    - `RELE_BOMBA_HOMO` GPIO19 — Bomba de homogeneizacao (mistura nutrientes)
-- **RTC DS3231:** idem HIDRO — I2C GPIO21/22, endereco `0x68`
-- **LED de status:** GPIO2 (`LED_ONBOARD`)
-- **Reset WiFi:** botao BOOT (GPIO0), 3s
-- **Preferences NVS:** namespace `"hydrofarm"` (separado do HIDRO `"hydro"` — nao compartilham configuracao de fases)
-- **MODULE_TYPE:** `"hidro-farm"` (capability e module_type sao iguais — padrao novo, ver nota em "Servidor: Blueprints")
 - **AP:** `Cultivee-HidroFarm`
 - **mDNS:** `cultivee-hidro-farm.local`
 - **SERVER_URL prod:** `http://app.cultivee.com.br`
 - **APP_URL prod:** `https://app.cultivee.com.br`
-- **Estados extras no JSON:** `valve_entrada`, `bomba_homo` (ambos boolean — enviados em `status_json` e `register_json`)
-- **Comandos serial extras:** `VE1`/`VE0` (valvula), `BH1`/`BH0` (bomba homog)
-- **Funcoes publicas do modulo:** todas com prefixo `hidrofarm_*` — funcoes internas sufixo `*Farm` (ex: `setRelayFarm`, `loadPhasesFarm`) para manter isolamento caso eventualmente convivam com HIDRO
+- **Preferences NVS:** namespace `"hydrofarm"` (separado do HIDRO `"hydro"` — nao compartilham configuracao de fases). Persiste: fases, `start_date`, `mode_auto`, `valve_auto`
+- **MODULE_TYPE:** `"hidro-farm"` (capability e module_type sao iguais — padrao novo, ver nota em "Servidor: Blueprints")
+- **LED de status:** GPIO2 (`LED_ONBOARD`)
+- **Reset WiFi:** botao BOOT (GPIO0), 3s
+- **RTC DS3231:** idem HIDRO — I2C GPIO21/22, endereco `0x68`
 
-Os 4 reles automatizados compartilham toda a logica de fases do HIDRO via `struct Phase` comum em `firmware.ino`. Os 2 reles manuais tem variaveis globais proprias (`valveEntradaState`, `bombaHomoState`) guardadas so em RAM — NAO persistem no NVS (resetam para OFF no reboot).
+#### Reles (6 canais ativos em LOW) — [`products/hidro-farm.h:44-49`](./products/hidro-farm.h)
+
+**Automatizados (controlados por fase, como no HIDRO):**
+- `RELE_LAMPADA` GPIO4 — Luz
+- `RELE_BOMBA` GPIO5 — Bomba de irrigacao (NFT/gotejamento)
+- `RELE_VENTILACAO` GPIO16 — Ventilacao (exaustor) *(difere do HIDRO que usa GPIO18)*
+- `RELE_AERACAO` GPIO17 — Aeracao *(difere do HIDRO que usa GPIO19)*
+
+**Controle de reservatorio (automacao independente das fases):**
+- `RELE_VALVULA_ENTRADA` GPIO18 — Valvula de entrada de agua. Controlada pela maquina de estados do reservatorio (quando `valveAuto=true`, default) ou manualmente via comando remoto/serial.
+
+**Manual puro (fora de qualquer automacao):**
+- `RELE_BOMBA_HOMO` GPIO19 — Bomba de homogeneizacao (mistura nutrientes). So liga/desliga via usuario.
+
+#### Reposicao automatica do reservatorio (boias + valvula)
+
+Duas boias reed-switch monitoram o nivel do reservatorio, lidas com `INPUT_PULLUP` (fail-safe: fio quebrado = inativo):
+- `SENSOR_NIVEL_ALTO` GPIO13 — boia alta, ativa quando reservatorio atinge o nivel maximo
+- `SENSOR_NIVEL_BAIXO` GPIO14 — boia baixa, ativa quando reservatorio cai ate o nivel minimo
+- `LEVEL_SENSOR_ACTIVE` = `LOW` (boia fecha contato pro GND quando ativa)
+
+Leitura das boias com **debounce de 2 amostras consecutivas** (~600ms total) em [`readLevelSensorsFarm()`](./firmware/mod_hidrofarm.h), chamada a cada 300ms no loop. Uma mudanca so vira estado "confirmado" (`highLevelState`/`lowLevelState`) depois de 2 leituras iguais — evita falsos positivos por vibracao/ondas.
+
+**Maquina de estados** ([`reservoirControlFarm()`](./firmware/mod_hidrofarm.h)):
+
+| Boia Alta | Boia Baixa | `reservoir_state` | Acao |
+|:---:|:---:|:---:|:---|
+| OFF | OFF | `empty` | **Abrir valvula** (tratado como "precisa encher") |
+| OFF | ON | `filling` | Manter estado anterior (**histerese**) |
+| ON | ON | `full` | **Fechar valvula** (atingiu maximo) |
+| ON | OFF | `error` | Fechar por seguranca (sensor defeituoso) |
+
+> **NOTA:** Esta logica atual assume polaridade "ativa quando agua cobre a boia". Na pratica do hardware do usuario (com injecao/retorno de agua pelas plantas), a semantica pode ser diferente (ex: "baixa acionada = precisa encher"). Existe uma proposta de correcao documentada em sessao anterior mas **nao foi aplicada** — o usuario pediu para nao mexer ate validar no hardware real.
+
+A maquina de estados so atua quando `valveAuto == true`. Com `valveAuto == false`, as boias sao lidas e reportadas mas a valvula e 100% manual. A flag `valveAuto` e persistida em NVS (`prefs.getBool("valve_auto", true)` no setup) e pode ser alterada via:
+- Comando remoto `{cmd: "relay", device: "valve_auto"}`
+- Serial `VA1` (auto) / `VA0` (manual)
+- **Nao ha mais UI no PWA para alterar** — a partir da v4.0.11 o card Reservatorio nao mostra mais o badge de modo nem os botoes ABRIR/FECHAR. Controle continua no firmware mas exposto so via serial/comando remoto.
+
+#### Sensor DHT11 (ambiente)
+
+- `DHT_PIN` GPIO25 — pino "out" do modulo DHT11 (+ VCC em 3.3V, - GND)
+- **Implementacao inline** (sem biblioteca externa) em [`readDHT11Farm()`](./firmware/mod_hidrofarm.h). Protocolo 1-wire bit-banging: start signal ~20ms + leitura de 40 bits + checksum XOR. Bloqueia o loop por ~22ms.
+- Chamada a cada **5 segundos** no loop (spec minima do DHT11: 1s entre leituras)
+- Retorna apenas valores inteiros (DHT11 nao tem casa decimal — os bytes fracionarios sao sempre 0)
+- Falha na leitura marca `dhtValid = false` — UI mostra "sensor offline"
+
+#### JSON do status/register (campos do hidro-farm)
+
+Alem dos campos herdados do HIDRO (`light`, `pump`, `ventilation`, `aeration`, `mode`, fases, etc.), o hidro-farm adiciona:
+
+| Campo | Tipo | Descricao |
+|---|---|---|
+| `valve_entrada` | bool | Estado atual do rele da valvula |
+| `bomba_homo` | bool | Estado atual do rele de homogeneizacao |
+| `valve_auto` | bool | Modo da valvula (true = automacao por boias, false = manual) |
+| `level_high` | bool | Boia alta confirmada (pos-debounce) |
+| `level_low` | bool | Boia baixa confirmada (pos-debounce) |
+| `reservoir_state` | string | `"full"` / `"filling"` / `"empty"` / `"error"` |
+| `temperature` | int | Temperatura em °C (DHT11, inteiro) |
+| `humidity` | int | Umidade relativa em % (DHT11, inteiro) |
+| `dht_valid` | bool | true se a ultima leitura do DHT11 foi valida |
+
+#### Comandos serial (115200 baud)
+
+Alem dos herdados do HIDRO (`L1`/`L0`, `P1`/`P0`, `V1`/`V0`, `A1`/`A0`, `AUTO`, `STATUS`):
+
+| Comando | Acao |
+|---|---|
+| `VE1` / `VE0` | Valvula de entrada ON/OFF |
+| `BH1` / `BH0` | Bomba de homogeneizacao ON/OFF |
+| `VA1` / `VA0` | Modo da valvula AUTO/MANUAL (persistido no NVS) |
+| `LEVEL` | Imprime estado completo do reservatorio (boias + valvula + modo) |
+| `STATUS` | (expandido) L/P/V/A/VE/BH/VA/LH/LL/M |
+
+#### Dashboard local (offline) — ordem dos cards
+
+Ordem do HTML renderizado por [`hidrofarm_dashboard_html()`](./firmware/mod_hidrofarm.h):
+1. **Card principal** — ciclo/fase/inicio/hoje + indicadores + botao Modo Auto/Manual + botoes manuais (quando `!modeAuto`)
+2. **Fases Configuradas** — lista detalhada das fases
+3. **Ambiente** — temperatura e umidade do DHT11
+4. **Reservatorio** — tanque visual + indicadores das boias + estado + valvula (sem botao de modo nem manual)
+5. **Controles Extras** — botao unico HOMOG (sempre visivel)
+
+O PWA online replica a mesma ordem em [`renderDashboard()`](./server/static/app.js) via variaveis `phasesHtml`, `ambientHtml`, `reservoirHtml`, `extrasHtml`.
+
+#### Funcoes publicas + convencao
+
+- Publicas (chamadas por `firmware.ino`): `hidrofarm_setup()`, `hidrofarm_loop()`, `hidrofarm_register_routes()`, `hidrofarm_process_command()`, `hidrofarm_status_json()`, `hidrofarm_register_json()`, `hidrofarm_dashboard_html()`, `hidrofarm_dashboard_js()`, `hidrofarm_serial_command()`
+- Internas: sufixo `*Farm` (`setRelayFarm`, `loadPhasesFarm`, `readLevelSensorsFarm`, `reservoirControlFarm`, `readDHT11Farm`, `handleRelayFarm`, etc.) — isolamento caso eventualmente convivam com HIDRO
+- **NVS namespace:** `"hydrofarm"` (separado do `"hydro"` do HIDRO)
+- **Exclusao mutua:** `MOD_HIDRO` e `MOD_HIDROFARM` compartilham `struct Phase` e globals em `firmware.ino` — `#error` impede build com os dois definidos
+
+Os 4 reles automatizados compartilham toda a logica de fases do HIDRO via `struct Phase` comum. Os estados `valveEntradaState` e `bombaHomoState` ficam so em RAM — **NAO persistem no NVS** (resetam para OFF no reboot). Ja o `valveAuto` persiste. Se quiser persistir os estados dos reles extras, criar chaves no NVS `"hydrofarm"`.
 
 ### CAM (ESP32-WROVER-DEV) — Standalone
 - **Porta:** COM9
@@ -415,7 +496,7 @@ moduleRenderers.sensor = {
 ```
 
 ### Versionamento
-- **Fonte unica:** `APP_VERSION` em [`server/config.py:24`](./server/config.py) (atualmente `"4.0.5"`)
+- **Fonte unica:** `APP_VERSION` em [`server/config.py:24`](./server/config.py) (atualmente `"4.0.11"`)
 - O `sw.js` e o `manifest.json` sao **gerados dinamicamente** em [`server/app.py:372-436`](./server/app.py) — nao sao arquivos estaticos. O Service Worker usa `CACHE_NAME = cultivee-v + APP_VERSION`, entao bater o numero invalida o cache automaticamente.
 - `FIRMWARE_VERSION` nos 3 produtos ([`products/hidro.h:11`](./products/hidro.h), [`products/hidro-farm.h:16`](./products/hidro-farm.h), [`products/cam.h:11`](./products/cam.h)) deve ser mantido sincronizado com `APP_VERSION` **manualmente** — nao ha script que faca isso.
 - **Incrementar versao** ao fazer deploy com mudancas visuais (CSS/JS/template). Sem isso, o SW entrega cache antigo ate invalidar sozinho (pode levar horas/dias).
