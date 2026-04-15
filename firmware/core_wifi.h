@@ -71,8 +71,9 @@ void startSetupMode() {
 }
 
 // ===================== RTC DS3231 =====================
+// Compartilhado entre hidro e hidro-farm (mesma pinagem I2C, mesmo chip)
 
-#ifdef MOD_HIDRO
+#if defined(MOD_HIDRO) || defined(MOD_HIDROFARM)
 bool rtcAvailable = false;
 
 uint8_t bcd2dec(uint8_t val) { return (val >> 4) * 10 + (val & 0x0F); }
@@ -143,7 +144,7 @@ void rtcSeedFromCompileTime() {
     day, monthIdx + 1, year, hour, minute, sec);
   rtcWrite(&t);
 }
-#endif
+#endif // RTC DS3231
 
 // ===================== NTP =====================
 
@@ -154,7 +155,7 @@ void setupNTP() {
     ntpSynced = true;
     Serial.printf("NTP sincronizado: %02d/%02d/%04d %02d:%02d:%02d\n",
       t.tm_mday, t.tm_mon + 1, t.tm_year + 1900, t.tm_hour, t.tm_min, t.tm_sec);
-    #ifdef MOD_HIDRO
+    #if defined(MOD_HIDRO) || defined(MOD_HIDROFARM)
     if (rtcAvailable) rtcWrite(&t);
     #endif
   } else {
@@ -166,7 +167,7 @@ bool getCurrentTime(struct tm *t) {
   // NTP primeiro (mais preciso)
   if (getLocalTime(t, 0)) return true;
   // Fallback: RTC DS3231 (só aceita se ano >= 2024)
-  #ifdef MOD_HIDRO
+  #if defined(MOD_HIDRO) || defined(MOD_HIDROFARM)
   if (rtcAvailable && rtcRead(t) && t->tm_year >= (2024 - 1900)) return true;
   #endif
   return false;

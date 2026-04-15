@@ -48,6 +48,18 @@ const moduleRenderers = {
             return `${l} · ${p} · ${v} · ${a}`;
         }
     },
+    'hidro-farm': {
+        label: 'Controle Farm',
+        renderContent: renderModule_hidrofarm,
+        getStatusText: (data) => {
+            if (!data) return '';
+            const l = data.light ? 'Luz ON' : 'Luz OFF';
+            const p = data.pump ? 'Bomba ON' : 'Bomba OFF';
+            const v = data.ventilation ? 'Vent ON' : 'Vent OFF';
+            const a = data.aeration ? 'Aera ON' : 'Aera OFF';
+            return `${l} · ${p} · ${v} · ${a}`;
+        }
+    },
     cam: {
         label: 'Camera',
         renderContent: renderModule_cam,
@@ -447,6 +459,15 @@ let lastToggleTime = 0;
 const TOGGLE_COOLDOWN = 35000;
 let pendingCommands = new Set();
 
+// Resolve o container do modulo de controle pelo moduleType.
+// Necessario porque o hidro legado usa moduleType "ctrl" mas capability "hidro",
+// enquanto o hidro-farm usa "hidro-farm" em ambos. Match exato evita o seletor
+// [id^="mod-content-X-hidro"] capturar "mod-content-X-hidro-farm" por engano.
+function getCtrlContainer(chipId, moduleType) {
+    const cap = moduleType === 'ctrl' ? 'hidro' : moduleType;
+    return document.getElementById(`mod-content-${chipId}-${cap}`);
+}
+
 function renderModule_hidro(container, mod) {
     if (!mod.online) {
         container.innerHTML = `<div class="card"><div class="empty-state"><p>Controle offline</p></div></div>`;
@@ -456,8 +477,14 @@ function renderModule_hidro(container, mod) {
     loadCtrlStatus(mod.chip_id, mod.type, container);
 }
 
+// Module Renderer: HIDRO-FARM (versao Premium — por ora reusa UI do hidro;
+// vai divergir quando entradas/saidas extras forem ativadas).
+function renderModule_hidrofarm(container, mod) {
+    renderModule_hidro(container, mod);
+}
+
 async function loadCtrlStatus(chipId, moduleType, container) {
-    const ct = container || document.querySelector(`[id^="mod-content-${chipId}-hidro"]`);
+    const ct = container || getCtrlContainer(chipId, moduleType);
     if (!ct) return;
     try {
         const data = await api(`${apiFor(moduleType)}/${chipId}/status`);
@@ -603,7 +630,7 @@ async function toggleRelay(chipId, moduleType, device) {
         else if (device === "mode") localState.mode = localState.mode === "auto" ? "manual" : "auto";
         lastToggleTime = Date.now();
         pendingCommands.add(device);
-        const ct = document.querySelector(`[id^="mod-content-${chipId}-hidro"]`);
+        const ct = getCtrlContainer(chipId, moduleType);
         if (ct) renderDashboard(ct, chipId, moduleType, localState);
     }
     try {
@@ -631,7 +658,7 @@ async function toggleRelay(chipId, moduleType, device) {
     }
     pendingCommands.delete(device);
     _lastCtrlKey = "";
-    const ct = document.querySelector(`[id^="mod-content-${chipId}-hidro"]`);
+    const ct = getCtrlContainer(chipId, moduleType);
     if (confirmed && ct) renderDashboard(ct, chipId, moduleType, localState);
     else loadCtrlStatus(chipId, moduleType);
 }
@@ -1463,7 +1490,7 @@ setInterval(() => {
     if (Date.now() - lastToggleTime < TOGGLE_COOLDOWN) return;
     const selected = getSelectedChips();
     for (const m of modules) {
-        if (selected.includes(m.chip_id) && hasCap(m, 'hidro') && m.online) {
+        if (selected.includes(m.chip_id) && (hasCap(m, 'hidro') || hasCap(m, 'hidro-farm')) && m.online) {
             loadCtrlStatus(m.chip_id, m.type);
         }
     }

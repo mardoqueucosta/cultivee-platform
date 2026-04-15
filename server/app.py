@@ -288,15 +288,18 @@ def list_modules():
 # =====================================================================
 
 from bp_hidro import hidro_bp
+from bp_hidrofarm import hidrofarm_bp
 from bp_cam import cam_bp
 from bp_gallery import gallery_bp
 
 # Cada tipo de firmware encontra suas rotas pelo prefixo
 app.register_blueprint(hidro_bp, url_prefix="/api/ctrl", name="hidro_ctrl")
+app.register_blueprint(hidrofarm_bp, url_prefix="/api/hidro-farm", name="hidrofarm")
 app.register_blueprint(cam_bp, url_prefix="/api/cam", name="cam_standalone")
 app.register_blueprint(gallery_bp, url_prefix="/api/gallery", name="gallery")
 
 log.info("  [+] hidro_bp registrado em /api/ctrl")
+log.info("  [+] hidrofarm_bp registrado em /api/hidro-farm")
 log.info("  [+] cam_bp registrado em /api/cam")
 log.info("  [+] gallery_bp registrado em /api/gallery")
 

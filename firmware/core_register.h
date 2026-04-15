@@ -32,6 +32,9 @@ int jsonInt(String json, String key) {
 #ifdef MOD_HIDRO
 bool hidro_process_command(String cmd, String obj);
 #endif
+#ifdef MOD_HIDROFARM
+bool hidrofarm_process_command(String cmd, String obj);
+#endif
 #ifdef MOD_CAM
 bool cam_process_command(String cmd, String obj);
 #endif
@@ -64,6 +67,9 @@ void processPendingCommands(String response) {
 
     #ifdef MOD_HIDRO
     if (!handled) handled = hidro_process_command(cmd, obj);
+    #endif
+    #ifdef MOD_HIDROFARM
+    if (!handled) handled = hidrofarm_process_command(cmd, obj);
     #endif
     #ifdef MOD_CAM
     if (!handled) handled = cam_process_command(cmd, obj);
@@ -119,6 +125,9 @@ void pollCommands() {
 #ifdef MOD_HIDRO
 String hidro_register_json();
 #endif
+#ifdef MOD_HIDROFARM
+String hidrofarm_register_json();
+#endif
 #ifdef MOD_CAM
 String cam_register_json();
 #endif
@@ -151,6 +160,11 @@ void registerOnServer() {
   json += "\"hidro\"";
   firstCap = false;
   #endif
+  #ifdef MOD_HIDROFARM
+  if (!firstCap) json += ",";
+  json += "\"hidro-farm\"";
+  firstCap = false;
+  #endif
   #ifdef MOD_CAM
   if (!firstCap) json += ",";
   json += "\"cam\"";
@@ -163,6 +177,11 @@ void registerOnServer() {
   bool firstModule = true;
   #ifdef MOD_HIDRO
   json += hidro_register_json();
+  firstModule = false;
+  #endif
+  #ifdef MOD_HIDROFARM
+  if (!firstModule) json += ",";
+  json += hidrofarm_register_json();
   firstModule = false;
   #endif
   #ifdef MOD_CAM

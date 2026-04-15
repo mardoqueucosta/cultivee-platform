@@ -23,8 +23,14 @@
 #include "esp_camera.h"
 #endif
 
+// Exclusao mutua: so um produto hidroponico por vez
+#if defined(MOD_HIDRO) && defined(MOD_HIDROFARM)
+  #error "Escolha apenas um: MOD_HIDRO ou MOD_HIDROFARM em products/*.h"
+#endif
+
 // ===== TIPOS (definidos por modulos) =====
-#ifdef MOD_HIDRO
+// Phase e compartilhada entre hidro e hidro-farm (mesma estrutura de fases)
+#if defined(MOD_HIDRO) || defined(MOD_HIDROFARM)
 struct Phase {
   char name[20];
   int days;
@@ -72,8 +78,9 @@ unsigned long currentPollInterval = REGISTER_INTERVAL;
 unsigned long lastPollCheck = 0;
 #define POLL_FAST_INTERVAL 1000
 
-// ===== VARIAVEIS GLOBAIS HIDRO =====
-#ifdef MOD_HIDRO
+// ===== VARIAVEIS GLOBAIS HIDRO / HIDRO-FARM =====
+// Compartilhadas — so um dos dois modulos esta ativo por vez (exclusao mutua acima)
+#if defined(MOD_HIDRO) || defined(MOD_HIDROFARM)
 Phase phases[MAX_PHASES];
 int numPhases = 0;
 char startDate[12] = "2026-03-23";
@@ -105,6 +112,9 @@ String buildStatusJSON();
 #ifdef MOD_HIDRO
 void hidro_loop();
 #endif
+#ifdef MOD_HIDROFARM
+void hidrofarm_loop();
+#endif
 
 // ===== INCLUDES DOS MODULOS (apos globals — funcoes referenciam as variaveis) =====
 #include "core_wifi.h"
@@ -114,6 +124,9 @@ void hidro_loop();
 
 #ifdef MOD_HIDRO
 #include "mod_hidro.h"
+#endif
+#ifdef MOD_HIDROFARM
+#include "mod_hidrofarm.h"
 #endif
 #ifdef MOD_CAM
 #include "mod_cam.h"
@@ -134,6 +147,9 @@ String buildStatusJSON() {
 
   #ifdef MOD_HIDRO
   json += "," + hidro_status_json();
+  #endif
+  #ifdef MOD_HIDROFARM
+  json += "," + hidrofarm_status_json();
   #endif
   #ifdef MOD_CAM
   json += cam_status_json();
@@ -175,6 +191,9 @@ body{font-family:-apple-system,sans-serif;background:#1a1d23;color:#e0e0e0;max-w
   #ifdef MOD_HIDRO
   html += hidro_dashboard_html();
   #endif
+  #ifdef MOD_HIDROFARM
+  html += hidrofarm_dashboard_html();
+  #endif
 
   html += "<div class='footer'>";
   html += "<a href='/setup-wifi'>&#9881; WiFi</a> &nbsp;|&nbsp; <a href='/update'>&#8679; Firmware</a> &nbsp;|&nbsp; " + String(PRODUCT_NAME) + " v" + String(FIRMWARE_VERSION);
@@ -184,6 +203,9 @@ body{font-family:-apple-system,sans-serif;background:#1a1d23;color:#e0e0e0;max-w
   html += "<script>";
   #ifdef MOD_HIDRO
   html += hidro_dashboard_js();
+  #endif
+  #ifdef MOD_HIDROFARM
+  html += hidrofarm_dashboard_js();
   #endif
   #ifdef MOD_CAM
   html += cam_dashboard_js();
@@ -203,6 +225,9 @@ void handleSerialCommands() {
   #ifdef MOD_HIDRO
   hidro_serial_command(cmd);
   #endif
+  #ifdef MOD_HIDROFARM
+  hidrofarm_serial_command(cmd);
+  #endif
 }
 
 // ===== SETUP =====
@@ -218,6 +243,9 @@ void setup() {
   // Modulos: setup hardware (cam depois do WiFi — câmera afeta rádio)
   #ifdef MOD_HIDRO
   hidro_setup();
+  #endif
+  #ifdef MOD_HIDROFARM
+  hidrofarm_setup();
   #endif
 
   // Chip ID
@@ -266,6 +294,9 @@ void setup() {
   #ifdef MOD_HIDRO
   hidro_register_routes();
   #endif
+  #ifdef MOD_HIDROFARM
+  hidrofarm_register_routes();
+  #endif
   #ifdef MOD_CAM
   cam_register_routes();
   #endif
@@ -292,11 +323,17 @@ void loop() {
   #ifdef MOD_HIDRO
   updateStatusLed();
   #endif
+  #ifdef MOD_HIDROFARM
+  updateStatusLedFarm();
+  #endif
 
   // Automacao (connected ou offline)
   if (currentMode != MODE_SETUP) {
     #ifdef MOD_HIDRO
     hidro_loop();
+    #endif
+    #ifdef MOD_HIDROFARM
+    hidrofarm_loop();
     #endif
   }
 

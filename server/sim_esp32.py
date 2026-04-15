@@ -4,7 +4,8 @@ Finge ser um modulo ESP32 registrando no servidor local.
 
 Uso:
   python sim_esp32.py              # simula produto ctrl (porta 5002)
-  python sim_esp32.py hidro-cam    # simula produto hidro-cam (porta 5003)
+  python sim_esp32.py hidro-farm   # simula produto hidro-farm (porta 5002)
+  python sim_esp32.py cam          # simula produto cam (porta 5002)
 
 O simulador:
   1. Registra um modulo fake com chip_id/short_id fixos
@@ -31,6 +32,13 @@ PRODUCTS = {
         "module_type": "ctrl",
         "capabilities": ["hidro"],
     },
+    "hidro-farm": {
+        "port": 5002,
+        "chip_id": "SIM_HFARM_0001",
+        "short_id": "HF01",
+        "module_type": "hidro-farm",
+        "capabilities": ["hidro-farm"],
+    },
     "cam": {
         "port": 5002,
         "chip_id": "SIM_CAM_0001",
@@ -41,7 +49,7 @@ PRODUCTS = {
 }
 
 if product not in PRODUCTS:
-    print(f"Produto invalido: {product}. Use: ctrl ou cam")
+    print(f"Produto invalido: {product}. Use: ctrl, hidro-farm ou cam")
     sys.exit(1)
 
 cfg = PRODUCTS[product]
