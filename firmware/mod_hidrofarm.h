@@ -1082,13 +1082,14 @@ String hidrofarm_dashboard_html() {
   html += modeBtn + manualBtns;
   html += "</div>";
 
-  html += extrasCard;
-  html += ambientCard;
-  html += reservoirCard;
-
+  // Fases logo apos o card principal (ordem do usuario)
   html += "<div class='card'><h3 style='font-size:0.9rem;margin-bottom:8px'>Fases Configuradas";
   html += "<a href='/config' style='float:right;color:#27ae60;font-size:0.8rem;text-decoration:none'>&#9881; Configurar</a></h3>";
   html += phasesHtml + "</div>";
+
+  html += extrasCard;
+  html += ambientCard;
+  html += reservoirCard;
 
   return html;
 }
