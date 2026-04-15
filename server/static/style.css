@@ -226,8 +226,10 @@ main { max-width: 1100px; margin: 0 auto; padding: 0 0.75rem; }
         flex-direction: row;
         flex-wrap: wrap;
     }
+    /* Ate 3 cards por linha no desktop. Responsivo: com min-width 250px,
+       cai naturalmente para 2 colunas em telas medias e 1 no mobile. */
     .modules-list > * {
-        flex: 1 1 calc(50% - 0.25rem);
+        flex: 1 1 calc(33.333% - 0.67rem);
         min-width: 250px;
     }
     #module-content {
@@ -238,8 +240,10 @@ main { max-width: 1100px; margin: 0 auto; padding: 0 0.75rem; }
         margin: 0 auto;
         padding: 0 1rem;
     }
+    /* Dashboard dos modulos selecionados: ate 3 por linha tambem.
+       Min-width 300px garante que cards cheios (fases, controles) nao fiquem apertados. */
     #module-content > * {
-        flex: 1 1 calc(50% - 0.5rem);
+        flex: 1 1 calc(33.333% - 0.67rem);
         min-width: 300px;
     }
     .module-bar {

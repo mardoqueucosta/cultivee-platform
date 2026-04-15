@@ -108,6 +108,8 @@ function toggleModuleSelected(chipId) {
 function moveModuleUp(chipId) {
     const prefs = loadModulePrefs();
     const order = prefs.order || modules.map(m => m.chip_id);
+    // Defesa: se o chip nao estava na ordem salva (modulo adicionado depois), inclui no fim antes de mover
+    if (order.indexOf(chipId) < 0) order.push(chipId);
     const idx = order.indexOf(chipId);
     if (idx > 0) { [order[idx - 1], order[idx]] = [order[idx], order[idx - 1]]; }
     prefs.order = order;
@@ -119,6 +121,8 @@ function moveModuleUp(chipId) {
 function moveModuleDown(chipId) {
     const prefs = loadModulePrefs();
     const order = prefs.order || modules.map(m => m.chip_id);
+    // Defesa: se o chip nao estava na ordem salva (modulo adicionado depois), inclui no fim antes de mover
+    if (order.indexOf(chipId) < 0) order.push(chipId);
     const idx = order.indexOf(chipId);
     if (idx >= 0 && idx < order.length - 1) { [order[idx], order[idx + 1]] = [order[idx + 1], order[idx]]; }
     prefs.order = order;
@@ -311,6 +315,16 @@ async function loadModules() {
         const prefs = loadModulePrefs();
         if (!prefs.order || prefs.order.length === 0) {
             prefs.order = modules.map(m => m.chip_id);
+        } else {
+            // Adiciona modulos pareados DEPOIS da inicializacao no fim da ordem
+            // (sem isso, as setinhas ↑↓ no card novo ficam inertes — indexOf retorna -1)
+            const existingOrder = new Set(prefs.order);
+            for (const m of modules) {
+                if (!existingOrder.has(m.chip_id)) prefs.order.push(m.chip_id);
+            }
+            // Remove da ordem modulos que foram despareados
+            const currentIds = new Set(modules.map(m => m.chip_id));
+            prefs.order = prefs.order.filter(id => currentIds.has(id));
         }
         // Auto-selecionar novos modulos
         if (!prefs.selected) prefs.selected = modules.map(m => m.chip_id);
