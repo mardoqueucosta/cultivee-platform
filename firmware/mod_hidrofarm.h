@@ -767,7 +767,11 @@ String hidrofarm_dashboard_html() {
       "<button id='bv' onclick=\"cmd('ventilation','toggle')\" style='padding:12px;border-radius:10px;border:none;font-weight:700;font-size:0.9rem;cursor:pointer;"
       + String(ventilationState ? "background:#2ecc71;color:#fff'" : "background:#2a2d35;color:#aaa;border:1px solid #3a3d45'") + ">VENT " + (ventilationState ? "ON" : "OFF") + "</button>"
       "<button id='ba' onclick=\"cmd('aeration','toggle')\" style='padding:12px;border-radius:10px;border:none;font-weight:700;font-size:0.9rem;cursor:pointer;"
-      + String(aerationState ? "background:#00bcd4;color:#fff'" : "background:#2a2d35;color:#aaa;border:1px solid #3a3d45'") + ">AERA " + (aerationState ? "ON" : "OFF") + "</button></div>";
+      + String(aerationState ? "background:#00bcd4;color:#fff'" : "background:#2a2d35;color:#aaa;border:1px solid #3a3d45'") + ">AERA " + (aerationState ? "ON" : "OFF") + "</button>"
+      "<button id='bve' onclick=\"cmd('valve_entrada','toggle')\" style='padding:12px;border-radius:10px;border:none;font-weight:700;font-size:0.85rem;cursor:pointer;"
+      + String(valveEntradaState ? "background:#4ba3ff;color:#fff'" : "background:#2a2d35;color:#aaa;border:1px solid #3a3d45'") + ">&#128167; VALVULA " + (valveEntradaState ? "ON" : "OFF") + "</button>"
+      "<button id='bbh' onclick=\"cmd('bomba_homo','toggle')\" style='padding:12px;border-radius:10px;border:none;font-weight:700;font-size:0.85rem;cursor:pointer;"
+      + String(bombaHomoState ? "background:#9b59b6;color:#fff'" : "background:#2a2d35;color:#aaa;border:1px solid #3a3d45'") + ">&#128260; HOMOG " + (bombaHomoState ? "ON" : "OFF") + "</button></div>";
   }
 
   String modeBtn = modeAuto
@@ -816,20 +820,6 @@ String hidrofarm_dashboard_html() {
     phasesHtml += "</div></div>";
   }
 
-  // Card "Controles Manuais" — sempre visivel (independente de modeAuto)
-  // Contem os 2 reles do hidro-farm que nao participam da automacao por fase
-  String manualFarmCard = "";
-  manualFarmCard += "<div class='card'>";
-  manualFarmCard += "<h3 style='font-size:0.9rem;margin-bottom:10px'>Controles Manuais</h3>";
-  manualFarmCard += "<div style='display:grid;grid-template-columns:1fr 1fr;gap:8px'>";
-  manualFarmCard += "<button id='bve' onclick=\"cmd('valve_entrada','toggle')\" style='padding:12px;border-radius:10px;border:none;font-weight:700;font-size:0.85rem;cursor:pointer;"
-    + String(valveEntradaState ? "background:#4ba3ff;color:#fff'" : "background:#2a2d35;color:#aaa;border:1px solid #3a3d45'")
-    + ">&#128167; VALVULA " + (valveEntradaState ? "ON" : "OFF") + "</button>";
-  manualFarmCard += "<button id='bbh' onclick=\"cmd('bomba_homo','toggle')\" style='padding:12px;border-radius:10px;border:none;font-weight:700;font-size:0.85rem;cursor:pointer;"
-    + String(bombaHomoState ? "background:#9b59b6;color:#fff'" : "background:#2a2d35;color:#aaa;border:1px solid #3a3d45'")
-    + ">&#128260; HOMOG " + (bombaHomoState ? "ON" : "OFF") + "</button>";
-  manualFarmCard += "</div></div>";
-
   String html = "";
   html += "<div class='card'>";
   html += "<div class='grid'>";
@@ -841,8 +831,6 @@ String hidrofarm_dashboard_html() {
   html += "<div class='ind'>" + lightIndicator + pumpIndicator + "</div><div class='ind'>" + ventIndicator + aerIndicator + "</div>";
   html += modeBtn + manualBtns;
   html += "</div>";
-
-  html += manualFarmCard;
 
   html += "<div class='card'><h3 style='font-size:0.9rem;margin-bottom:8px'>Fases Configuradas";
   html += "<a href='/config' style='float:right;color:#27ae60;font-size:0.8rem;text-decoration:none'>&#9881; Configurar</a></h3>";

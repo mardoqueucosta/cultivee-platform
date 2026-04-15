@@ -567,28 +567,12 @@ function renderDashboard(container, chipId, moduleType, data) {
 
     // Hidro-Farm: 2 reles sempre manuais (valvula entrada + bomba homogeneizacao)
     // Detectados pelos proprios campos no data — compatibilidade retroativa com o hidro legado.
+    // Como todos os controles manuais, so aparecem quando modeAuto === false.
     const hasFarmControls = data.valve_entrada !== undefined || data.bomba_homo !== undefined;
     const valveOn = data.valve_entrada || false;
     const homoOn = data.bomba_homo || false;
     const valvePending = pendingCommands.has('valve_entrada');
     const homoPending = pendingCommands.has('bomba_homo');
-
-    let farmControlsHtml = '';
-    if (hasFarmControls) {
-        farmControlsHtml = `<div class="card">
-            <div class="card-header"><div class="card-title"><h2>Controles Manuais</h2></div></div>
-            <div class="controls-row">
-                <button class="ctrl-btn ${valveOn ? 'on' : 'off'} ${valvePending ? 'pending' : ''}" style="${valveOn ? 'border-color:#4ba3ff;background:rgba(75,163,255,0.15);color:#4ba3ff' : ''}" onclick="toggleRelay('${chipId}','${moduleType}','valve_entrada')" ${valvePending ? 'disabled' : ''}>
-                    ${valvePending ? '<span class="btn-spinner"></span>' : `<span class="ctrl-btn-icon">${valveOn ? '&#128167;' : '&#9899;'}</span>`}
-                    <span>${valvePending ? 'Enviando...' : `VALVULA ${valveOn ? 'ON' : 'OFF'}`}</span>
-                </button>
-                <button class="ctrl-btn ${homoOn ? 'on' : 'off'} ${homoPending ? 'pending' : ''}" style="${homoOn ? 'border-color:#9b59b6;background:rgba(155,89,182,0.15);color:#9b59b6' : ''}" onclick="toggleRelay('${chipId}','${moduleType}','bomba_homo')" ${homoPending ? 'disabled' : ''}>
-                    ${homoPending ? '<span class="btn-spinner"></span>' : `<span class="ctrl-btn-icon">${homoOn ? '&#128260;' : '&#9899;'}</span>`}
-                    <span>${homoPending ? 'Enviando...' : `HOMOG ${homoOn ? 'ON' : 'OFF'}`}</span>
-                </button>
-            </div>
-        </div>`;
-    }
 
     let controlsHtml = '';
     if (!modeAuto) {
@@ -611,7 +595,17 @@ function renderDashboard(container, chipId, moduleType, data) {
                 ${aerPending ? '<span class="btn-spinner"></span>' : `<span class="ctrl-btn-icon">${aerOn ? '&#128168;' : '&#9899;'}</span>`}
                 <span>${aerPending ? 'Enviando...' : `AERA ${aerOn ? 'ON' : 'OFF'}`}</span>
             </button>
-        </div>`;
+        </div>` + (hasFarmControls ? `
+        <div class="controls-row">
+            <button class="ctrl-btn ${valveOn ? 'on' : 'off'} ${valvePending ? 'pending' : ''}" style="${valveOn ? 'border-color:#4ba3ff;background:rgba(75,163,255,0.15);color:#4ba3ff' : ''}" onclick="toggleRelay('${chipId}','${moduleType}','valve_entrada')" ${valvePending ? 'disabled' : ''}>
+                ${valvePending ? '<span class="btn-spinner"></span>' : `<span class="ctrl-btn-icon">${valveOn ? '&#128167;' : '&#9899;'}</span>`}
+                <span>${valvePending ? 'Enviando...' : `VALVULA ${valveOn ? 'ON' : 'OFF'}`}</span>
+            </button>
+            <button class="ctrl-btn ${homoOn ? 'on' : 'off'} ${homoPending ? 'pending' : ''}" style="${homoOn ? 'border-color:#9b59b6;background:rgba(155,89,182,0.15);color:#9b59b6' : ''}" onclick="toggleRelay('${chipId}','${moduleType}','bomba_homo')" ${homoPending ? 'disabled' : ''}>
+                ${homoPending ? '<span class="btn-spinner"></span>' : `<span class="ctrl-btn-icon">${homoOn ? '&#128260;' : '&#9899;'}</span>`}
+                <span>${homoPending ? 'Enviando...' : `HOMOG ${homoOn ? 'ON' : 'OFF'}`}</span>
+            </button>
+        </div>` : '');
     }
 
     const now = new Date();
@@ -639,7 +633,6 @@ function renderDashboard(container, chipId, moduleType, data) {
             </button>
             ${controlsHtml}
         </div>
-        ${farmControlsHtml}
         ${phasesHtml ? `<div class="card">
             <div class="card-header">
                 <div class="card-title"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg><h2>Fases</h2></div>
