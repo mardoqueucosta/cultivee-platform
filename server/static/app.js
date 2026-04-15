@@ -508,11 +508,16 @@ async function loadCtrlStatus(chipId, moduleType, container) {
     if (!ct) return;
     try {
         const data = await api(`${apiFor(moduleType)}/${chipId}/status`);
-        if (localState && (Date.now() - lastToggleTime < TOGGLE_COOLDOWN)) {
+        // Fix: so aplica localState otimista se for do MESMO chip — evita vazamento
+        // de estado entre modulos (ex: clicar modo manual no farm afetava o hidro).
+        if (localState && localState.__chipId === chipId && (Date.now() - lastToggleTime < TOGGLE_COOLDOWN)) {
             data.light = localState.light;
             data.pump = localState.pump;
             data.ventilation = localState.ventilation;
             data.aeration = localState.aeration;
+            data.valve_entrada = localState.valve_entrada;
+            data.bomba_homo = localState.bomba_homo;
+            data.valve_auto = localState.valve_auto;
             data.mode = localState.mode;
         }
         const key = `${data.light}:${data.pump}:${data.ventilation}:${data.aeration}:${data.valve_entrada}:${data.bomba_homo}:${data.valve_auto}:${data.level_high}:${data.level_low}:${data.reservoir_state}:${data.temperature}:${data.humidity}:${data.dht_valid}:${data.mode}:${data.phase}:${data.phase_index}:${data.cycle_day}:${data.start_date}`;
@@ -525,7 +530,9 @@ async function loadCtrlStatus(chipId, moduleType, container) {
 }
 
 function renderDashboard(container, chipId, moduleType, data) {
-    localState = { ...data };
+    // Preserva __chipId no localState — usado pelo loadCtrlStatus/toggleRelay para
+    // garantir que estado otimista nao vaze entre modulos diferentes.
+    localState = { ...data, __chipId: chipId };
     const cycleDay = data.cycle_day || 0;
     const phase = data.phase || "---";
     const phaseIndex = data.phase_index || 0;
@@ -577,11 +584,12 @@ function renderDashboard(container, chipId, moduleType, data) {
         }).join("");
     }
 
-    const lightPending = pendingCommands.has('light');
-    const pumpPending = pendingCommands.has('pump');
-    const ventPending = pendingCommands.has('ventilation');
-    const aerPending = pendingCommands.has('aeration');
-    const modePending = pendingCommands.has('mode');
+    // Pendings com keys compostas chipId:device para evitar vazamento entre modulos
+    const lightPending = pendingCommands.has(`${chipId}:light`);
+    const pumpPending = pendingCommands.has(`${chipId}:pump`);
+    const ventPending = pendingCommands.has(`${chipId}:ventilation`);
+    const aerPending = pendingCommands.has(`${chipId}:aeration`);
+    const modePending = pendingCommands.has(`${chipId}:mode`);
 
     // Hidro-Farm: reles extras, reservatorio e ambiente (DHT11)
     // Detectados pelos proprios campos no data — compatibilidade retroativa com o hidro legado.
@@ -597,9 +605,9 @@ function renderDashboard(container, chipId, moduleType, data) {
     const dhtValid = data.dht_valid === true;
     const temperature = data.temperature;
     const humidity = data.humidity;
-    const homoPending = pendingCommands.has('bomba_homo');
-    const valvePending = pendingCommands.has('valve_entrada');
-    const valveAutoPending = pendingCommands.has('valve_auto');
+    const homoPending = pendingCommands.has(`${chipId}:bomba_homo`);
+    const valvePending = pendingCommands.has(`${chipId}:valve_entrada`);
+    const valveAutoPending = pendingCommands.has(`${chipId}:valve_auto`);
 
     let controlsHtml = '';
     if (!modeAuto) {
@@ -674,22 +682,12 @@ function renderDashboard(container, chipId, moduleType, data) {
         else if (reservoirState === 'empty')  { stateLabel = 'VAZIO';    stateColor = '#e67e22'; waterH = '8%';  waterT = '92%'; }
         else                                  { stateLabel = 'ERRO';     stateColor = '#e74c3c'; waterH = '50%'; waterT = '50%'; }
 
-        // Botao unico de toggle — muda cor e texto conforme o estado atual da valvula
-        const manualBtnsHtml = !valveAutoOn ? `
-            <div class="reservoir-manual" style="grid-template-columns: 1fr">
-                <button class="ctrl-btn ${valvePending ? 'pending' : ''}" style="border-color:${valveOn ? '#e74c3c' : '#4ba3ff'};background:${valveOn ? 'rgba(231,76,60,0.15)' : 'rgba(75,163,255,0.15)'};color:${valveOn ? '#e74c3c' : '#4ba3ff'}"
-                        onclick="toggleRelay('${chipId}','${moduleType}','valve_entrada')" ${valvePending ? 'disabled' : ''}>
-                    ${valvePending ? '<span class="btn-spinner"></span>' : `<span class="ctrl-btn-icon">${valveOn ? '&#9940;' : '&#128167;'}</span>`}
-                    <span>${valvePending ? 'Enviando...' : (valveOn ? 'FECHAR VALVULA' : 'ABRIR VALVULA')}</span>
-                </button>
-            </div>` : '';
-
+        // Reservatorio 100% automatico pela UI — sem botao de modo ou controle manual.
+        // A logica do valveAuto continua no firmware (default true) e ainda pode ser
+        // alterada via comando serial (VA0/VA1) ou comando remoto (device=valve_auto).
         reservoirHtml = `<div class="card reservoir-card">
             <div class="reservoir-header">
                 <h2>&#128167; Reservatorio</h2>
-                <button class="reservoir-mode-btn ${valveAutoOn ? 'auto' : 'manual'} ${valveAutoPending ? 'pending' : ''}" onclick="toggleRelay('${chipId}','${moduleType}','valve_auto')" ${valveAutoPending ? 'disabled' : ''}>
-                    ${valveAutoPending ? '<span class="btn-spinner"></span>' : (valveAutoOn ? 'Modo: AUTO' : 'Modo: MANUAL')}
-                </button>
             </div>
             <div class="reservoir-body">
                 <div class="reservoir-tank">
@@ -710,7 +708,6 @@ function renderDashboard(container, chipId, moduleType, data) {
                     <div class="reservoir-valve"><b>Valvula:</b> <span style="color:${valveOn ? '#4ba3ff' : '#888'}">${valveOn ? 'ABERTA' : 'FECHADA'}</span></div>
                 </div>
             </div>
-            ${manualBtnsHtml}
         </div>`;
     }
 
@@ -752,6 +749,11 @@ function renderDashboard(container, chipId, moduleType, data) {
 }
 
 async function toggleRelay(chipId, moduleType, device) {
+    // Se o localState salvo e de outro chip, descarta — evita aplicar update otimista
+    // sobre dados do modulo errado (bug do modo manual vazando entre hidro/hidro-farm).
+    if (localState && localState.__chipId !== chipId) {
+        localState = null;
+    }
     if (localState) {
         if (device === "light") localState.light = !localState.light;
         else if (device === "pump") localState.pump = !localState.pump;
@@ -762,7 +764,7 @@ async function toggleRelay(chipId, moduleType, device) {
         else if (device === "valve_auto") localState.valve_auto = !(localState.valve_auto !== false);
         else if (device === "mode") localState.mode = localState.mode === "auto" ? "manual" : "auto";
         lastToggleTime = Date.now();
-        pendingCommands.add(device);
+        pendingCommands.add(`${chipId}:${device}`);
         const ct = getCtrlContainer(chipId, moduleType);
         if (ct) renderDashboard(ct, chipId, moduleType, localState);
     }
@@ -792,11 +794,14 @@ async function toggleRelay(chipId, moduleType, device) {
             }
         } catch (e) { break; }
     }
-    pendingCommands.delete(device);
+    pendingCommands.delete(`${chipId}:${device}`);
     _lastCtrlKey = "";
     const ct = getCtrlContainer(chipId, moduleType);
-    if (confirmed && ct) renderDashboard(ct, chipId, moduleType, localState);
-    else loadCtrlStatus(chipId, moduleType);
+    if (confirmed && ct && localState && localState.__chipId === chipId) {
+        renderDashboard(ct, chipId, moduleType, localState);
+    } else {
+        loadCtrlStatus(chipId, moduleType);
+    }
 }
 
 // =====================================================================

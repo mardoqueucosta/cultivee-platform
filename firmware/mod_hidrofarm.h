@@ -1029,12 +1029,8 @@ String hidrofarm_dashboard_html() {
 
   String reservoirCard = "";
   reservoirCard += "<div class='card'>";
-  reservoirCard += "<div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:10px'>";
-  reservoirCard += "<h3 style='font-size:0.9rem'>&#128167; Reservatorio</h3>";
-  reservoirCard += "<button id='bva' onclick=\"cmd('valve_auto','toggle')\" style='padding:4px 10px;border-radius:6px;font-size:0.7rem;font-weight:700;cursor:pointer;border:1px solid "
-    + String(valveAuto ? "#27ae60;background:rgba(39,174,96,0.15);color:#27ae60'" : "#e67e22;background:rgba(230,126,34,0.15);color:#e67e22'")
-    + ">Modo: " + String(valveAuto ? "AUTO" : "MANUAL") + "</button>";
-  reservoirCard += "</div>";
+  // Header sem botao de modo (reservatorio e 100% automatico pela UI)
+  reservoirCard += "<h3 style='font-size:0.9rem;margin-bottom:10px'>&#128167; Reservatorio</h3>";
 
   // Corpo: tanque a esquerda, indicadores/botoes a direita
   reservoirCard += "<div style='display:flex;gap:14px;align-items:center'>";
@@ -1060,14 +1056,8 @@ String hidrofarm_dashboard_html() {
   reservoirCard += "<div id='irv' style='font-size:0.85rem'><b>Valvula:</b> <span style='color:" + String(valveEntradaState ? "#4ba3ff" : "#888") + "'>" + String(valveEntradaState ? "ABERTA" : "FECHADA") + "</span></div>";
   reservoirCard += "</div></div>";
 
-  // Botao unico de toggle (so aparece em modo MANUAL da valvula)
-  if (!valveAuto) {
-    reservoirCard += "<div id='vmb' style='margin-top:12px'>";
-    reservoirCard += "<button id='bvt' onclick=\"cmd('valve_entrada','toggle')\" style='width:100%;padding:12px;border-radius:10px;border:none;font-weight:700;font-size:0.9rem;cursor:pointer;"
-      + String(valveEntradaState ? "background:#e74c3c;color:#fff'" : "background:#4ba3ff;color:#fff'")
-      + ">" + String(valveEntradaState ? "&#9940; FECHAR VALVULA" : "&#128167; ABRIR VALVULA") + "</button>";
-    reservoirCard += "</div>";
-  }
+  // Sem botao manual da valvula — o reservatorio roda 100% automatico pela UI.
+  // Controle manual ainda disponivel via comando serial (VA0 + VE1/VE0) ou remoto.
   reservoirCard += "</div>";
 
   String html = "";
@@ -1113,15 +1103,13 @@ if(bv){bv.style.background=s.ventilation?'#2ecc71':'#2a2d35';bv.style.color=s.ve
 if(ba){ba.style.background=s.aeration?'#00bcd4':'#2a2d35';ba.style.color=s.aeration?'#fff':'#aaa';ba.textContent='AERA '+(s.aeration?'ON':'OFF')}
 var bbh=document.getElementById('bbh');
 if(bbh){bbh.style.background=s.bomba_homo?'#9b59b6':'#2a2d35';bbh.style.color=s.bomba_homo?'#fff':'#aaa';bbh.innerHTML='&#128260; HOMOG '+(s.bomba_homo?'ON':'OFF')}
-// Reservatorio
-var ilh=document.getElementById('ilh'),ill=document.getElementById('ill'),irs=document.getElementById('irs'),irv=document.getElementById('irv'),tw=document.getElementById('tankWater'),bva=document.getElementById('bva'),bvt=document.getElementById('bvt'),vmb=document.getElementById('vmb');
+// Reservatorio (sem botao de modo — reservatorio e sempre auto pela UI)
+var ilh=document.getElementById('ilh'),ill=document.getElementById('ill'),irs=document.getElementById('irs'),irv=document.getElementById('irv'),tw=document.getElementById('tankWater');
 if(ilh){ilh.style.color=s.level_high?'#27ae60':'#666';ilh.innerHTML='&#9679; Alto: '+(s.level_high?'ATIVO':'inativo')}
 if(ill){ill.style.color=s.level_low?'#27ae60':'#666';ill.innerHTML='&#9679; Baixo: '+(s.level_low?'ATIVO':'inativo')}
 if(irs){var lbl='',col='#888';if(s.reservoir_state==='full'){lbl='CHEIO';col='#27ae60'}else if(s.reservoir_state==='filling'){lbl='ENCHENDO';col='#3498db'}else if(s.reservoir_state==='empty'){lbl='VAZIO';col='#e67e22'}else if(s.reservoir_state==='error'){lbl='ERRO';col='#e74c3c'}irs.innerHTML='<b>Estado:</b> <span style="color:'+col+'">'+lbl+'</span>'}
 if(irv){irv.innerHTML='<b>Valvula:</b> <span style="color:'+(s.valve_entrada?'#4ba3ff':'#888')+'">'+(s.valve_entrada?'ABERTA':'FECHADA')+'</span>'}
 if(tw){var h='50%',t='50%';if(s.reservoir_state==='full'){h='92%';t='8%'}else if(s.reservoir_state==='filling'){h='55%';t='45%'}else if(s.reservoir_state==='empty'){h='8%';t='92%'}tw.style.height=h;tw.style.top=t}
-if(bva){var va=s.valve_auto;bva.style.borderColor=va?'#27ae60':'#e67e22';bva.style.background=va?'rgba(39,174,96,0.15)':'rgba(230,126,34,0.15)';bva.style.color=va?'#27ae60':'#e67e22';bva.textContent='Modo: '+(va?'AUTO':'MANUAL');if(va&&vmb){vmb.remove()}else if(!va&&!vmb){location.reload()}}
-if(bvt){bvt.style.background=s.valve_entrada?'#e74c3c':'#4ba3ff';bvt.innerHTML=s.valve_entrada?'&#9940; FECHAR VALVULA':'&#128167; ABRIR VALVULA'}
 // Ambiente (DHT11)
 var atv=document.getElementById('atv'),ahv=document.getElementById('ahv'),adu=document.getElementById('adu');
 if(atv){atv.innerHTML=s.dht_valid?(s.temperature+' &deg;C'):'--'}
