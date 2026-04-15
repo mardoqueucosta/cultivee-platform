@@ -618,13 +618,22 @@ function renderDashboard(container, chipId, moduleType, data) {
                 ${aerPending ? '<span class="btn-spinner"></span>' : `<span class="ctrl-btn-icon">${aerOn ? '&#128168;' : '&#9899;'}</span>`}
                 <span>${aerPending ? 'Enviando...' : `AERA ${aerOn ? 'ON' : 'OFF'}`}</span>
             </button>
-        </div>` + (hasFarmControls ? `
-        <div class="controls-row">
-            <button class="ctrl-btn ${homoOn ? 'on' : 'off'} ${homoPending ? 'pending' : ''}" style="flex: 1 1 100%; ${homoOn ? 'border-color:#9b59b6;background:rgba(155,89,182,0.15);color:#9b59b6' : ''}" onclick="toggleRelay('${chipId}','${moduleType}','bomba_homo')" ${homoPending ? 'disabled' : ''}>
-                ${homoPending ? '<span class="btn-spinner"></span>' : `<span class="ctrl-btn-icon">${homoOn ? '&#128260;' : '&#9899;'}</span>`}
-                <span>${homoPending ? 'Enviando...' : `HOMOG ${homoOn ? 'ON' : 'OFF'}`}</span>
-            </button>
-        </div>` : '');
+        </div>`;
+    }
+
+    // Card "Controles Extras" — HOMOG sempre visivel, independente do modeAuto global
+    // (separado do bloco manual das fases porque nao faz parte da automacao por fase)
+    let extrasHtml = '';
+    if (hasFarmControls) {
+        extrasHtml = `<div class="card">
+            <div class="card-header"><div class="card-title"><h2>Controles Extras</h2></div></div>
+            <div class="controls-row">
+                <button class="ctrl-btn ${homoOn ? 'on' : 'off'} ${homoPending ? 'pending' : ''}" style="flex: 1 1 100%; ${homoOn ? 'border-color:#9b59b6;background:rgba(155,89,182,0.15);color:#9b59b6' : ''}" onclick="toggleRelay('${chipId}','${moduleType}','bomba_homo')" ${homoPending ? 'disabled' : ''}>
+                    ${homoPending ? '<span class="btn-spinner"></span>' : `<span class="ctrl-btn-icon">${homoOn ? '&#128260;' : '&#9899;'}</span>`}
+                    <span>${homoPending ? 'Enviando...' : `HOMOG ${homoOn ? 'ON' : 'OFF'}`}</span>
+                </button>
+            </div>
+        </div>`;
     }
 
     // Card "Reservatorio" — sempre visivel quando o modulo tem boias (hidro-farm)
@@ -706,6 +715,7 @@ function renderDashboard(container, chipId, moduleType, data) {
             </button>
             ${controlsHtml}
         </div>
+        ${extrasHtml}
         ${reservoirHtml}
         ${phasesHtml ? `<div class="card">
             <div class="card-header">

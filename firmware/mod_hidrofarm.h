@@ -862,7 +862,8 @@ String hidrofarm_dashboard_html() {
 
   String manualBtns = "";
   if (!modeAuto) {
-    // Grid 2 colunas: LUZ/BOMBA, VENT/AERA, HOMOG span 2
+    // Grid 2 colunas: LUZ/BOMBA, VENT/AERA (4 botoes da automacao de fase)
+    // HOMOG foi movido para o card "Controles Extras" (sempre visivel, fora do modeAuto)
     manualBtns = "<div id='mb' style='display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px'>"
       "<button id='bl' onclick=\"cmd('light','toggle')\" style='padding:12px;border-radius:10px;border:none;font-weight:700;font-size:0.9rem;cursor:pointer;"
       + String(lightState ? "background:#27ae60;color:#fff'" : "background:#2a2d35;color:#aaa;border:1px solid #3a3d45'") + ">LUZ " + (lightState ? "ON" : "OFF") + "</button>"
@@ -871,10 +872,18 @@ String hidrofarm_dashboard_html() {
       "<button id='bv' onclick=\"cmd('ventilation','toggle')\" style='padding:12px;border-radius:10px;border:none;font-weight:700;font-size:0.9rem;cursor:pointer;"
       + String(ventilationState ? "background:#2ecc71;color:#fff'" : "background:#2a2d35;color:#aaa;border:1px solid #3a3d45'") + ">VENT " + (ventilationState ? "ON" : "OFF") + "</button>"
       "<button id='ba' onclick=\"cmd('aeration','toggle')\" style='padding:12px;border-radius:10px;border:none;font-weight:700;font-size:0.9rem;cursor:pointer;"
-      + String(aerationState ? "background:#00bcd4;color:#fff'" : "background:#2a2d35;color:#aaa;border:1px solid #3a3d45'") + ">AERA " + (aerationState ? "ON" : "OFF") + "</button>"
-      "<button id='bbh' onclick=\"cmd('bomba_homo','toggle')\" style='grid-column:1/-1;padding:12px;border-radius:10px;border:none;font-weight:700;font-size:0.85rem;cursor:pointer;"
-      + String(bombaHomoState ? "background:#9b59b6;color:#fff'" : "background:#2a2d35;color:#aaa;border:1px solid #3a3d45'") + ">&#128260; HOMOG " + (bombaHomoState ? "ON" : "OFF") + "</button></div>";
+      + String(aerationState ? "background:#00bcd4;color:#fff'" : "background:#2a2d35;color:#aaa;border:1px solid #3a3d45'") + ">AERA " + (aerationState ? "ON" : "OFF") + "</button></div>";
   }
+
+  // Card "Controles Extras" — sempre visivel, independente do modeAuto
+  // Contem o HOMOG (bomba de homogeneizacao) que nao faz parte da automacao por fase
+  String extrasCard = "";
+  extrasCard += "<div class='card'>";
+  extrasCard += "<h3 style='font-size:0.9rem;margin-bottom:10px'>Controles Extras</h3>";
+  extrasCard += "<button id='bbh' onclick=\"cmd('bomba_homo','toggle')\" style='width:100%;padding:12px;border-radius:10px;border:none;font-weight:700;font-size:0.85rem;cursor:pointer;"
+    + String(bombaHomoState ? "background:#9b59b6;color:#fff'" : "background:#2a2d35;color:#aaa;border:1px solid #3a3d45'")
+    + ">&#128260; HOMOG " + (bombaHomoState ? "ON" : "OFF") + "</button>";
+  extrasCard += "</div>";
 
   String modeBtn = modeAuto
     ? "<button id='bm' onclick=\"cmd('mode','toggle')\" style='width:100%;padding:12px;border-radius:10px;border:1px solid #27ae60;background:rgba(39,174,96,0.1);color:#27ae60;font-weight:700;cursor:pointer'>&#9881; Modo Automatico</button>"
@@ -997,6 +1006,7 @@ String hidrofarm_dashboard_html() {
   html += modeBtn + manualBtns;
   html += "</div>";
 
+  html += extrasCard;
   html += reservoirCard;
 
   html += "<div class='card'><h3 style='font-size:0.9rem;margin-bottom:8px'>Fases Configuradas";
