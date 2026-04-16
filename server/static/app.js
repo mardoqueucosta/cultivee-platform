@@ -304,6 +304,8 @@ function modulesVisualKey() {
 function forceFullRefresh() {
     _lastModulesKey = "";
     _lastCtrlKey = "";
+    const mc = document.getElementById("module-content");
+    if (mc) mc.dataset.structKey = "";  // Forca recriacao dos containers
     loadModules();
 }
 
@@ -437,8 +439,20 @@ function renderSelectedContent() {
 
     if (selectedOrdered.length === 0) {
         container.innerHTML = '';
+        container.dataset.structKey = '';
         return;
     }
+
+    // Chave estrutural: so recria containers se a SELECAO ou ORDEM de modulos mudou.
+    // Atualizacoes de estado (reles, temp, modo) sao feitas pelo polling de 3s
+    // via loadCtrlStatus() que atualiza o DOM sem destruir os containers.
+    const structKey = selectedOrdered.map(m => m.chip_id).join(",");
+    if (container.dataset.structKey === structKey) {
+        // Mesmos modulos na mesma ordem — containers ja existem, nao destruir.
+        // O polling de 3s (setInterval) cuida de atualizar os dados.
+        return;
+    }
+    container.dataset.structKey = structKey;
 
     let html = '';
     for (const mod of selectedOrdered) {
@@ -447,7 +461,6 @@ function renderSelectedContent() {
         for (const cap of caps) {
             if (moduleRenderers[cap]) {
                 hasRenderer = true;
-                // Cria div container por modulo/capability
                 html += `<div id="mod-content-${mod.chip_id}-${cap}"></div>`;
             }
         }
@@ -457,7 +470,7 @@ function renderSelectedContent() {
     }
     container.innerHTML = html;
 
-    // Agora chama os renderers para preencher cada container
+    // Chama os renderers para preencher cada container (so na primeira vez)
     for (const mod of selectedOrdered) {
         const caps = mod.capabilities || [];
         for (const cap of caps) {
