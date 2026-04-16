@@ -167,10 +167,20 @@ Para desativar alertas, acesse o app e desabilite notificacoes.
     msg["To"] = to_email
 
     try:
-        with smtplib.SMTP(smtp_host, int(os.environ.get("SMTP_PORT", "587"))) as s:
-            s.starttls()
-            s.login(os.environ.get("SMTP_USER", ""), os.environ.get("SMTP_PASS", ""))
-            s.send_message(msg)
+        port = int(os.environ.get("SMTP_PORT", "587"))
+        user = os.environ.get("SMTP_USER", "")
+        passwd = os.environ.get("SMTP_PASS", "")
+        if port == 465:
+            # SSL direto (HostGator, Gmail com SSL)
+            with smtplib.SMTP_SSL(smtp_host, port) as s:
+                s.login(user, passwd)
+                s.send_message(msg)
+        else:
+            # STARTTLS (porta 587)
+            with smtplib.SMTP(smtp_host, port) as s:
+                s.starttls()
+                s.login(user, passwd)
+                s.send_message(msg)
     except Exception as e:
         log.error(f"SMTP error: {e}")
         raise
