@@ -54,11 +54,12 @@
 #define RELE_OFF             HIGH
 
 // ===== SENSORES DE NIVEL (boias reed-switch) =====
-// Entrada com pullup interno — boia fecha contato para GND quando ATIVA (LOW = ativo).
-// Se o fio quebrar, o pullup mantem HIGH (inativo) — fail-safe.
+// Boia tipo "normalmente fechada" (NF): contato fechado quando nivel OK, abre quando nivel baixa.
+// Com INPUT_PULLUP: contato fechado = LOW, contato aberto (nivel baixo) = HIGH.
+// Ou seja: HIGH = boia acionada (nivel atingido/baixo). LOW = boia em repouso.
 #define SENSOR_NIVEL_ALTO    13   // Boia alta — ativa quando reservatorio atinge nivel maximo
-#define SENSOR_NIVEL_BAIXO   14   // Boia baixa — ativa quando reservatorio atinge nivel minimo
-#define LEVEL_SENSOR_ACTIVE  LOW  // Leitura ativa (INPUT_PULLUP)
+#define SENSOR_NIVEL_BAIXO   14   // Boia baixa — ativa quando reservatorio cai ao nivel minimo
+#define LEVEL_SENSOR_ACTIVE  HIGH // HIGH = boia acionada (contato aberto, pullup sobe pra HIGH)
 
 // ===== SENSOR DHT11 (temperatura + umidade ambiente) =====
 // Modulo de 3 pinos (+ / out / -). Output digital 1-wire.
