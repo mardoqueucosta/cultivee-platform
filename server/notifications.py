@@ -135,7 +135,7 @@ class AlertManager:
         # 2. Email
         user = models.get_user_by_id(user_id)
         email_sent = False
-        if user and user.get("email"):
+        if user and user["email"]:
             try:
                 _send_email_alert(user["email"], payload)
                 email_sent = True
