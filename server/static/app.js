@@ -462,14 +462,11 @@ function renderSelectedContent() {
             if (moduleRenderers[cap]) {
                 hasRenderer = true;
                 const renderer = moduleRenderers[cap];
-                const moduleName = mod.name || renderer.label || cap;
                 const isOnline = mod.online;
-                // Header compacto: dot + nome + tipo (estilo "● Camera Pronta")
                 html += `<div class="module-content-block">
                     <div class="module-content-header">
                         <span class="mch-dot ${isOnline ? 'online' : 'offline'}"></span>
-                        <span class="mch-name">${moduleName}</span>
-                        <span class="mch-type">${renderer.label || cap}</span>
+                        <span class="mch-name">${renderer.label || cap}</span>
                     </div>
                     <div id="mod-content-${mod.chip_id}-${cap}"></div>
                 </div>`;
