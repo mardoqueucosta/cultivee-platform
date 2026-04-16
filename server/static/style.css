@@ -1622,6 +1622,38 @@ main { max-width: 1400px; margin: 0 auto; padding: 0 0.75rem; }
     padding-left: 1.6rem;
 }
 
+/* Threshold config */
+.reservoir-threshold {
+    margin-top: 0.5rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid var(--border, hsl(210, 15%, 20%));
+}
+
+.reservoir-threshold label {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.8rem;
+    color: var(--text-muted, hsl(210, 15%, 45%));
+}
+
+.reservoir-threshold input {
+    width: 50px;
+    padding: 0.25rem 0.4rem;
+    border: 1px solid var(--border, hsl(210, 15%, 20%));
+    border-radius: 0.4rem;
+    background: var(--card-bg, hsl(210, 18%, 12%));
+    color: var(--text-bright, hsl(210, 20%, 90%));
+    font-size: 0.85rem;
+    text-align: center;
+    font-weight: 600;
+}
+
+.reservoir-threshold input:focus {
+    outline: none;
+    border-color: hsl(142, 71%, 45%);
+}
+
 /* Manual controls (below body, only when valveAuto === false) */
 .reservoir-manual {
     display: grid;

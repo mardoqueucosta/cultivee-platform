@@ -738,9 +738,10 @@ function renderDashboard(container, chipId, moduleType, data) {
         // Reservatorio 100% automatico pela UI — sem botao de modo ou controle manual.
         // A logica do valveAuto continua no firmware (default true) e ainda pode ser
         // alterada via comando serial (VA0/VA1) ou comando remoto (device=valve_auto).
+        // Threshold de alerta (configuravel pelo usuario, default 10 min)
+        const alertThreshold = data.alert_threshold_min || 10;
+
         // Contador de tempo — inicia quando boia baixa NAO detecta agua (level_low = false)
-        // level_low = true → agua OK na boia baixa → sem timer
-        // level_low = false → sem agua na boia baixa → timer conta e alerta em 10 min
         let lowTimerHtml = '';
         const lowSince = data.low_since;
         if (!levelLow && lowSince) {
@@ -749,7 +750,7 @@ function renderDashboard(container, chipId, moduleType, data) {
             const diffMin = Math.floor(diffMs / 60000);
             const diffSec = Math.floor((diffMs % 60000) / 1000);
             const timeStr = diffMin > 0 ? `${diffMin}min ${diffSec}s` : `${diffSec}s`;
-            const isAlert = diffMin >= 10;
+            const isAlert = diffMin >= alertThreshold;
             lowTimerHtml = `<div class="reservoir-timer ${isAlert ? 'alert' : ''}">${isAlert ? '&#9888;' : '&#9201;'} Nivel baixo ha ${timeStr}</div>`;
         }
 
@@ -792,8 +793,16 @@ function renderDashboard(container, chipId, moduleType, data) {
                     </span>
                 </label>
                 ${pushDenied ? '<div class="notify-hint">Bloqueado pelo navegador. Acesse configuracoes do site para permitir.</div>' : ''}
-                ${!pushEnabled && !pushDenied ? '<div class="notify-hint">Receba alertas quando o reservatorio ficar vazio por 10+ minutos.</div>' : ''}
+                ${!pushEnabled && !pushDenied ? '<div class="notify-hint">Receba alertas quando o nivel ficar baixo.</div>' : ''}
             </div>` : ''}
+            <div class="reservoir-threshold">
+                <label>
+                    <span>&#9201; Alerta apos</span>
+                    <input type="number" min="1" max="120" value="${alertThreshold}"
+                        onchange="saveAlertThreshold('${chipId}','${moduleType}',this.value)">
+                    <span>min</span>
+                </label>
+            </div>
         </div>`;
     }
 
@@ -1788,6 +1797,16 @@ async function _subscribePush(vapidKey) {
     } catch (e) {
         console.error('Push subscribe error:', e);
     }
+}
+
+async function saveAlertThreshold(chipId, moduleType, value) {
+    const min = Math.max(1, Math.min(120, parseInt(value) || 10));
+    try {
+        await api(`${apiFor(moduleType)}/${chipId}/save-config`, {
+            method: 'POST',
+            body: { alert_threshold_min: min }
+        });
+    } catch (e) { console.error('Erro ao salvar threshold:', e); }
 }
 
 async function togglePushNotifications(el) {

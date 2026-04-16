@@ -253,7 +253,7 @@ def register_module(chip_id, short_id, module_type="ctrl", ip="", ssid="", rssi=
                        "cam_saturation", "cam_ae_level", "cam_gainceiling",
                        "cam_special_effect", "cam_hmirror", "cam_vflip",
                        "cam_exposure_ctrl", "cam_whitebal",
-                       "low_since", "last_activity")
+                       "low_since", "last_activity", "alert_threshold_min")
         for k in server_keys:
             if k in existing_data:
                 new_data[k] = existing_data[k]

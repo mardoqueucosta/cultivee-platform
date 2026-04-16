@@ -189,10 +189,16 @@ def save_config(chip_id):
             phases_list.append(phase)
         updates["phases"] = phases_list
         updates["num_phases"] = np
+    # Threshold de alerta do reservatorio (minutos, salvo no ctrl_data)
+    if "alert_threshold_min" in data:
+        updates["alert_threshold_min"] = max(1, min(120, int(data["alert_threshold_min"])))
     if updates:
         models.update_ctrl_data(chip_id, updates)
 
-    models.add_pending_command(chip_id, "save-config", json.dumps(data))
+    # So envia comando pro ESP32 se tem dados de fases (alert_threshold e so do servidor)
+    phase_data = {k: v for k, v in data.items() if k != "alert_threshold_min"}
+    if phase_data:
+        models.add_pending_command(chip_id, "save-config", json.dumps(phase_data))
 
     if module.get("ip"):
         try:

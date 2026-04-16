@@ -75,8 +75,10 @@ class AlertManager:
             return  # Comecou agora — espera 10 min
 
         elapsed = now - _alert_timers[timer_key]
-        if elapsed < 600:
-            return  # Menos de 10 minutos — espera
+        threshold_min = ctrl_data.get("alert_threshold_min", 10)
+        threshold_sec = threshold_min * 60
+        if elapsed < threshold_sec:
+            return  # Menos que o threshold configurado — espera
 
         # 10+ minutos com boia baixa ativa — verifica cooldown
         import models
