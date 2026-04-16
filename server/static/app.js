@@ -738,6 +738,11 @@ function renderDashboard(container, chipId, moduleType, data) {
         // Reservatorio 100% automatico pela UI — sem botao de modo ou controle manual.
         // A logica do valveAuto continua no firmware (default true) e ainda pode ser
         // alterada via comando serial (VA0/VA1) ou comando remoto (device=valve_auto).
+        // Detecta se push esta ativo pra esse usuario
+        const pushEnabled = Notification.permission === 'granted';
+        const pushDenied = Notification.permission === 'denied';
+        const pushAvailable = 'Notification' in window && 'PushManager' in window;
+
         reservoirHtml = `<div class="card reservoir-card">
             <div class="reservoir-header">
                 <h2>&#128167; Reservatorio</h2>
@@ -761,6 +766,18 @@ function renderDashboard(container, chipId, moduleType, data) {
                     <div class="reservoir-valve"><b>Valvula:</b> <span style="color:${valveOn ? '#4ba3ff' : '#888'}">${valveOn ? 'ABERTA' : 'FECHADA'}</span></div>
                 </div>
             </div>
+            ${pushAvailable ? `
+            <div class="reservoir-notify">
+                <label class="notify-toggle">
+                    <span class="notify-icon">${pushEnabled ? '&#128276;' : '&#128277;'}</span>
+                    <span class="notify-label">Alertas de nivel</span>
+                    <span class="notify-switch ${pushEnabled ? 'on' : ''} ${pushDenied ? 'blocked' : ''}" onclick="togglePushNotifications(this)">
+                        <span class="notify-slider"></span>
+                    </span>
+                </label>
+                ${pushDenied ? '<div class="notify-hint">Bloqueado pelo navegador. Acesse configuracoes do site para permitir.</div>' : ''}
+                ${!pushEnabled && !pushDenied ? '<div class="notify-hint">Receba alertas quando o reservatorio ficar vazio por 10+ minutos.</div>' : ''}
+            </div>` : ''}
         </div>`;
     }
 
@@ -1754,6 +1771,29 @@ async function _subscribePush(vapidKey) {
         });
     } catch (e) {
         console.error('Push subscribe error:', e);
+    }
+}
+
+async function togglePushNotifications(el) {
+    if (Notification.permission === 'denied') {
+        alert('Notificacoes estao bloqueadas pelo navegador.\n\nPara ativar:\n1. Clique no cadeado/icone ao lado da URL\n2. Em "Notificacoes", selecione "Permitir"\n3. Recarregue a pagina');
+        return;
+    }
+    if (Notification.permission === 'granted') {
+        // Desativar
+        await unsubscribePush();
+        el.classList.remove('on');
+        const icon = el.parentElement.querySelector('.notify-icon');
+        if (icon) icon.innerHTML = '&#128277;';
+    } else {
+        // Ativar — pede permissao
+        const perm = await Notification.requestPermission();
+        if (perm === 'granted') {
+            await _subscribePush(C.vapidPublicKey);
+            el.classList.add('on');
+            const icon = el.parentElement.querySelector('.notify-icon');
+            if (icon) icon.innerHTML = '&#128276;';
+        }
     }
 }
 
