@@ -46,21 +46,24 @@ class AlertManager:
 
     def _check_reservoir(self, chip_id, ctrl_data, user_id):
         """Timer baseado na BOIA DE NIVEL BAIXO (level_low).
-        Inicia quando level_low = true (boia baixa acionada).
-        Para quando level_low = false.
-        Se level_low fica true por 10+ min → envia alerta."""
-        level_low = ctrl_data.get("level_low", False)
+        level_low = true  → boia detectou agua (nivel OK, acima da boia)
+        level_low = false → boia NAO detectou agua (nivel BAIXO, precisa encher)
+
+        Timer inicia quando level_low = FALSE (sem agua na boia baixa).
+        Timer para quando level_low = TRUE (agua voltou).
+        Se level_low fica false por 10+ min → envia alerta."""
+        level_low = ctrl_data.get("level_low", True)  # default true = OK
         timer_key = f"{chip_id}:level_low"
 
-        if not level_low:
-            # Boia baixa inativa — limpa timer e campo no banco
+        if level_low:
+            # Boia baixa detectou agua — nivel OK, limpa timer
             if timer_key in _alert_timers:
                 _alert_timers.pop(timer_key, None)
                 import models as _m
                 _m.update_ctrl_data(chip_id, {"low_since": None})
             return
 
-        # Boia baixa ATIVA — inicia ou verifica timer
+        # Boia baixa SEM AGUA (level_low = false) — inicia ou verifica timer
         now = time.time()
         if timer_key not in _alert_timers:
             _alert_timers[timer_key] = now

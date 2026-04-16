@@ -738,10 +738,12 @@ function renderDashboard(container, chipId, moduleType, data) {
         // Reservatorio 100% automatico pela UI — sem botao de modo ou controle manual.
         // A logica do valveAuto continua no firmware (default true) e ainda pode ser
         // alterada via comando serial (VA0/VA1) ou comando remoto (device=valve_auto).
-        // Contador de tempo — inicia quando boia de nivel BAIXO e acionada (level_low = true)
+        // Contador de tempo — inicia quando boia baixa NAO detecta agua (level_low = false)
+        // level_low = true → agua OK na boia baixa → sem timer
+        // level_low = false → sem agua na boia baixa → timer conta e alerta em 10 min
         let lowTimerHtml = '';
         const lowSince = data.low_since;
-        if (levelLow && lowSince) {
+        if (!levelLow && lowSince) {
             const sinceDate = new Date(lowSince);
             const diffMs = Math.max(0, Date.now() - sinceDate.getTime());
             const diffMin = Math.floor(diffMs / 60000);
