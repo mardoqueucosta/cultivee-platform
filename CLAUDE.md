@@ -160,22 +160,73 @@ const moduleRenderers = {
 
 Capability nao registrada → mostra "Modulo sem interface configurada".
 
-### Comunicacao ESP32 → Servidor
+### Fluxo de Dados — como as 3 camadas se comunicam
+
+O projeto tem **3 camadas** que trocam dados bidirecionalmente:
+
 ```
-ESP32 boot → connectWiFi → registerOnServer (POST /api/modules/register)
-          → envia: chip_id, type, capabilities, ctrl_data, IP
-          → recebe: commands[], poll_interval
-          → loop: pollCommands + registerOnServer a cada poll_interval
+  ┌────────────────┐       ┌──────────────────┐       ┌────────────────────┐
+  │ ESP32 (firmware)│◄─────►│ Servidor (Flask)  │◄─────►│ PWA (navegador)    │
+  │ dashboard local │       │ API REST + DB     │       │ app.cultivee.com.br│
+  │ reles, sensores │       │ app.cultivee.com  │       │ UI do usuario      │
+  └────────────────┘       └──────────────────┘       └────────────────────┘
 ```
 
-### Fluxo do usuario
+**1. ESP32 → Servidor (a cada 10s, polling)**
 ```
-1. Liga ESP32 → cria rede AP (ex: Cultivee-Cam)
-2. Conecta no AP → portal configura WiFi
-3. ESP32 reinicia → conecta WiFi → registra no servidor
-4. Abre app.cultivee.com.br → login → "Adicionar Modulo" → codigo
-5. Modulo aparece na lista com checkbox
-6. Seleciona → conteudo do modulo aparece (fases/reles ou camera)
+POST /api/modules/register
+  ENVIA:  chip_id, type, capabilities, ctrl_data (estados, fases, sensores, temp, nivel)
+  RECEBE: commands[], poll_interval, firmware_url, cam_resolution, cam_quality
+```
+O ESP32 NAO tem token de autenticacao — e identificado pelo `chip_id`. O `ctrl_data` e um JSON blob com TUDO que o modulo reporta (reles, fases, ciclo, sensores). O servidor armazena no banco e a PWA le.
+
+**2. App (PWA) → Servidor → ESP32 (quando usuario faz acao)**
+```
+Exemplo: usuario clica "toggle luz" no app
+  1. PWA: POST /api/ctrl/<chip_id>/relay?device=light&action=toggle
+  2. Servidor (bp_hidro.py):
+     a) Tenta PROXY DIRETO: HTTP GET http://<ip_esp32>/relay?device=light&action=toggle (timeout 2s)
+     b) Se proxy OK: retorna resposta do ESP32 direto pra PWA
+     c) Se proxy falha: ENFILEIRA pending_command no banco + retorna "queued"
+  3. ESP32 (se proxy falhou): no proximo poll, recebe o command e executa
+```
+Esse padrao "proxy direto + fallback pra fila" se aplica a: relay, save-config, add-phase, remove-phase, reset-phases, reset-wifi, capture, start-live, stop-live.
+
+**3. Sincronizacao de config (fases, start_date)**
+```
+  App salva config → Servidor atualiza banco + enfileira comando save-config
+                   → ESP32 recebe no poll → atualiza NVS
+                   → proximo register → servidor aceita dados do ESP32
+```
+- **Fonte de verdade para fases/start_date:** o ESP32 (NVS). O servidor aceita o que o ESP32 manda.
+- **Fonte de verdade para camera config:** o servidor (banco). O ESP32 apenas ecoa.
+- **`server_keys` em `register_module()`:** campos de camera sao protegidos no merge (servidor nao deixa o ESP32 sobrescrever). Campos de hidro (fases, start_date) NAO sao protegidos — o ESP32 e soberano.
+- **`cycle_day`/`phase`:** recalculados pelo PWA usando `Date()` do navegador, nao confiando no relogio do ESP32 (licao v4.0.14).
+
+**4. OTA Remoto (firmware via servidor)**
+```
+  Dev: upload .bin → Servidor salva em disco
+  ESP32: register → resposta inclui firmware_url → baixa .bin → Update → restart
+```
+Ver secao "OTA Remoto via Servidor" em "Compilar e gravar" para detalhes.
+
+**5. Versao offline (dashboard local no ESP32)**
+Quando o usuario acessa o IP do ESP32 diretamente (via rede local ou AP), o firmware serve um **dashboard HTML/JS inline** (`*_dashboard_html()` / `*_dashboard_js()`). Esse dashboard e uma replica visual da PWA online, mas:
+- Roda SEM servidor (HTTP direto no ESP32, porta 80)
+- Usa as mesmas rotas locais: `/status`, `/relay`, `/config`, `/save-config`, `/update` (OTA)
+- REGRA CRITICA: toda mudanca na UI online (app.js) DEVE ser replicada no offline (mod_*.h) e vice-versa
+
+### Fluxo do usuario (primeiro uso)
+```
+1. Liga ESP32 → cria rede AP (ex: Cultivee-HidroFarm, sem senha)
+2. Conecta no AP via celular → captive portal configura WiFi
+3. ESP32 reinicia → conecta WiFi → registra no servidor (POST /register)
+4. Abre app.cultivee.com.br → login → "Adicionar Modulo" → digita codigo (short_id)
+5. Modulo aparece na lista com checkbox + setas ↑↓
+6. Seleciona → dashboard do modulo aparece (cards: stats, fases, ambiente, reservatorio, controles)
+7. Controle: toggle reles via app → servidor → ESP32 (proxy direto ou fila)
+8. Config: edita fases/start_date → app salva no banco + envia comando pro ESP32
+9. OTA: firmware .bin enviado ao servidor → ESP32 baixa e atualiza remotamente
 ```
 
 ---
