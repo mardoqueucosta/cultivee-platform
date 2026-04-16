@@ -31,7 +31,7 @@ Plataforma IoT para cultivo inteligente. Arquitetura modular:
 Hardware especializado: cada ESP32 faz uma coisa so.
 Composicao por software: o app mostra os modulos que o usuario adicionar.
 
-Versao ativa: **v4.0.15** — definida como fonte unica em [`server/config.py:24`](./server/config.py) (`APP_VERSION`) e replicada manualmente em [`products/hidro.h:11`](./products/hidro.h), [`products/hidro-farm.h:16`](./products/hidro-farm.h) e [`products/cam.h:11`](./products/cam.h) (`FIRMWARE_VERSION`).
+Versao ativa: **v4.1.7** — definida como fonte unica em [`server/config.py:24`](./server/config.py) (`APP_VERSION`) e replicada manualmente em [`products/hidro.h:11`](./products/hidro.h), [`products/hidro-farm.h:16`](./products/hidro-farm.h) e [`products/cam.h:11`](./products/cam.h) (`FIRMWARE_VERSION`).
 
 Tres produtos ativos: **HIDRO** (4 reles, automacao por fase), **HIDRO-FARM** (Premium — 6 reles, 4 automatizados + 2 manuais puros), **CAM** (camera standalone).
 
@@ -63,7 +63,8 @@ cultivee-platform/
 │
 ├── server/                   # UM servidor Flask unificado
 │   ├── app.py                # Core: auth, modules, PWA, blueprints, migracao fotos
-│   ├── models.py             # SQLite (users, modules, commands, tokens, groups + captura)
+│   ├── models.py             # SQLite (users, modules, commands, tokens, groups, push_subscriptions, alert_log)
+│   ├── notifications.py      # AlertManager: monitora condições (nível baixo), envia push PWA + email SMTP
 │   ├── config.py             # PORT, DB_PATH, PRODUCT_NAME, APP_VERSION (fonte unica)
 │   ├── bp_hidro.py           # Blueprint: status, relay, phases (valida capability "hidro")
 │   ├── bp_hidrofarm.py       # Blueprint: idem do hidro mas valida capability "hidro-farm"
@@ -79,7 +80,7 @@ cultivee-platform/
 │   ├── run-hidro-cam.py      # Launcher legado (porta 5003) — ver "Desenvolvimento local"
 │   ├── test_routes.py        # Smoke tests das rotas HTTP
 │   ├── Dockerfile            # python:3.10-slim + gunicorn (2w x 4t)
-│   ├── requirements.txt      # flask, python-dotenv, gunicorn, pillow
+│   ├── requirements.txt      # flask, python-dotenv, gunicorn, pillow, pywebpush
 │   └── .env.example          # Template: DATA_DIR, DB_PATH, CAPTURE_INTERVAL
 │
 ├── docs/                     # Documentacao tecnica
@@ -123,8 +124,7 @@ Cada modulo implementa: `*_setup()`, `*_loop()`, `*_register_routes()`, `*_proce
 ### Servidor: Blueprints
 
 ```python
-# 1 servidor, 4 blueprints, 1 prefixo por blueprint
-# Confirmado em server/app.py:290-299
+# 1 servidor, 4 blueprints + rotas push, 1 prefixo por blueprint
 from bp_hidro import hidro_bp
 from bp_hidrofarm import hidrofarm_bp
 from bp_cam import cam_bp
@@ -134,6 +134,11 @@ app.register_blueprint(hidro_bp, url_prefix="/api/ctrl", name="hidro_ctrl")
 app.register_blueprint(hidrofarm_bp, url_prefix="/api/hidro-farm", name="hidrofarm")
 app.register_blueprint(cam_bp, url_prefix="/api/cam", name="cam_standalone")
 app.register_blueprint(gallery_bp, url_prefix="/api/gallery", name="gallery")
+
+# Rotas push (diretas em app.py, sem blueprint separado)
+# POST /api/push/subscribe   — registra subscription do navegador (endpoint, p256dh, auth)
+# POST /api/push/unsubscribe — remove subscription do usuario
+# GET  /api/push/status       — retorna se usuario tem subscription ativa
 ```
 
 Validacao por capability (cada blueprint checa seu proprio campo em `capabilities`):
@@ -150,9 +155,9 @@ As capabilities sao reportadas pelo ESP32 em cada `POST /api/modules/register` e
 ### PWA: Registry Pattern
 ```javascript
 const moduleRenderers = {
-    hidro:        { label: 'Controle',      renderContent: renderModule_hidro,     getStatusText: ... },
-    'hidro-farm': { label: 'Controle Farm', renderContent: renderModule_hidrofarm, getStatusText: ... },
-    cam:          { label: 'Camera',        renderContent: renderModule_cam,       getStatusText: ... },
+    hidro:        { label: 'Controle Hidro', renderContent: renderModule_hidro,     getStatusText: ... },
+    'hidro-farm': { label: 'Controle Farm',  renderContent: renderModule_hidrofarm, getStatusText: ... },
+    cam:          { label: 'Câmera',         renderContent: renderModule_cam,       getStatusText: ... },
 };
 ```
 
@@ -200,7 +205,7 @@ Esse padrao "proxy direto + fallback pra fila" se aplica a: relay, save-config, 
 ```
 - **Fonte de verdade para fases/start_date:** o ESP32 (NVS). O servidor aceita o que o ESP32 manda.
 - **Fonte de verdade para camera config:** o servidor (banco). O ESP32 apenas ecoa.
-- **`server_keys` em `register_module()`:** campos de camera sao protegidos no merge (servidor nao deixa o ESP32 sobrescrever). Campos de hidro (fases, start_date) NAO sao protegidos — o ESP32 e soberano.
+- **`server_keys` em `register_module()`:** campos de camera sao protegidos no merge (servidor nao deixa o ESP32 sobrescrever). Campos de hidro (fases, start_date) NAO sao protegidos — o ESP32 e soberano. Campos do sistema de alertas (`low_since`, `alert_threshold_min`) tambem sao server_keys — o ESP32 nao manda esses campos, o servidor os gerencia.
 - **`cycle_day`/`phase`:** recalculados pelo PWA usando `Date()` do navegador, nao confiando no relogio do ESP32 (licao v4.0.14).
 
 **4. OTA Remoto (firmware via servidor)**
@@ -215,6 +220,28 @@ Quando o usuario acessa o IP do ESP32 diretamente (via rede local ou AP), o firm
 - Roda SEM servidor (HTTP direto no ESP32, porta 80)
 - Usa as mesmas rotas locais: `/status`, `/relay`, `/config`, `/save-config`, `/update` (OTA)
 - REGRA CRITICA: toda mudanca na UI online (app.js) DEVE ser replicada no offline (mod_*.h) e vice-versa
+
+**6. Sistema de Alertas — Push PWA + Email (v4.1.0)**
+```
+  AlertManager (notifications.py) roda no servidor, ativado a cada register do ESP32:
+  1. register_module() salva ctrl_data → chama AlertManager.check_alerts(module)
+  2. AlertManager merge: dados do ESP32 (level_low) + dados do banco (low_since, alert_threshold_min)
+  3. Se level_low == false (sem agua) por >= alert_threshold_min minutos:
+     a) Push PWA: pywebpush → endpoint do navegador (VAPID keys do .env)
+     b) Email SMTP SSL (porta 465): contato@cultivee.com.br → notification_email do usuario
+     c) Grava em alert_log (cooldown 1h entre alertas iguais)
+  4. Timer visual no PWA: "⏱ Nivel baixo ha Xmin Xs" (laranja < threshold, vermelho pulsante >= threshold)
+     - low_since salvo em ctrl_data (timestamp UTC, protegido como server_key)
+     - Timer restaura do banco apos restart do container
+```
+
+Tabelas adicionadas:
+- `push_subscriptions` — user_id, endpoint, p256dh, auth (Web Push subscription do navegador)
+- `alert_log` — module_id, alert_type, sent_at (cooldown 1h entre alertas iguais)
+- `users.notification_email` — email separado para alertas (pode diferir do email de login)
+
+Service Worker (`sw.js` dinamico): handlers `push` + `notificationclick` — exibe notificacao e abre o app ao clicar.
+PWA: `requestPermission()` + `pushManager.subscribe()` chamado 2s apos login. Toggle iOS-style no card Reservatorio (ON verde / OFF cinza / BLOCKED vermelho).
 
 ### Fluxo do usuario (primeiro uso)
 ```
@@ -285,7 +312,13 @@ Variante avancada do HIDRO: mesma placa, mesmo RTC, mesmo sistema de fases. Adic
 Duas boias reed-switch monitoram o nivel do reservatorio, lidas com `INPUT_PULLUP` (fail-safe: fio quebrado = inativo):
 - `SENSOR_NIVEL_ALTO` GPIO13 — boia alta, ativa quando reservatorio atinge o nivel maximo
 - `SENSOR_NIVEL_BAIXO` GPIO14 — boia baixa, ativa quando reservatorio cai ate o nivel minimo
-- `LEVEL_SENSOR_ACTIVE` = `LOW` (boia fecha contato pro GND quando ativa)
+- `LEVEL_SENSOR_ACTIVE` = `LOW` (boia float lateral tipo NO — contato fecha pro GND quando agua empurra a boia)
+
+**Polaridade correta (validada e atualizada via OTA remoto):**
+- Sem agua → contato aberto → GPIO HIGH (pullup) → `level = false`
+- Com agua → contato fecha → GPIO LOW → `level = true`
+- `level_low = false` → reservatorio precisa encher (timer de alerta inicia)
+- `level_low = true` → agua OK (timer para)
 
 Leitura das boias com **debounce de 2 amostras consecutivas** (~600ms total) em [`readLevelSensorsFarm()`](./firmware/mod_hidrofarm.h), chamada a cada 300ms no loop. Uma mudanca so vira estado "confirmado" (`highLevelState`/`lowLevelState`) depois de 2 leituras iguais — evita falsos positivos por vibracao/ondas.
 
@@ -297,8 +330,6 @@ Leitura das boias com **debounce de 2 amostras consecutivas** (~600ms total) em 
 | OFF | ON | `filling` | Manter estado anterior (**histerese**) |
 | ON | ON | `full` | **Fechar valvula** (atingiu maximo) |
 | ON | OFF | `error` | Fechar por seguranca (sensor defeituoso) |
-
-> **NOTA:** Esta logica atual assume polaridade "ativa quando agua cobre a boia". Na pratica do hardware do usuario (com injecao/retorno de agua pelas plantas), a semantica pode ser diferente (ex: "baixa acionada = precisa encher"). Existe uma proposta de correcao documentada em sessao anterior mas **nao foi aplicada** — o usuario pediu para nao mexer ate validar no hardware real.
 
 A maquina de estados so atua quando `valveAuto == true`. Com `valveAuto == false`, as boias sao lidas e reportadas mas a valvula e 100% manual. A flag `valveAuto` e persistida em NVS (`prefs.getBool("valve_auto", true)` no setup) e pode ser alterada via:
 - Comando remoto `{cmd: "relay", device: "valve_auto"}`
@@ -328,6 +359,8 @@ Alem dos campos herdados do HIDRO (`light`, `pump`, `ventilation`, `aeration`, `
 | `temperature` | int | Temperatura em °C (DHT11, inteiro) |
 | `humidity` | int | Umidade relativa em % (DHT11, inteiro) |
 | `dht_valid` | bool | true se a ultima leitura do DHT11 foi valida |
+| `low_since` | string/null | Timestamp UTC (ISO 8601) de quando level_low virou false (server_key, salvo no banco) |
+| `alert_threshold_min` | int | Minutos de nivel baixo antes de disparar alerta (default 10, range 1-120, server_key) |
 
 #### Comandos serial (115200 baud)
 
@@ -347,7 +380,7 @@ Ordem do HTML renderizado por [`hidrofarm_dashboard_html()`](./firmware/mod_hidr
 1. **Card principal** — ciclo/fase/inicio/hoje + indicadores + botao Modo Auto/Manual + botoes manuais (quando `!modeAuto`)
 2. **Fases Configuradas** — lista detalhada das fases
 3. **Ambiente** — temperatura e umidade do DHT11
-4. **Reservatorio** — tanque visual + indicadores das boias + estado + valvula (sem botao de modo nem manual)
+4. **Reservatorio** — tanque visual + indicadores das boias + estado + valvula + timer nivel baixo + threshold configuravel + toggle notificacoes (sem botao de modo nem manual)
 5. **Controles Extras** — botao unico HOMOG (sempre visivel)
 
 O PWA online replica a mesma ordem em [`renderDashboard()`](./server/static/app.js) via variaveis `phasesHtml`, `ambientHtml`, `reservoirHtml`, `extrasHtml`.
@@ -516,6 +549,16 @@ Flag `localStreamActive` suspende `registerOnServer()` e `pollCommands()` durant
 | `/api/modules/unpair` | POST | Desvincular modulo |
 | `/api/modules` | GET | Listar modulos do usuario |
 
+### Push Notifications (rotas em `/api/push`)
+
+Implementado diretamente em [`server/app.py`](./server/app.py). Gerencia subscriptions Web Push do navegador. Todas requerem auth.
+
+| Rota | Metodo | Descricao |
+|------|--------|-----------|
+| `/api/push/subscribe` | POST | Registra push subscription {endpoint, keys: {p256dh, auth}} |
+| `/api/push/unsubscribe` | POST | Remove subscription do usuario |
+| `/api/push/status` | GET | Retorna {subscribed: bool} |
+
 ### Firmware OTA (rotas em `/api/modules/<chip_id>/firmware`)
 
 Implementado em [`server/app.py`](./server/app.py). Permite enviar .bin para OTA remoto via servidor.
@@ -575,7 +618,7 @@ Implementado em [`server/bp_gallery.py`](./server/bp_gallery.py). Gerencia a org
 
 ---
 
-## PWA (v4.0)
+## PWA (v4.1)
 
 ### Funcionalidades
 - Lista de modulos com checkbox (seleciona quais mostrar)
@@ -586,6 +629,11 @@ Implementado em [`server/bp_gallery.py`](./server/bp_gallery.py). Gerencia a org
 - Login/registro, tela offline, PWA install/update
 - Migracao automatica de token (prefix antigo → novo) no boot
 - Galeria com pastas (`gallery.js`): grid, selecao multipla, exclusao em lote, mover entre pastas
+- **Push Notifications** (v4.1.0): subscribe automatico 2s apos login, toggle iOS-style no card Reservatorio
+- **Timer de nivel baixo** no card Reservatorio: "Nivel baixo ha Xmin Xs" (laranja/vermelho pulsante)
+- **Threshold configuravel** (v4.1.7): input numerico "Alerta apos [10] min" (1-120) no card Reservatorio
+- **Header de identificacao** nos modulos: icone colorido + nome (Controle Hidro / Controle Farm / Camera)
+- **localStates Map per-chipId** (v4.0.16): refactor completo do singleton — cada chip tem estado independente
 
 ### Registry Pattern
 Para adicionar novo tipo de modulo:
@@ -597,7 +645,7 @@ moduleRenderers.sensor = {
 };
 ```
 
-### Bug fixes criticos (v4.0.11-v4.0.14)
+### Bug fixes criticos (v4.0.11-v4.1.7)
 
 **Estado per-chipId (v4.0.11-v4.0.12):** `localState`, `pendingCommands` e `lastToggleTimes` sao todos chaveados por chipId. Antes, eram globais — clicar em um botao de qualquer modulo afetava visualmente todos os modulos por 35s (cooldown).
 - `localState` usa `__chipId` + validacao antes de aplicar
@@ -608,8 +656,26 @@ moduleRenderers.sensor = {
 
 **Recalculo de cycle_day no cliente (v4.0.14):** O PWA agora recalcula `cycle_day` e `phase` no navegador usando `Date()` do browser (mais confiavel que o relogio do ESP32 que pode ter NTP desincronizado). Implementado em `loadCtrlStatus()` antes de `renderDashboard()`.
 
+**localStates Map (v4.0.16):** refactor completo — `localState` singleton virou `localStates` Map per-chipId. Elimina qualquer chance de vazamento de estado entre modulos.
+
+**Flash visual eliminado (v4.0.17):** `renderSelectedContent` so recria DOM quando selecao de modulos realmente muda. Antes, cada poll reconstruia os cards e causava flash visual.
+
+**Headers de modulo (v4.0.18-23):** icone colorido + label de identificacao nos cards (Controle Hidro / Controle Farm / Camera). Labels renomeados: "Controle" → "Controle Hidro", "Camera" → "Camera".
+
+**VAPID keys vazamento (v4.1.0):** keys VAPID foram commitadas no docker-compose.yml, GitGuardian detectou. Keys rotacionadas e movidas para `.env` na VPS (nunca no repo).
+
+**Timer perdido entre deploys (v4.1.0):** `low_since` era so em RAM no AlertManager. Apos restart do container, timer zerava. Fix: `low_since` salvo em `ctrl_data` no banco e restaurado no boot.
+
+**AlertManager merge (v4.1.0):** recebia `ctrl_data` raw do ESP32 (que nao tem `low_since`). Fix: merge dados do banco (`low_since`, `alert_threshold_min`) com dados do ESP32 (`level_low`) antes de processar.
+
+**Email RFC 5322 (v4.1.0):** Gmail rejeitava emails sem `Message-ID` e `Date` headers. Adicionados como obrigatorios no envio SMTP.
+
+**sqlite3.Row (v4.1.0):** `sqlite3.Row` nao tem `.get()` — substituido por `row["campo"]` direto com try/except.
+
+**notification_email (v4.1.0):** email de alertas separado do email de login — nova coluna `notification_email` na tabela `users`.
+
 ### Versionamento
-- **Fonte unica:** `APP_VERSION` em [`server/config.py:24`](./server/config.py) (atualmente `"4.0.15"`)
+- **Fonte unica:** `APP_VERSION` em [`server/config.py:24`](./server/config.py) (atualmente `"4.1.7"`)
 - O `sw.js` e o `manifest.json` sao **gerados dinamicamente** em [`server/app.py:372-436`](./server/app.py) — nao sao arquivos estaticos. O Service Worker usa `CACHE_NAME = cultivee-v + APP_VERSION`, entao bater o numero invalida o cache automaticamente.
 - `FIRMWARE_VERSION` nos 3 produtos ([`products/hidro.h:11`](./products/hidro.h), [`products/hidro-farm.h:16`](./products/hidro-farm.h), [`products/cam.h:11`](./products/cam.h)) deve ser mantido sincronizado com `APP_VERSION` **manualmente** — nao ha script que faca isso.
 - **Incrementar versao** ao fazer deploy com mudancas visuais (CSS/JS/template). Sem isso, o SW entrega cache antigo ate invalidar sozinho (pode levar horas/dias).
@@ -653,7 +719,7 @@ Duas formas de disparar:
     cd "D:/01-projetos-claude/00-Sites/site-cultivee.com.br/cultivee-platform"
     bash deploy.sh
     ```
-    Empacota apenas `app.py`, `models.py`, `config.py`, `bp_hidro.py`, `bp_cam.py`, `bp_gallery.py`, `requirements.txt`, `Dockerfile`, `static/`, `templates/` + `docker-compose.yml`, envia via `scp`, para containers antigos e rebuilda. Nao envia firmware nem arquivos de dados. Tudo numa unica sessao SSH (respeita a regra de `fail2ban`).
+    Empacota apenas `app.py`, `models.py`, `config.py`, `notifications.py`, `bp_hidro.py`, `bp_hidrofarm.py`, `bp_cam.py`, `bp_gallery.py`, `requirements.txt`, `Dockerfile`, `static/`, `templates/` + `docker-compose.yml`, envia via `scp`, para containers antigos e rebuilda. Nao envia firmware nem arquivos de dados. Tudo numa unica sessao SSH (respeita a regra de `fail2ban`).
 
 3. **OTA Remoto** (firmware, v4.0.15+) — envia .bin compilado localmente ao servidor, ESP32 baixa no proximo poll:
     ```bash
@@ -679,6 +745,20 @@ ssh -p 22022 -i "D:/01-projetos-claude/.credentials/id_rsa" root@129.121.50.168 
 - **Conta:** mardo.abc@gmail.com
 - `cultivee.com.br` + `www.cultivee.com.br` → proxied (Cloudflare CDN + SSL na borda) — servido pelo container do subprojeto [`../Site/`](../Site/)
 - `app.cultivee.com.br` → **DNS only** (nao proxied — precisa ser DNS-only porque ESP32 acessa HTTP puro e Cloudflare forcaria HTTPS)
+- `mail.cultivee.com.br` → **DNS only** (proxy Cloudflare DESATIVADO — SMTP nao funciona com proxy). Aponta para IP da HostGator `162.241.61.84`
+
+### Email (SMTP)
+- **Remetente:** `contato@cultivee.com.br` (caixa na HostGator)
+- **SMTP:** SSL porta 465, host `mail.cultivee.com.br` (IP direto `162.241.61.84`)
+- **SPF:** TXT record no Cloudflare: `v=spf1 include:_spf.hostgator.com.br a:162.241.61.84 ~all`
+- **Headers obrigatorios** (RFC 5322, exigido pelo Gmail): `Message-ID` e `Date`
+- **Credenciais:** no `.env` da VPS (SMTP_USER, SMTP_PASS) — NAO no repo
+- **Proxy Cloudflare:** DEVE estar desativado para `mail.cultivee.com.br` — SMTP nao passa por proxy HTTP
+
+### VAPID Keys (Web Push)
+- Geradas via `pywebpush` e configuradas no `.env` da VPS (VAPID_PRIVATE_KEY, VAPID_PUBLIC_KEY, VAPID_CLAIMS_EMAIL)
+- **NUNCA commitar no repo** — GitGuardian detectou vazamento quando estavam no `docker-compose.yml`; keys foram rotacionadas
+- A public key e injetada no template `index.html` via config do Flask para o `pushManager.subscribe()`
 
 ### Desenvolvimento local
 
