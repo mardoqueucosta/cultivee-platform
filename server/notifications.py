@@ -32,19 +32,28 @@ class AlertManager:
     """Verifica condicoes de alerta e envia notificacoes."""
 
     def check(self, chip_id, ctrl_data, module):
-        """Chamado a cada register do ESP32. ctrl_data e dict, module e row do DB."""
+        """Chamado a cada register do ESP32. ctrl_data e dict (raw do ESP32), module e row do DB."""
         user_id = module.get("user_id")
         if not user_id:
             return  # Modulo nao pareado — sem usuario pra notificar
 
+        # Merge: dados do ESP32 + dados do banco (low_since, alert_threshold_min, etc.)
+        # O ESP32 nao manda campos gerenciados pelo servidor — precisa ler do banco.
+        import json as _json
+        try:
+            db_data = _json.loads(module.get("ctrl_data", "{}"))
+        except (ValueError, TypeError):
+            db_data = {}
+        merged = {**db_data, **ctrl_data}  # ESP32 sobrescreve dados do banco, mas campos ausentes ficam
+
         # Alerta: reservatorio vazio por 10+ minutos
-        self._check_reservoir(chip_id, ctrl_data, user_id)
+        self._check_reservoir(chip_id, merged, user_id, module)
 
         # Futuros alertas:
         # self._check_temperature(chip_id, ctrl_data, user_id)
         # self._check_module_offline(chip_id, ctrl_data, user_id)
 
-    def _check_reservoir(self, chip_id, ctrl_data, user_id):
+    def _check_reservoir(self, chip_id, ctrl_data, user_id, module=None):
         """Timer baseado na BOIA DE NIVEL BAIXO (level_low).
         level_low = true  → boia detectou agua (nivel OK, acima da boia)
         level_low = false → boia NAO detectou agua (nivel BAIXO, precisa encher)
@@ -91,13 +100,13 @@ class AlertManager:
         if elapsed < threshold_sec:
             return  # Menos que o threshold configurado — espera
 
-        # 10+ minutos com boia baixa ativa — verifica cooldown
+        # Threshold atingido — verifica cooldown
         import models
         if not models.should_send_alert(user_id, chip_id, "level_low"):
             return  # Ja notificou na ultima hora
 
         # Monta payload e envia
-        module_name = module.get("name") or module.get("type", "Modulo")
+        module_name = (module.get("name") if module else None) or "Modulo"
         payload = {
             "title": "Nivel baixo no reservatorio",
             "body": f"{module_name}: boia de nivel minimo ativa ha {int(elapsed/60)} min. Verificar abastecimento de agua.",
