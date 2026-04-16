@@ -1357,6 +1357,8 @@ main { max-width: 1400px; margin: 0 auto; padding: 0 0.75rem; }
     align-items: center;
     gap: 0.5rem;
     margin-bottom: 0.75rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--border, hsl(210, 15%, 20%));
     font-size: 0.95rem;
 }
 

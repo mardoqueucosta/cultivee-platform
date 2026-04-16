@@ -1019,7 +1019,6 @@ function renderModule_cam(container, mod) {
             <div style="display:flex;align-items:center;gap:8px;padding:14px">
                 <span style="width:8px;height:8px;border-radius:50%;background:${statusColor}"></span>
                 <b style="font-size:0.9rem">Câmera</b>
-                <span style="color:#888;font-size:0.8rem">${statusText}</span>
             </div>
 
             <!-- Dropdown: Captura -->
