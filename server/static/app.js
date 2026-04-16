@@ -475,7 +475,9 @@ function renderSelectedContent() {
 
 let _lastCtrlKey = "";
 let localState = null;
-let lastToggleTime = 0;
+// Cooldown per-chipId: cada modulo tem seu proprio timer de "toggle recente".
+// Antes era global — um click no farm bloqueava o polling do hidro por 35s.
+let lastToggleTimes = {};
 const TOGGLE_COOLDOWN = 35000;
 let pendingCommands = new Set();
 
@@ -510,7 +512,7 @@ async function loadCtrlStatus(chipId, moduleType, container) {
         const data = await api(`${apiFor(moduleType)}/${chipId}/status`);
         // Fix: so aplica localState otimista se for do MESMO chip — evita vazamento
         // de estado entre modulos (ex: clicar modo manual no farm afetava o hidro).
-        if (localState && localState.__chipId === chipId && (Date.now() - lastToggleTime < TOGGLE_COOLDOWN)) {
+        if (localState && localState.__chipId === chipId && (Date.now() - (lastToggleTimes[chipId] || 0) < TOGGLE_COOLDOWN)) {
             data.light = localState.light;
             data.pump = localState.pump;
             data.ventilation = localState.ventilation;
@@ -763,7 +765,7 @@ async function toggleRelay(chipId, moduleType, device) {
         else if (device === "bomba_homo") localState.bomba_homo = !localState.bomba_homo;
         else if (device === "valve_auto") localState.valve_auto = !(localState.valve_auto !== false);
         else if (device === "mode") localState.mode = localState.mode === "auto" ? "manual" : "auto";
-        lastToggleTime = Date.now();
+        lastToggleTimes[chipId] = Date.now();
         pendingCommands.add(`${chipId}:${device}`);
         const ct = getCtrlContainer(chipId, moduleType);
         if (ct) renderDashboard(ct, chipId, moduleType, localState);
@@ -910,7 +912,7 @@ async function saveConfig() {
     try {
         await api(`${apiFor(configModuleType)}/${configChipId}/save-config`, { method: "POST", body: data });
         closeConfigModal();
-        lastToggleTime = Date.now();
+        lastToggleTimes[configChipId] = Date.now();
         setTimeout(forceFullRefresh, 500);
     } catch (e) { alert("Erro ao salvar: " + e.message); }
 }
@@ -1628,12 +1630,15 @@ initApp();
 setInterval(() => { if (token) loadModules(); }, 5000);
 setInterval(() => {
     if (!token || !modules.length) return;
-    if (Date.now() - lastToggleTime < TOGGLE_COOLDOWN) return;
     const selected = getSelectedChips();
     for (const m of modules) {
-        if (selected.includes(m.chip_id) && (hasCap(m, 'hidro') || hasCap(m, 'hidro-farm')) && m.online) {
-            loadCtrlStatus(m.chip_id, m.type);
-        }
+        if (!selected.includes(m.chip_id)) continue;
+        if (!(hasCap(m, 'hidro') || hasCap(m, 'hidro-farm'))) continue;
+        if (!m.online) continue;
+        // Cooldown PER-CHIP: so pula o polling desse chip se ELE teve toggle recente.
+        // Antes era global — toggle no farm bloqueava polling do hidro por 35s inteiros.
+        if (Date.now() - (lastToggleTimes[m.chip_id] || 0) < TOGGLE_COOLDOWN) continue;
+        loadCtrlStatus(m.chip_id, m.type);
     }
 }, 3000);
 
