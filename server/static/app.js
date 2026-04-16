@@ -569,7 +569,7 @@ async function loadCtrlStatus(chipId, moduleType, container) {
             }
         }
 
-        const key = `${data.light}:${data.pump}:${data.ventilation}:${data.aeration}:${data.valve_entrada}:${data.bomba_homo}:${data.valve_auto}:${data.level_high}:${data.level_low}:${data.reservoir_state}:${data.empty_since}:${data.temperature}:${data.humidity}:${data.dht_valid}:${data.mode}:${data.phase}:${data.phase_index}:${data.cycle_day}:${data.start_date}`;
+        const key = `${data.light}:${data.pump}:${data.ventilation}:${data.aeration}:${data.valve_entrada}:${data.bomba_homo}:${data.valve_auto}:${data.level_high}:${data.level_low}:${data.reservoir_state}:${data.low_since}:${data.temperature}:${data.humidity}:${data.dht_valid}:${data.mode}:${data.phase}:${data.phase_index}:${data.cycle_day}:${data.start_date}`;
         if (key === _lastCtrlKey && !container) return;
         _lastCtrlKey = key;
         renderDashboard(ct, chipId, moduleType, data);
@@ -738,18 +738,17 @@ function renderDashboard(container, chipId, moduleType, data) {
         // Reservatorio 100% automatico pela UI — sem botao de modo ou controle manual.
         // A logica do valveAuto continua no firmware (default true) e ainda pode ser
         // alterada via comando serial (VA0/VA1) ou comando remoto (device=valve_auto).
-        // Contador de tempo com nivel baixo (vazio ou boia baixa ativa)
-        let emptyTimerHtml = '';
-        const emptySince = data.empty_since;
-        if ((reservoirState === 'empty' || reservoirState === 'filling') && emptySince) {
-            const sinceDate = new Date(emptySince);
+        // Contador de tempo — inicia quando boia de nivel BAIXO e acionada (level_low = true)
+        let lowTimerHtml = '';
+        const lowSince = data.low_since;
+        if (levelLow && lowSince) {
+            const sinceDate = new Date(lowSince);
             const diffMs = Math.max(0, Date.now() - sinceDate.getTime());
             const diffMin = Math.floor(diffMs / 60000);
             const diffSec = Math.floor((diffMs % 60000) / 1000);
             const timeStr = diffMin > 0 ? `${diffMin}min ${diffSec}s` : `${diffSec}s`;
             const isAlert = diffMin >= 10;
-            const label = reservoirState === 'empty' ? 'Vazio' : 'Nivel baixo';
-            emptyTimerHtml = `<div class="reservoir-timer ${isAlert ? 'alert' : ''}">${isAlert ? '&#9888;' : '&#9201;'} ${label} ha ${timeStr}</div>`;
+            lowTimerHtml = `<div class="reservoir-timer ${isAlert ? 'alert' : ''}">${isAlert ? '&#9888;' : '&#9201;'} Nivel baixo ha ${timeStr}</div>`;
         }
 
         // Detecta se push esta ativo pra esse usuario
@@ -780,7 +779,7 @@ function renderDashboard(container, chipId, moduleType, data) {
                     <div class="reservoir-valve"><b>Valvula:</b> <span style="color:${valveOn ? '#4ba3ff' : '#888'}">${valveOn ? 'ABERTA' : 'FECHADA'}</span></div>
                 </div>
             </div>
-            ${emptyTimerHtml}
+            ${lowTimerHtml}
             ${pushAvailable ? `
             <div class="reservoir-notify">
                 <label class="notify-toggle">

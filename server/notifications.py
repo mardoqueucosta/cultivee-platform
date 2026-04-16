@@ -45,50 +45,51 @@ class AlertManager:
         # self._check_module_offline(chip_id, ctrl_data, user_id)
 
     def _check_reservoir(self, chip_id, ctrl_data, user_id):
-        state = ctrl_data.get("reservoir_state")
-        timer_key = f"{chip_id}:reservoir_empty"
+        """Timer baseado na BOIA DE NIVEL BAIXO (level_low).
+        Inicia quando level_low = true (boia baixa acionada).
+        Para quando level_low = false.
+        Se level_low fica true por 10+ min → envia alerta."""
+        level_low = ctrl_data.get("level_low", False)
+        timer_key = f"{chip_id}:level_low"
 
-        # Condicoes que ativam o timer: "empty" (ambos OFF) ou "filling" (boia baixa ON)
-        # Ambas indicam nivel baixo — a diferenca e se a boia baixa detectou ou nao
-        is_low = state in ("empty", "filling")
-
-        if not is_low:
-            # Condicao normal (full/error) — limpa timer
+        if not level_low:
+            # Boia baixa inativa — limpa timer e campo no banco
             if timer_key in _alert_timers:
                 _alert_timers.pop(timer_key, None)
                 import models as _m
-                _m.update_ctrl_data(chip_id, {"empty_since": None})
+                _m.update_ctrl_data(chip_id, {"low_since": None})
             return
 
-        # Inicia ou verifica timer
+        # Boia baixa ATIVA — inicia ou verifica timer
         now = time.time()
         if timer_key not in _alert_timers:
             _alert_timers[timer_key] = now
-            # Salva timestamp UTC no ctrl_data pra o PWA mostrar o contador
+            # Salva timestamp UTC no banco pra o PWA mostrar o contador
             from datetime import datetime, timezone
             import models as _m
-            _m.update_ctrl_data(chip_id, {"empty_since": datetime.now(timezone.utc).isoformat()})
+            _m.update_ctrl_data(chip_id, {"low_since": datetime.now(timezone.utc).isoformat()})
+            log.info(f"Reservatorio {chip_id}: boia baixa acionada — timer iniciado")
             return  # Comecou agora — espera 10 min
 
         elapsed = now - _alert_timers[timer_key]
         if elapsed < 600:
             return  # Menos de 10 minutos — espera
 
-        # 10+ minutos vazio — verifica cooldown antes de notificar
+        # 10+ minutos com boia baixa ativa — verifica cooldown
         import models
-        if not models.should_send_alert(user_id, chip_id, "reservoir_empty"):
+        if not models.should_send_alert(user_id, chip_id, "level_low"):
             return  # Ja notificou na ultima hora
 
         # Monta payload e envia
         module_name = module.get("name") or module.get("type", "Modulo")
         payload = {
-            "title": "Reservatorio vazio",
-            "body": f"{module_name}: nivel minimo ativo ha {int(elapsed/60)} min. Verificar abastecimento.",
+            "title": "Nivel baixo no reservatorio",
+            "body": f"{module_name}: boia de nivel minimo ativa ha {int(elapsed/60)} min. Verificar abastecimento de agua.",
             "tag": f"reservoir-{chip_id}",
             "url": "/"
         }
 
-        self._send_alert(user_id, chip_id, "reservoir_empty", payload)
+        self._send_alert(user_id, chip_id, "level_low", payload)
 
     def _send_alert(self, user_id, chip_id, alert_type, payload):
         """Envia notificacao via todos os canais disponiveis."""
