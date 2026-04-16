@@ -31,7 +31,7 @@ Plataforma IoT para cultivo inteligente. Arquitetura modular:
 Hardware especializado: cada ESP32 faz uma coisa so.
 Composicao por software: o app mostra os modulos que o usuario adicionar.
 
-Versao ativa: **v4.0.11** — definida como fonte unica em [`server/config.py:24`](./server/config.py) (`APP_VERSION`) e replicada manualmente em [`products/hidro.h:11`](./products/hidro.h), [`products/hidro-farm.h:16`](./products/hidro-farm.h) e [`products/cam.h:11`](./products/cam.h) (`FIRMWARE_VERSION`).
+Versao ativa: **v4.0.15** — definida como fonte unica em [`server/config.py:24`](./server/config.py) (`APP_VERSION`) e replicada manualmente em [`products/hidro.h:11`](./products/hidro.h), [`products/hidro-farm.h:16`](./products/hidro-farm.h) e [`products/cam.h:11`](./products/cam.h) (`FIRMWARE_VERSION`).
 
 Tres produtos ativos: **HIDRO** (4 reles, automacao por fase), **HIDRO-FARM** (Premium — 6 reles, 4 automatizados + 2 manuais puros), **CAM** (camera standalone).
 
@@ -95,6 +95,7 @@ cultivee-platform/
 ├── deploy.sh                 # Deploy server para VPS (manual — empacota so server/)
 ├── compile.sh                # Compila firmware Hidro (com/sem upload, COM7)
 ├── compile-hidrofarm.sh      # Compila firmware Hidro-Farm (com/sem upload, COM16)
+├── ota-remote.sh             # Envia .bin para OTA remoto via servidor (uso: bash ota-remote.sh <chip_id> <bin_path> <token>)
 ├── PRD-Cultivee.md           # FONTE DA VERDADE — Product Requirements Document
 ├── PLANO-VISAO-GERAL-SOFTWARE.md  # Visao geral de arquitetura (historico, 53KB)
 ├── ESP32_SAFE_FLASH_GUIDE.md # Guia de gravacao segura do ESP32 (historico, 15KB)
@@ -383,6 +384,39 @@ bash compile-hidrofarm.sh upload     # compila + grava via USB em COM16
   "D:/01-projetos-claude/00-Sites/site-cultivee.com.br/cultivee-platform/firmware"
 ```
 
+### OTA Remoto via Servidor (v4.0.15)
+
+Atualiza firmware sem acesso fisico ao ESP32 e sem estar na mesma rede local. O .bin e enviado ao servidor, e o ESP32 baixa na proxima vez que fizer `registerOnServer()`.
+
+**Fluxo completo:**
+```
+1. Compilar .bin localmente (compile.sh ou compile-hidrofarm.sh, sem "upload")
+2. Enviar .bin ao servidor: bash ota-remote.sh <chip_id> <build/firmware.ino.bin> <token>
+   (ou POST /api/modules/<chip_id>/firmware com multipart/form-data)
+3. Servidor salva em DATA_DIR/firmware/<chip_id>.bin
+4. ESP32 faz registerOnServer() no proximo poll → resposta inclui firmware_url
+5. core_register.h detecta firmware_url → chama performRemoteOTA(url)
+6. performRemoteOTA(): HTTP GET streaming → Update.writeStream() → ESP.restart()
+7. Apos restart, ESP32 registra novamente (agora com firmware novo, sem firmware_url)
+```
+
+**Componentes:**
+- **Servidor (`app.py`)**: 3 rotas novas (ver "Servidor: API" > "Firmware OTA")
+- **Firmware (`core_register.h`)**: `performRemoteOTA(url)` + checagem de `firmware_url` em `registerOnServer()`
+- **CLI (`ota-remote.sh`)**: wrapper para enviar .bin — `bash ota-remote.sh <chip_id> <bin_path> <token>`
+
+**Protecoes:**
+- Flag `otaRemoteAttempted` (RAM, nao NVS): so tenta OTA 1x por boot. Evita loop infinito se o .bin for invalido (ESP32 reinicia → registra → ve firmware_url → tenta → falha → reinicia → ...). Apos reboot por OTA bem-sucedido, a flag reseta naturalmente.
+- Cam (`no_ota`): `Update.begin()` retorna false silenciosamente — nao trava nem reinicia, so loga erro.
+- O .bin e servido via `GET /api/modules/<chip_id>/firmware` **sem auth** (ESP32 nao carrega token). Seguranca por obscuridade do chip_id + o arquivo e removido apos download ou cancelamento.
+
+**Bootstrap problem:** a feature de OTA remoto precisa estar no firmware do ESP32 para funcionar. A **primeira gravacao** de um ESP32 novo (ou de um que nao tem essa feature) **sempre** precisa ser via USB ou OTA local (`/update`). Depois da primeira gravacao com core_register.h v4.0.15+, todas as atualizacoes seguintes podem ser remotas.
+
+**Tres formas de atualizar firmware (em ordem de preferencia):**
+1. **OTA Remoto** (v4.0.15+) — sem acesso fisico, sem rede local. Requer firmware >=v4.0.15 ja gravado.
+2. **OTA Local** (`/update`) — navegador na mesma rede, upload manual do .bin. Funciona para Hidro e Hidro-Farm.
+3. **USB** — cabo fisico, `compile.sh upload` ou `compile-hidrofarm.sh upload`. Sempre funciona, unica opcao para Cam.
+
 ---
 
 ## Firmware: Detalhes
@@ -401,6 +435,11 @@ Cada produto define dois URLs:
 - **Android:** `/generate_204`, `/gen_204`, `/generate204` → HTTP 204 (faz Android confiar no WiFi e nao priorizar 4G)
 - **iOS:** `/hotspot-detect.html` → responde "Success" (mesmo efeito)
 - **Windows:** `/connecttest.txt` → 302 redirect
+
+### OTA Remoto em core_register.h (v4.0.15)
+- `performRemoteOTA(url)`: HTTP GET streaming com `httpUpdate`-style manual — `Update.begin()`, `http.getStream()`, `Update.writeStream()`, `Update.end()`, `ESP.restart()`. Funciona com particao `min_spiffs` (Hidro, Hidro-Farm). Em Cam (`no_ota`), `Update.begin()` retorna false silenciosamente.
+- `registerOnServer()` checa campo `firmware_url` na resposta JSON do servidor. Se presente e `otaRemoteAttempted == false`, dispara `performRemoteOTA()`.
+- Flag `otaRemoteAttempted` (bool em RAM): inicializa false, setada true antes de tentar. So reseta no reboot. Evita loop infinito de reboot se o .bin for invalido.
 
 ### Stream local protegido
 Flag `localStreamActive` suspende `registerOnServer()` e `pollCommands()` durante stream MJPEG local, evitando que timeouts HTTP congelem o stream.
@@ -425,6 +464,18 @@ Flag `localStreamActive` suspende `registerOnServer()` e `pollCommands()` durant
 | `/api/modules/pair` | POST | Vincular modulo ao usuario (short_id, name) |
 | `/api/modules/unpair` | POST | Desvincular modulo |
 | `/api/modules` | GET | Listar modulos do usuario |
+
+### Firmware OTA (rotas em `/api/modules/<chip_id>/firmware`)
+
+Implementado em [`server/app.py`](./server/app.py). Permite enviar .bin para OTA remoto via servidor.
+
+| Rota | Metodo | Auth | Descricao |
+|------|--------|------|-----------|
+| `/api/modules/<chip_id>/firmware` | POST | Token (usuario) | Upload do .bin (multipart/form-data, campo `firmware`) |
+| `/api/modules/<chip_id>/firmware` | GET | Sem auth (ESP32) | Download do .bin pendente pelo ESP32 |
+| `/api/modules/<chip_id>/firmware` | DELETE | Token (usuario) | Cancela OTA pendente (remove o .bin) |
+
+O `POST /api/modules/register` inclui campo `firmware_url` na resposta quando ha .bin pendente para o `chip_id`. Armazenamento: `DATA_DIR/firmware/<chip_id>.bin`.
 
 ### Hidro (prefixo: `/api/ctrl`)
 
@@ -495,8 +546,19 @@ moduleRenderers.sensor = {
 };
 ```
 
+### Bug fixes criticos (v4.0.11-v4.0.14)
+
+**Estado per-chipId (v4.0.11-v4.0.12):** `localState`, `pendingCommands` e `lastToggleTimes` sao todos chaveados por chipId. Antes, eram globais — clicar em um botao de qualquer modulo afetava visualmente todos os modulos por 35s (cooldown).
+- `localState` usa `__chipId` + validacao antes de aplicar
+- `pendingCommands` usa keys compostas `${chipId}:${device}`
+- `lastToggleTimes` e um Map `{}` per-chipId (era `lastToggleTime` global). Polling loop checa cooldown per-chip com `continue` em vez de `return` (v4.0.12).
+
+**Merge de server_keys (v4.0.13):** `register_module()` em `models.py` protegia `phases`, `num_phases`, `start_date` como "server_keys" — o ESP32 mandava dados mas o servidor mantinha valores antigos do banco. Causava dessincronizacao entre `start_date` do banco e `cycle_day` calculado pelo ESP32. Fix: esses 3 campos foram removidos de `server_keys`. ESP32 e fonte de verdade para fases/config.
+
+**Recalculo de cycle_day no cliente (v4.0.14):** O PWA agora recalcula `cycle_day` e `phase` no navegador usando `Date()` do browser (mais confiavel que o relogio do ESP32 que pode ter NTP desincronizado). Implementado em `loadCtrlStatus()` antes de `renderDashboard()`.
+
 ### Versionamento
-- **Fonte unica:** `APP_VERSION` em [`server/config.py:24`](./server/config.py) (atualmente `"4.0.11"`)
+- **Fonte unica:** `APP_VERSION` em [`server/config.py:24`](./server/config.py) (atualmente `"4.0.15"`)
 - O `sw.js` e o `manifest.json` sao **gerados dinamicamente** em [`server/app.py:372-436`](./server/app.py) — nao sao arquivos estaticos. O Service Worker usa `CACHE_NAME = cultivee-v + APP_VERSION`, entao bater o numero invalida o cache automaticamente.
 - `FIRMWARE_VERSION` nos 3 produtos ([`products/hidro.h:11`](./products/hidro.h), [`products/hidro-farm.h:16`](./products/hidro-farm.h), [`products/cam.h:11`](./products/cam.h)) deve ser mantido sincronizado com `APP_VERSION` **manualmente** — nao ha script que faca isso.
 - **Incrementar versao** ao fazer deploy com mudancas visuais (CSS/JS/template). Sem isso, o SW entrega cache antigo ate invalidar sozinho (pode levar horas/dias).
@@ -541,6 +603,20 @@ Duas formas de disparar:
     bash deploy.sh
     ```
     Empacota apenas `app.py`, `models.py`, `config.py`, `bp_hidro.py`, `bp_cam.py`, `bp_gallery.py`, `requirements.txt`, `Dockerfile`, `static/`, `templates/` + `docker-compose.yml`, envia via `scp`, para containers antigos e rebuilda. Nao envia firmware nem arquivos de dados. Tudo numa unica sessao SSH (respeita a regra de `fail2ban`).
+
+3. **OTA Remoto** (firmware, v4.0.15+) — envia .bin compilado localmente ao servidor, ESP32 baixa no proximo poll:
+    ```bash
+    # Compilar sem upload
+    bash compile.sh                  # Hidro
+    bash compile-hidrofarm.sh        # Hidro-Farm
+
+    # Enviar ao servidor (requer token de usuario autenticado)
+    bash ota-remote.sh <chip_id> build/firmware.ino.bin <token>
+
+    # Cancelar OTA pendente
+    curl -X DELETE -H "Authorization: Bearer <token>" https://app.cultivee.com.br/api/modules/<chip_id>/firmware
+    ```
+    O ESP32 recebe `firmware_url` na proxima resposta de `/api/modules/register` e faz OTA automaticamente. Requer firmware >=v4.0.15 ja gravado (bootstrap via USB ou OTA local).
 
 Verificar logs/status:
 ```bash
@@ -590,6 +666,18 @@ python test_routes.py
 3. Testar no celular
 4. **Se mudou UI: atualizar versao offline no firmware tambem**
 
+### Atualizar firmware remotamente (OTA remoto, v4.0.15+)
+1. Ajustar `config.h` (produto + ambiente = `ENV_PRODUCTION`)
+2. Compilar sem upload: `bash compile.sh` (Hidro) ou `bash compile-hidrofarm.sh` (Hidro-Farm)
+3. Obter token de usuario autenticado (login via API ou copiar do localStorage do PWA)
+4. Enviar: `bash ota-remote.sh <chip_id> build/firmware.ino.bin <token>`
+5. Aguardar proximo poll do ESP32 (ate `poll_interval` segundos, default 30s)
+6. ESP32 reinicia automaticamente apos OTA — verificar nova versao no PWA
+7. Se precisar cancelar: `curl -X DELETE -H "Authorization: Bearer <token>" https://app.cultivee.com.br/api/modules/<chip_id>/firmware`
+
+**Pre-requisito:** firmware >=v4.0.15 ja gravado no ESP32 (primeira vez sempre via USB ou OTA local).
+**Cam nao suporta** — particao `no_ota`, `Update.begin()` falha silenciosamente.
+
 ### Alterar docker-compose.yml
 1. Editar no REPOSITORIO (nunca no servidor)
 2. `bash deploy.sh` envia automaticamente
@@ -629,6 +717,8 @@ Se a capability tiver prefixo comum a outra ja existente (ex: `"hidro-sensor"` v
 ### Infra (2 configs)
 7. DNS: `sensor.cultivee.com.br` → DNS only no Cloudflare
 8. `docker-compose.yml`: adicionar subdominio nos labels do Traefik
+
+**OTA remoto e herdado automaticamente** por qualquer modulo novo que use `core_register.h` (todos usam). Nao precisa de codigo adicional — `registerOnServer()` ja checa `firmware_url` e `performRemoteOTA()` e generico. A unica excecao e se o produto usar particao `no_ota` (como Cam) — nesse caso o `Update.begin()` falha silenciosamente.
 
 **Total: ~4 arquivos novos, ~15 linhas em existentes. Verificar SEMPRE os guards em `core_*.h`.**
 
