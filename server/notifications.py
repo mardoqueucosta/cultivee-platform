@@ -66,13 +66,24 @@ class AlertManager:
         # Boia baixa SEM AGUA (level_low = false) — inicia ou verifica timer
         now = time.time()
         if timer_key not in _alert_timers:
-            _alert_timers[timer_key] = now
-            # Salva timestamp UTC no banco pra o PWA mostrar o contador
-            from datetime import datetime, timezone
-            import models as _m
-            _m.update_ctrl_data(chip_id, {"low_since": datetime.now(timezone.utc).isoformat()})
-            log.info(f"Reservatorio {chip_id}: boia baixa acionada — timer iniciado")
-            return  # Comecou agora — espera 10 min
+            # Verifica se ja tinha low_since no banco (timer sobrevive restart do container)
+            existing_since = ctrl_data.get("low_since")
+            if existing_since:
+                try:
+                    from datetime import datetime, timezone
+                    since_dt = datetime.fromisoformat(existing_since)
+                    _alert_timers[timer_key] = since_dt.timestamp()
+                    log.info(f"Reservatorio {chip_id}: timer restaurado do banco (low_since={existing_since})")
+                except (ValueError, TypeError):
+                    _alert_timers[timer_key] = now
+            else:
+                _alert_timers[timer_key] = now
+                # Salva timestamp UTC no banco pra o PWA mostrar o contador
+                from datetime import datetime, timezone
+                import models as _m
+                _m.update_ctrl_data(chip_id, {"low_since": datetime.now(timezone.utc).isoformat()})
+                log.info(f"Reservatorio {chip_id}: boia baixa sem agua — timer iniciado")
+                return  # Comecou agora — espera
 
         elapsed = now - _alert_timers[timer_key]
         threshold_min = ctrl_data.get("alert_threshold_min", 10)
