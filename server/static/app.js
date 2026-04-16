@@ -37,7 +37,7 @@ function apiFor(moduleType) {
 
 const moduleRenderers = {
     hidro: {
-        label: 'Controle',
+        label: 'Controle Hidro',
         renderContent: renderModule_hidro,
         getStatusText: (data) => {
             if (!data) return '';
@@ -67,7 +67,7 @@ const moduleRenderers = {
         }
     },
     cam: {
-        label: 'Camera',
+        label: 'Câmera',
         renderContent: renderModule_cam,
         getStatusText: (data) => data && data.camera_ready ? 'Pronta' : 'Offline'
     }
@@ -461,15 +461,7 @@ function renderSelectedContent() {
         for (const cap of caps) {
             if (moduleRenderers[cap]) {
                 hasRenderer = true;
-                const renderer = moduleRenderers[cap];
-                const isOnline = mod.online;
-                html += `<div class="module-content-block">
-                    <div class="module-content-header">
-                        <span class="mch-dot ${isOnline ? 'online' : 'offline'}"></span>
-                        <span class="mch-name">${renderer.label || cap}</span>
-                    </div>
-                    <div id="mod-content-${mod.chip_id}-${cap}"></div>
-                </div>`;
+                html += `<div id="mod-content-${mod.chip_id}-${cap}"></div>`;
             }
         }
         if (!hasRenderer) {
@@ -587,6 +579,11 @@ async function loadCtrlStatus(chipId, moduleType, container) {
 function renderDashboard(container, chipId, moduleType, data) {
     // Salva estado por chipId — cada modulo tem seu proprio localState isolado.
     localStates[chipId] = { ...data };
+
+    // Label do modulo pra exibir dentro do card (ex: "Controle Hidro", "Controle Farm")
+    const _cap = moduleType === 'ctrl' ? 'hidro' : moduleType;
+    const _moduleLabel = moduleRenderers[_cap]?.label || moduleType;
+
     const cycleDay = data.cycle_day || 0;
     const phase = data.phase || "---";
     const phaseIndex = data.phase_index || 0;
@@ -770,6 +767,7 @@ function renderDashboard(container, chipId, moduleType, data) {
 
     container.innerHTML = `
         <div class="card">
+            <div class="module-inline-title"><span class="mch-dot online"></span><b>${_moduleLabel}</b></div>
             <div class="stats-grid">
                 <div class="stat-card"><div class="label">Ciclo</div><div class="value">Dia ${cycleDay}</div></div>
                 <div class="stat-card"><div class="label">Fase</div><div class="value small">${phase}</div></div>
@@ -1020,7 +1018,7 @@ function renderModule_cam(container, mod) {
             <!-- Header Camera -->
             <div style="display:flex;align-items:center;gap:8px;padding:14px">
                 <span style="width:8px;height:8px;border-radius:50%;background:${statusColor}"></span>
-                <b style="font-size:0.9rem">Camera</b>
+                <b style="font-size:0.9rem">Câmera</b>
                 <span style="color:#888;font-size:0.8rem">${statusText}</span>
             </div>
 

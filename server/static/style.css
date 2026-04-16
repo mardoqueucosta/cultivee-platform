@@ -1351,43 +1351,22 @@ main { max-width: 1400px; margin: 0 auto; padding: 0 0.75rem; }
    Module Content Header (identificacao visual de cada modulo)
    ===================================================================== */
 
-.module-content-block {
-    /* Herda flex sizing do #module-content > * (calc(33.333%) + min-width 300px) */
-}
-
-.module-content-header {
+/* Titulo inline do modulo (dentro do card principal) — "● Controle Farm" */
+.module-inline-title {
     display: flex;
     align-items: center;
     gap: 0.5rem;
-    padding: 0.5rem 0.5rem 0.25rem;
+    margin-bottom: 0.75rem;
+    font-size: 0.95rem;
 }
 
-.mch-dot {
+.module-inline-title .mch-dot {
     width: 8px;
     height: 8px;
     border-radius: 50%;
     flex-shrink: 0;
-}
-
-.mch-dot.online {
     background: hsl(142, 71%, 45%);
     box-shadow: 0 0 6px hsla(142, 71%, 45%, 0.5);
-}
-
-.mch-dot.offline {
-    background: hsl(0, 72%, 51%);
-    box-shadow: 0 0 6px hsla(0, 72%, 51%, 0.5);
-}
-
-.mch-name {
-    font-weight: 700;
-    font-size: 0.95rem;
-    color: var(--text-bright, hsl(210, 20%, 90%));
-}
-
-.mch-type {
-    font-size: 0.8rem;
-    color: var(--text-muted, hsl(210, 15%, 45%));
 }
 
 /* =====================================================================
