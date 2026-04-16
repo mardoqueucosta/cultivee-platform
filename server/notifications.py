@@ -17,7 +17,9 @@ import json
 import time
 import logging
 import smtplib
+import uuid
 from email.mime.text import MIMEText
+from email.utils import formatdate, make_msgid
 
 log = logging.getLogger(__name__)
 
@@ -162,9 +164,11 @@ Acesse: https://app.cultivee.com.br
 Para desativar alertas, acesse o app e desabilite notificacoes.
 """, "plain", "utf-8")
 
-    msg["Subject"] = f"⚠️ Cultivee — {title}"
+    msg["Subject"] = f"Cultivee Alerta - {title}"
     msg["From"] = os.environ.get("SMTP_FROM", "alertas@cultivee.com.br")
     msg["To"] = to_email
+    msg["Message-ID"] = make_msgid(domain="cultivee.com.br")
+    msg["Date"] = formatdate(localtime=True)
 
     try:
         port = int(os.environ.get("SMTP_PORT", "587"))
