@@ -1359,27 +1359,35 @@ main { max-width: 1400px; margin: 0 auto; padding: 0 0.75rem; }
     display: flex;
     align-items: center;
     gap: 0.5rem;
-    padding: 0.5rem 0.25rem 0.25rem;
+    padding: 0.5rem 0.5rem 0.25rem;
 }
 
-.module-content-name {
+.mch-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.mch-dot.online {
+    background: hsl(142, 71%, 45%);
+    box-shadow: 0 0 6px hsla(142, 71%, 45%, 0.5);
+}
+
+.mch-dot.offline {
+    background: hsl(0, 72%, 51%);
+    box-shadow: 0 0 6px hsla(0, 72%, 51%, 0.5);
+}
+
+.mch-name {
     font-weight: 700;
     font-size: 0.95rem;
-    color: var(--primary, hsl(142, 71%, 45%));
+    color: var(--text-bright, hsl(210, 20%, 90%));
 }
 
-.module-content-type {
-    font-size: 0.75rem;
+.mch-type {
+    font-size: 0.8rem;
     color: var(--text-muted, hsl(210, 15%, 45%));
-    padding: 0.15rem 0.5rem;
-    border: 1px solid var(--border, hsl(210, 15%, 20%));
-    border-radius: 0.5rem;
-}
-
-.module-content-id {
-    font-size: 0.7rem;
-    color: var(--text-dim, hsl(210, 15%, 35%));
-    font-family: monospace;
 }
 
 /* =====================================================================
