@@ -132,12 +132,18 @@ class AlertManager:
                 # Subscription expirada ou invalida — remove
                 models.delete_push_subscription_by_endpoint(sub["endpoint"])
 
-        # 2. Email
+        # 2. Email (usa notification_email se existir, senao email de login)
         user = models.get_user_by_id(user_id)
         email_sent = False
-        if user and user["email"]:
+        to_email = None
+        if user:
             try:
-                _send_email_alert(user["email"], payload)
+                to_email = user["notification_email"] or user["email"]
+            except (IndexError, KeyError):
+                to_email = user["email"]
+        if to_email:
+            try:
+                _send_email_alert(to_email, payload)
                 email_sent = True
             except Exception as e:
                 log.warning(f"Email falhou ({user['email']}): {e}")
