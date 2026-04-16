@@ -244,12 +244,16 @@ def register_module(chip_id, short_id, module_type="ctrl", ip="", ssid="", rssi=
         # e num_phases NAO sao protegidos aqui. Se o ESP32 reboota com NVS intacto,
         # manda os dados corretos; se NVS foi apagado, manda defaults e o usuario
         # reconfigura. Isso garante consistencia entre start_date e cycle_day.
+        # server_keys: campos gerenciados pelo SERVIDOR (nao pelo ESP32).
+        # O ESP32 nao envia esses campos — se nao proteger, o merge apaga.
+        # Inclui: camera config (PWA configura) + alertas (AlertManager gerencia)
         server_keys = ("recording", "capture_interval", "cam_resolution",
                        "cam_quality", "last_capture_at", "capture_folder",
                        "cam_wb_mode", "cam_brightness", "cam_contrast",
                        "cam_saturation", "cam_ae_level", "cam_gainceiling",
                        "cam_special_effect", "cam_hmirror", "cam_vflip",
-                       "cam_exposure_ctrl", "cam_whitebal")
+                       "cam_exposure_ctrl", "cam_whitebal",
+                       "low_since", "last_activity")
         for k in server_keys:
             if k in existing_data:
                 new_data[k] = existing_data[k]
