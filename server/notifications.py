@@ -48,8 +48,12 @@ class AlertManager:
         state = ctrl_data.get("reservoir_state")
         timer_key = f"{chip_id}:reservoir_empty"
 
-        if state != "empty":
-            # Condicao normal — limpa timer e remove do ctrl_data
+        # Condicoes que ativam o timer: "empty" (ambos OFF) ou "filling" (boia baixa ON)
+        # Ambas indicam nivel baixo — a diferenca e se a boia baixa detectou ou nao
+        is_low = state in ("empty", "filling")
+
+        if not is_low:
+            # Condicao normal (full/error) — limpa timer
             if timer_key in _alert_timers:
                 _alert_timers.pop(timer_key, None)
                 import models as _m
@@ -60,10 +64,10 @@ class AlertManager:
         now = time.time()
         if timer_key not in _alert_timers:
             _alert_timers[timer_key] = now
-            # Salva no ctrl_data pra o PWA mostrar o contador
-            from datetime import datetime
+            # Salva timestamp UTC no ctrl_data pra o PWA mostrar o contador
+            from datetime import datetime, timezone
             import models as _m
-            _m.update_ctrl_data(chip_id, {"empty_since": datetime.now().isoformat()})
+            _m.update_ctrl_data(chip_id, {"empty_since": datetime.now(timezone.utc).isoformat()})
             return  # Comecou agora — espera 10 min
 
         elapsed = now - _alert_timers[timer_key]

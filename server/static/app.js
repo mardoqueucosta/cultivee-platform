@@ -58,7 +58,7 @@ const moduleRenderers = {
             const v = data.ventilation ? 'Vent ON' : 'Vent OFF';
             const a = data.aeration ? 'Aera ON' : 'Aera OFF';
             // Reservatorio: prioriza estado logico (cheio/enchendo/vazio/erro) sobre valvula
-            const stateMap = { full: 'Cheio', filling: 'Enchendo', empty: 'Vazio', error: 'ERRO' };
+            const stateMap = { full: 'Cheio', filling: 'Baixo', empty: 'Vazio', error: 'ERRO' };
             const r = data.reservoir_state ? `Res: ${stateMap[data.reservoir_state] || '?'}` : '';
             const h = data.bomba_homo ? 'Hom ON' : 'Hom OFF';
             // Ambiente: temperatura/umidade quando disponiveis
@@ -731,24 +731,25 @@ function renderDashboard(container, chipId, moduleType, data) {
     if (hasReservoir) {
         let stateLabel, stateColor, waterH, waterT;
         if (reservoirState === 'full')        { stateLabel = 'CHEIO';    stateColor = '#27ae60'; waterH = '92%'; waterT = '8%';  }
-        else if (reservoirState === 'filling'){ stateLabel = 'ENCHENDO'; stateColor = '#3498db'; waterH = '55%'; waterT = '45%'; }
-        else if (reservoirState === 'empty')  { stateLabel = 'VAZIO';    stateColor = '#e67e22'; waterH = '8%';  waterT = '92%'; }
+        else if (reservoirState === 'filling'){ stateLabel = 'BAIXO';    stateColor = '#e67e22'; waterH = '30%'; waterT = '70%'; }
+        else if (reservoirState === 'empty')  { stateLabel = 'VAZIO';    stateColor = '#e74c3c'; waterH = '8%';  waterT = '92%'; }
         else                                  { stateLabel = 'ERRO';     stateColor = '#e74c3c'; waterH = '50%'; waterT = '50%'; }
 
         // Reservatorio 100% automatico pela UI — sem botao de modo ou controle manual.
         // A logica do valveAuto continua no firmware (default true) e ainda pode ser
         // alterada via comando serial (VA0/VA1) ou comando remoto (device=valve_auto).
-        // Contador de tempo vazio
+        // Contador de tempo com nivel baixo (vazio ou boia baixa ativa)
         let emptyTimerHtml = '';
         const emptySince = data.empty_since;
-        if (reservoirState === 'empty' && emptySince) {
+        if ((reservoirState === 'empty' || reservoirState === 'filling') && emptySince) {
             const sinceDate = new Date(emptySince);
-            const diffMs = Date.now() - sinceDate.getTime();
+            const diffMs = Math.max(0, Date.now() - sinceDate.getTime());
             const diffMin = Math.floor(diffMs / 60000);
             const diffSec = Math.floor((diffMs % 60000) / 1000);
             const timeStr = diffMin > 0 ? `${diffMin}min ${diffSec}s` : `${diffSec}s`;
             const isAlert = diffMin >= 10;
-            emptyTimerHtml = `<div class="reservoir-timer ${isAlert ? 'alert' : ''}">${isAlert ? '&#9888;' : '&#9201;'} Vazio ha ${timeStr}</div>`;
+            const label = reservoirState === 'empty' ? 'Vazio' : 'Nivel baixo';
+            emptyTimerHtml = `<div class="reservoir-timer ${isAlert ? 'alert' : ''}">${isAlert ? '&#9888;' : '&#9201;'} ${label} ha ${timeStr}</div>`;
         }
 
         // Detecta se push esta ativo pra esse usuario
