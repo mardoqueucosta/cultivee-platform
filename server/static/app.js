@@ -474,7 +474,10 @@ function renderSelectedContent() {
 // =====================================================================
 
 let _lastCtrlKey = "";
-let localState = null;
+// Map per-chipId: cada modulo tem seu proprio estado otimista isolado.
+// Antes era singleton global — quando renderSelectedContent() renderizava 2 modulos,
+// o segundo sobrescrevia o localState do primeiro e o optimistic update se perdia.
+let localStates = {};
 // Cooldown per-chipId: cada modulo tem seu proprio timer de "toggle recente".
 // Antes era global — um click no farm bloqueava o polling do hidro por 35s.
 let lastToggleTimes = {};
@@ -510,17 +513,17 @@ async function loadCtrlStatus(chipId, moduleType, container) {
     if (!ct) return;
     try {
         const data = await api(`${apiFor(moduleType)}/${chipId}/status`);
-        // Fix: so aplica localState otimista se for do MESMO chip — evita vazamento
-        // de estado entre modulos (ex: clicar modo manual no farm afetava o hidro).
-        if (localState && localState.__chipId === chipId && (Date.now() - (lastToggleTimes[chipId] || 0) < TOGGLE_COOLDOWN)) {
-            data.light = localState.light;
-            data.pump = localState.pump;
-            data.ventilation = localState.ventilation;
-            data.aeration = localState.aeration;
-            data.valve_entrada = localState.valve_entrada;
-            data.bomba_homo = localState.bomba_homo;
-            data.valve_auto = localState.valve_auto;
-            data.mode = localState.mode;
+        // Aplica estado otimista desse chip se cooldown ativo (per-chipId, isolado)
+        const ls = localStates[chipId];
+        if (ls && (Date.now() - (lastToggleTimes[chipId] || 0) < TOGGLE_COOLDOWN)) {
+            data.light = ls.light;
+            data.pump = ls.pump;
+            data.ventilation = ls.ventilation;
+            data.aeration = ls.aeration;
+            data.valve_entrada = ls.valve_entrada;
+            data.bomba_homo = ls.bomba_homo;
+            data.valve_auto = ls.valve_auto;
+            data.mode = ls.mode;
         }
 
         // Recalcula cycle_day e phase usando o relogio do NAVEGADOR (mais confiavel
@@ -561,9 +564,8 @@ async function loadCtrlStatus(chipId, moduleType, container) {
 }
 
 function renderDashboard(container, chipId, moduleType, data) {
-    // Preserva __chipId no localState — usado pelo loadCtrlStatus/toggleRelay para
-    // garantir que estado otimista nao vaze entre modulos diferentes.
-    localState = { ...data, __chipId: chipId };
+    // Salva estado por chipId — cada modulo tem seu proprio localState isolado.
+    localStates[chipId] = { ...data };
     const cycleDay = data.cycle_day || 0;
     const phase = data.phase || "---";
     const phaseIndex = data.phase_index || 0;
@@ -780,24 +782,20 @@ function renderDashboard(container, chipId, moduleType, data) {
 }
 
 async function toggleRelay(chipId, moduleType, device) {
-    // Se o localState salvo e de outro chip, descarta — evita aplicar update otimista
-    // sobre dados do modulo errado (bug do modo manual vazando entre hidro/hidro-farm).
-    if (localState && localState.__chipId !== chipId) {
-        localState = null;
-    }
-    if (localState) {
-        if (device === "light") localState.light = !localState.light;
-        else if (device === "pump") localState.pump = !localState.pump;
-        else if (device === "ventilation") localState.ventilation = !localState.ventilation;
-        else if (device === "aeration") localState.aeration = !localState.aeration;
-        else if (device === "valve_entrada") localState.valve_entrada = !localState.valve_entrada;
-        else if (device === "bomba_homo") localState.bomba_homo = !localState.bomba_homo;
-        else if (device === "valve_auto") localState.valve_auto = !(localState.valve_auto !== false);
-        else if (device === "mode") localState.mode = localState.mode === "auto" ? "manual" : "auto";
+    const ls = localStates[chipId];
+    if (ls) {
+        if (device === "light") ls.light = !ls.light;
+        else if (device === "pump") ls.pump = !ls.pump;
+        else if (device === "ventilation") ls.ventilation = !ls.ventilation;
+        else if (device === "aeration") ls.aeration = !ls.aeration;
+        else if (device === "valve_entrada") ls.valve_entrada = !ls.valve_entrada;
+        else if (device === "bomba_homo") ls.bomba_homo = !ls.bomba_homo;
+        else if (device === "valve_auto") ls.valve_auto = !(ls.valve_auto !== false);
+        else if (device === "mode") ls.mode = ls.mode === "auto" ? "manual" : "auto";
         lastToggleTimes[chipId] = Date.now();
         pendingCommands.add(`${chipId}:${device}`);
         const ct = getCtrlContainer(chipId, moduleType);
-        if (ct) renderDashboard(ct, chipId, moduleType, localState);
+        if (ct) renderDashboard(ct, chipId, moduleType, ls);
     }
     try {
         await api(`${apiFor(moduleType)}/${chipId}/relay?device=${device}&action=toggle`);
@@ -808,19 +806,19 @@ async function toggleRelay(chipId, moduleType, device) {
         await new Promise(r => setTimeout(r, 1500));
         try {
             const data = await api(`${apiFor(moduleType)}/${chipId}/status`);
-            if (device === "light" && data.light === localState.light) { confirmed = true; break; }
-            if (device === "pump" && data.pump === localState.pump) { confirmed = true; break; }
-            if (device === "ventilation" && data.ventilation === localState.ventilation) { confirmed = true; break; }
-            if (device === "aeration" && data.aeration === localState.aeration) { confirmed = true; break; }
-            if (device === "valve_entrada" && data.valve_entrada === localState.valve_entrada) { confirmed = true; break; }
-            if (device === "bomba_homo" && data.bomba_homo === localState.bomba_homo) { confirmed = true; break; }
-            if (device === "valve_auto" && data.valve_auto === localState.valve_auto) { confirmed = true; break; }
-            if (device === "mode" && data.mode === localState.mode) {
+            if (device === "light" && data.light === ls.light) { confirmed = true; break; }
+            if (device === "pump" && data.pump === ls.pump) { confirmed = true; break; }
+            if (device === "ventilation" && data.ventilation === ls.ventilation) { confirmed = true; break; }
+            if (device === "aeration" && data.aeration === ls.aeration) { confirmed = true; break; }
+            if (device === "valve_entrada" && data.valve_entrada === ls.valve_entrada) { confirmed = true; break; }
+            if (device === "bomba_homo" && data.bomba_homo === ls.bomba_homo) { confirmed = true; break; }
+            if (device === "valve_auto" && data.valve_auto === ls.valve_auto) { confirmed = true; break; }
+            if (device === "mode" && data.mode === ls.mode) {
                 // Ao trocar modo, sincroniza estados reais dos reles
-                localState.light = data.light;
-                localState.pump = data.pump;
-                localState.ventilation = data.ventilation;
-                localState.aeration = data.aeration;
+                ls.light = data.light;
+                ls.pump = data.pump;
+                ls.ventilation = data.ventilation;
+                ls.aeration = data.aeration;
                 confirmed = true; break;
             }
         } catch (e) { break; }
@@ -828,8 +826,8 @@ async function toggleRelay(chipId, moduleType, device) {
     pendingCommands.delete(`${chipId}:${device}`);
     _lastCtrlKey = "";
     const ct = getCtrlContainer(chipId, moduleType);
-    if (confirmed && ct && localState && localState.__chipId === chipId) {
-        renderDashboard(ct, chipId, moduleType, localState);
+    if (confirmed && ct && localStates[chipId]) {
+        renderDashboard(ct, chipId, moduleType, localStates[chipId]);
     } else {
         loadCtrlStatus(chipId, moduleType);
     }
