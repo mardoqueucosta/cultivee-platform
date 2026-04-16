@@ -9,10 +9,8 @@ services:
       - PORT=5002
       - DB_PATH=/app/data/cultivee.db
       - DATA_DIR=/app/data
-      # Push notifications (VAPID)
-      - VAPID_PUBLIC_KEY=BLeKR6IkTuC6U3lcNosWTdGKPuT-cVYNB2_cKvR834oo7465-p7zyxZ9TYYDS7kUPv0Huu_bcqQ7o8VBxMi8v8I
-      - VAPID_PRIVATE_KEY=ELPv_b494J4bt2Kbq97136EjvB85HU9hxI13D81u1Ew
-      - VAPID_CLAIM_EMAIL=mailto:mardo.abc@gmail.com
+    env_file:
+      - .env
     volumes:
       - cultivee-data:/app/data
     networks:
