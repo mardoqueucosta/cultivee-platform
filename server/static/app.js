@@ -569,7 +569,7 @@ async function loadCtrlStatus(chipId, moduleType, container) {
             }
         }
 
-        const key = `${data.light}:${data.pump}:${data.ventilation}:${data.aeration}:${data.valve_entrada}:${data.bomba_homo}:${data.valve_auto}:${data.level_high}:${data.level_low}:${data.reservoir_state}:${data.temperature}:${data.humidity}:${data.dht_valid}:${data.mode}:${data.phase}:${data.phase_index}:${data.cycle_day}:${data.start_date}`;
+        const key = `${data.light}:${data.pump}:${data.ventilation}:${data.aeration}:${data.valve_entrada}:${data.bomba_homo}:${data.valve_auto}:${data.level_high}:${data.level_low}:${data.reservoir_state}:${data.empty_since}:${data.temperature}:${data.humidity}:${data.dht_valid}:${data.mode}:${data.phase}:${data.phase_index}:${data.cycle_day}:${data.start_date}`;
         if (key === _lastCtrlKey && !container) return;
         _lastCtrlKey = key;
         renderDashboard(ct, chipId, moduleType, data);
@@ -738,6 +738,19 @@ function renderDashboard(container, chipId, moduleType, data) {
         // Reservatorio 100% automatico pela UI — sem botao de modo ou controle manual.
         // A logica do valveAuto continua no firmware (default true) e ainda pode ser
         // alterada via comando serial (VA0/VA1) ou comando remoto (device=valve_auto).
+        // Contador de tempo vazio
+        let emptyTimerHtml = '';
+        const emptySince = data.empty_since;
+        if (reservoirState === 'empty' && emptySince) {
+            const sinceDate = new Date(emptySince);
+            const diffMs = Date.now() - sinceDate.getTime();
+            const diffMin = Math.floor(diffMs / 60000);
+            const diffSec = Math.floor((diffMs % 60000) / 1000);
+            const timeStr = diffMin > 0 ? `${diffMin}min ${diffSec}s` : `${diffSec}s`;
+            const isAlert = diffMin >= 10;
+            emptyTimerHtml = `<div class="reservoir-timer ${isAlert ? 'alert' : ''}">${isAlert ? '&#9888;' : '&#9201;'} Vazio ha ${timeStr}</div>`;
+        }
+
         // Detecta se push esta ativo pra esse usuario
         const pushEnabled = Notification.permission === 'granted';
         const pushDenied = Notification.permission === 'denied';
@@ -766,6 +779,7 @@ function renderDashboard(container, chipId, moduleType, data) {
                     <div class="reservoir-valve"><b>Valvula:</b> <span style="color:${valveOn ? '#4ba3ff' : '#888'}">${valveOn ? 'ABERTA' : 'FECHADA'}</span></div>
                 </div>
             </div>
+            ${emptyTimerHtml}
             ${pushAvailable ? `
             <div class="reservoir-notify">
                 <label class="notify-toggle">

@@ -1528,6 +1528,31 @@ main { max-width: 1400px; margin: 0 auto; padding: 0 0.75rem; }
     color: var(--text);
 }
 
+/* Timer de reservatorio vazio */
+.reservoir-timer {
+    text-align: center;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: hsl(27, 84%, 52%);
+    padding: 0.5rem;
+    margin-top: 0.5rem;
+    border-radius: 0.5rem;
+    background: hsla(27, 84%, 52%, 0.1);
+    border: 1px solid hsla(27, 84%, 52%, 0.2);
+}
+
+.reservoir-timer.alert {
+    color: hsl(0, 72%, 51%);
+    background: hsla(0, 72%, 51%, 0.1);
+    border-color: hsla(0, 72%, 51%, 0.3);
+    animation: timer-pulse 2s ease-in-out infinite;
+}
+
+@keyframes timer-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
+}
+
 /* Notification toggle (dentro do card reservatorio) */
 .reservoir-notify {
     margin-top: 0.75rem;

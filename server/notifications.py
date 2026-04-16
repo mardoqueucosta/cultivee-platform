@@ -49,14 +49,21 @@ class AlertManager:
         timer_key = f"{chip_id}:reservoir_empty"
 
         if state != "empty":
-            # Condicao normal — limpa timer se existia
-            _alert_timers.pop(timer_key, None)
+            # Condicao normal — limpa timer e remove do ctrl_data
+            if timer_key in _alert_timers:
+                _alert_timers.pop(timer_key, None)
+                import models as _m
+                _m.update_ctrl_data(chip_id, {"empty_since": None})
             return
 
         # Inicia ou verifica timer
         now = time.time()
         if timer_key not in _alert_timers:
             _alert_timers[timer_key] = now
+            # Salva no ctrl_data pra o PWA mostrar o contador
+            from datetime import datetime
+            import models as _m
+            _m.update_ctrl_data(chip_id, {"empty_since": datetime.now().isoformat()})
             return  # Comecou agora — espera 10 min
 
         elapsed = now - _alert_timers[timer_key]
