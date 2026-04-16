@@ -522,6 +522,35 @@ async function loadCtrlStatus(chipId, moduleType, container) {
             data.valve_auto = localState.valve_auto;
             data.mode = localState.mode;
         }
+
+        // Recalcula cycle_day e phase usando o relogio do NAVEGADOR (mais confiavel
+        // que o ESP32, que pode ter NTP desincronizado / RTC com hora errada).
+        // start_date e phases vem do banco (fonte de verdade via save-config).
+        if (data.start_date && data.phases && data.phases.length > 0) {
+            const start = new Date(data.start_date + 'T00:00:00');
+            const now = new Date();
+            const diffDays = Math.floor((now - start) / 86400000) + 1;
+            if (diffDays > 0) data.cycle_day = diffDays;
+            let dayCount = 0;
+            for (let i = 0; i < data.phases.length; i++) {
+                if (data.phases[i].days === 0) {
+                    data.phase_index = i;
+                    data.phase = data.phases[i].name;
+                    break;
+                }
+                dayCount += data.phases[i].days;
+                if (data.cycle_day <= dayCount) {
+                    data.phase_index = i;
+                    data.phase = data.phases[i].name;
+                    break;
+                }
+                if (i === data.phases.length - 1) {
+                    data.phase_index = i;
+                    data.phase = data.phases[i].name;
+                }
+            }
+        }
+
         const key = `${data.light}:${data.pump}:${data.ventilation}:${data.aeration}:${data.valve_entrada}:${data.bomba_homo}:${data.valve_auto}:${data.level_high}:${data.level_low}:${data.reservoir_state}:${data.temperature}:${data.humidity}:${data.dht_valid}:${data.mode}:${data.phase}:${data.phase_index}:${data.cycle_day}:${data.start_date}`;
         if (key === _lastCtrlKey && !container) return;
         _lastCtrlKey = key;
