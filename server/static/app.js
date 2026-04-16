@@ -461,7 +461,19 @@ function renderSelectedContent() {
         for (const cap of caps) {
             if (moduleRenderers[cap]) {
                 hasRenderer = true;
-                html += `<div id="mod-content-${mod.chip_id}-${cap}"></div>`;
+                const renderer = moduleRenderers[cap];
+                const moduleName = mod.name || renderer.label || cap;
+                const typeLabel = renderer.label || cap;
+                // Header de identificacao: nome do modulo + tipo + short_id
+                // Persiste entre re-renders (renderDashboard so mexe no div interno)
+                html += `<div class="module-content-block">
+                    <div class="module-content-header">
+                        <span class="module-content-name">${moduleName}</span>
+                        ${mod.name && mod.name !== typeLabel ? `<span class="module-content-type">${typeLabel}</span>` : ''}
+                        <span class="module-content-id">${mod.short_id || ''}</span>
+                    </div>
+                    <div id="mod-content-${mod.chip_id}-${cap}"></div>
+                </div>`;
             }
         }
         if (!hasRenderer) {

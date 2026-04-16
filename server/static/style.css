@@ -1348,6 +1348,41 @@ main { max-width: 1400px; margin: 0 auto; padding: 0 0.75rem; }
 }
 
 /* =====================================================================
+   Module Content Header (identificacao visual de cada modulo)
+   ===================================================================== */
+
+.module-content-block {
+    /* Herda flex sizing do #module-content > * (calc(33.333%) + min-width 300px) */
+}
+
+.module-content-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.25rem 0.25rem;
+}
+
+.module-content-name {
+    font-weight: 700;
+    font-size: 0.95rem;
+    color: var(--primary, hsl(142, 71%, 45%));
+}
+
+.module-content-type {
+    font-size: 0.75rem;
+    color: var(--text-muted, hsl(210, 15%, 45%));
+    padding: 0.15rem 0.5rem;
+    border: 1px solid var(--border, hsl(210, 15%, 20%));
+    border-radius: 0.5rem;
+}
+
+.module-content-id {
+    font-size: 0.7rem;
+    color: var(--text-dim, hsl(210, 15%, 35%));
+    font-family: monospace;
+}
+
+/* =====================================================================
    Reservoir Card (hidro-farm)
    ===================================================================== */
 
