@@ -240,6 +240,8 @@ function enterApp() {
     document.getElementById("nav-user").textContent = user.name;
     loadModules();
     setTimeout(checkPendingCode, 500);
+    // Push notifications — pede permissao apos login (nao-bloqueante)
+    setTimeout(setupPushNotifications, 2000);
 }
 
 // =====================================================================
@@ -1707,6 +1709,68 @@ if ('serviceWorker' in navigator) {
     navigator.serviceWorker.addEventListener('message', (event) => {
         if (event.data.type === 'APP_UPDATED') showUpdateBanner(event.data.version);
     });
+}
+
+// =====================================================================
+// Push Notifications — permissao + subscribe
+// =====================================================================
+
+function urlBase64ToUint8Array(base64String) {
+    const padding = '='.repeat((4 - base64String.length % 4) % 4);
+    const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+    const rawData = window.atob(base64);
+    return Uint8Array.from([...rawData].map(c => c.charCodeAt(0)));
+}
+
+async function setupPushNotifications() {
+    const vapidKey = C.vapidPublicKey;
+    if (!vapidKey || !('Notification' in window) || !('PushManager' in window)) return;
+    if (!('serviceWorker' in navigator)) return;
+    if (Notification.permission === 'denied') return;
+
+    // Se ja tem permissao, re-subscribe silenciosamente (garante subscription valida)
+    if (Notification.permission === 'granted') {
+        await _subscribePush(vapidKey);
+        return;
+    }
+
+    // Primeira vez: pede permissao
+    const permission = await Notification.requestPermission();
+    if (permission === 'granted') {
+        await _subscribePush(vapidKey);
+    }
+}
+
+async function _subscribePush(vapidKey) {
+    try {
+        const reg = await navigator.serviceWorker.ready;
+        const sub = await reg.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: urlBase64ToUint8Array(vapidKey)
+        });
+        await api('/api/push/subscribe', {
+            method: 'POST',
+            body: { subscription: sub.toJSON() }
+        });
+    } catch (e) {
+        console.error('Push subscribe error:', e);
+    }
+}
+
+async function unsubscribePush() {
+    try {
+        const reg = await navigator.serviceWorker.ready;
+        const sub = await reg.pushManager.getSubscription();
+        if (sub) {
+            await api('/api/push/unsubscribe', {
+                method: 'POST',
+                body: { endpoint: sub.endpoint }
+            });
+            await sub.unsubscribe();
+        }
+    } catch (e) {
+        console.error('Push unsubscribe error:', e);
+    }
 }
 
 document.addEventListener('DOMContentLoaded', () => {

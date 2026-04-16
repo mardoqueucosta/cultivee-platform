@@ -247,7 +247,8 @@
         productName: "{{ config.title }}",
         defaultName: "{{ config.default_name }}",
         apSsid: "{{ config.ap_ssid }}",
-        version: "{{ config.version }}"
+        version: "{{ config.version }}",
+        vapidPublicKey: "{{ config.vapid_public_key or '' }}"
     };
     </script>
     <script src="/static/app.js"></script>

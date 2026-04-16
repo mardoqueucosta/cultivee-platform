@@ -156,6 +156,15 @@ def register_module():
 
     models.register_module(chip_id, short_id, module_type, ip, ssid, rssi, uptime, free_heap, ctrl_data, capabilities)
 
+    # Alertas — verifica condicoes e notifica se necessario (non-blocking)
+    try:
+        from notifications import alert_manager
+        module_row = models.get_module_by_chip_id(chip_id)
+        if module_row and module_row.get("user_id"):
+            alert_manager.check(chip_id, json.loads(ctrl_data), module_row)
+    except Exception as e:
+        log.error(f"Alert check error: {e}")
+
     # Busca comandos pendentes
     pending = models.get_pending_commands(chip_id)
     if pending:
@@ -298,6 +307,37 @@ def poll_commands():
     return jsonify({"commands": simple_cmds, "poll_interval": poll_interval})
 
 
+# =====================================================================
+# Push Notifications — subscribe/unsubscribe
+# =====================================================================
+
+@app.route("/api/push/subscribe", methods=["POST"])
+@require_auth
+def push_subscribe():
+    """PWA envia subscription apos o usuario permitir notificacoes."""
+    data = request.get_json()
+    sub = data.get("subscription", {})
+    endpoint = sub.get("endpoint")
+    keys = sub.get("keys", {})
+    if not endpoint or not keys.get("p256dh") or not keys.get("auth"):
+        return jsonify({"error": "Subscription incompleta"}), 400
+    models.save_push_subscription(request.user["id"], endpoint, keys["p256dh"], keys["auth"])
+    log.info(f"Push subscription salva: user={request.user['id']} endpoint={endpoint[:60]}...")
+    return jsonify({"status": "ok"})
+
+
+@app.route("/api/push/unsubscribe", methods=["POST"])
+@require_auth
+def push_unsubscribe():
+    """Remove subscription de push (usuario desativou notificacoes)."""
+    data = request.get_json()
+    endpoint = data.get("endpoint", "")
+    if endpoint:
+        models.delete_push_subscription(request.user["id"], endpoint)
+        log.info(f"Push subscription removida: user={request.user['id']}")
+    return jsonify({"status": "ok"})
+
+
 @app.route("/api/modules/pair", methods=["POST"])
 @require_auth
 def pair_module():
@@ -412,6 +452,7 @@ pwa_cfg = {
     "storage_prefix": "cultivee",
     "cache_prefix": "cultivee",
     "version": APP_VERSION,
+    "vapid_public_key": os.environ.get("VAPID_PUBLIC_KEY", ""),
 }
 
 
@@ -502,6 +543,34 @@ self.addEventListener('message', (event) => {{
     if (event.data === 'SKIP_WAITING') {{
         self.skipWaiting();
     }}
+}});
+
+// Push notification handler (alertas do servidor)
+self.addEventListener('push', (event) => {{
+    const data = event.data ? event.data.json() : {{}};
+    const title = data.title || 'Cultivee Alerta';
+    const options = {{
+        body: data.body || '',
+        icon: '/static/icon-192.png',
+        badge: '/static/icon-192.png',
+        tag: data.tag || 'cultivee-alert',
+        data: {{ url: data.url || '/' }}
+    }};
+    event.waitUntil(self.registration.showNotification(title, options));
+}});
+
+// Click na notificacao — abre o app
+self.addEventListener('notificationclick', (event) => {{
+    event.notification.close();
+    const url = event.notification.data.url || '/';
+    event.waitUntil(
+        clients.matchAll({{ type: 'window' }}).then((list) => {{
+            for (const c of list) {{
+                if (c.url.includes(self.location.origin) && 'focus' in c) return c.focus();
+            }}
+            return clients.openWindow(url);
+        }})
+    );
 }});
 """
     return Response(sw_js, mimetype="application/javascript",

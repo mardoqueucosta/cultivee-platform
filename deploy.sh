@@ -31,7 +31,7 @@ tar czf /tmp/cultivee-platform.tar.gz \
     --exclude='data/' \
     --exclude='__pycache__/' \
     --exclude='.env' \
-    server/app.py server/models.py server/config.py \
+    server/app.py server/models.py server/config.py server/notifications.py \
     server/bp_hidro.py server/bp_hidrofarm.py server/bp_cam.py server/bp_gallery.py \
     server/requirements.txt server/Dockerfile \
     server/static/ server/templates/ 2>/dev/null
