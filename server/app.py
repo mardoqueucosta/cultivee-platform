@@ -192,6 +192,16 @@ def register_module():
             models.mark_capture(chip_id)
             log.info(f"Captura agendada: {chip_id} (intervalo={interval}s)")
 
+    # OTA remoto: se existe firmware pendente pra esse chip, inclui URL de download
+    import pathlib
+    _fw_dir = pathlib.Path(os.environ.get("DATA_DIR", "data")) / "firmware"
+    _fw_path = _fw_dir / f"{chip_id}.bin"
+    firmware_url = None
+    if _fw_path.exists():
+        # Usa HTTP (nao HTTPS) porque o ESP32 nao faz TLS
+        firmware_url = f"http://{request.host}/api/modules/{chip_id}/firmware"
+        log.info(f"OTA remoto: firmware pendente pra {chip_id} ({_fw_path.stat().st_size} bytes)")
+
     log.info(f"Modulo registrado: {module_type} {chip_id} ({short_id}) IP={ip} poll={poll_interval}ms")
     return jsonify({
         "status": "ok",
@@ -201,7 +211,69 @@ def register_module():
         "recording": capture_cfg["recording"],
         "cam_resolution": capture_cfg["cam_resolution"],
         "cam_quality": capture_cfg["cam_quality"],
+        "firmware_url": firmware_url,
     })
+
+
+# =====================================================================
+# OTA Remoto — upload/download de firmware via servidor
+# =====================================================================
+
+@app.route("/api/modules/<chip_id>/firmware", methods=["POST"])
+def firmware_upload(chip_id):
+    """Upload de firmware .bin para OTA remoto. Requer auth + modulo pertence ao usuario."""
+    user = require_auth_func()
+    if not user:
+        return jsonify({"error": "Nao autenticado"}), 401
+    module = models.get_module_by_chip_id(chip_id)
+    if not module or module.get("user_id") != user["id"]:
+        return jsonify({"error": "Modulo nao encontrado"}), 404
+
+    file = request.files.get("firmware")
+    if not file:
+        return jsonify({"error": "Campo 'firmware' obrigatorio (multipart form)"}), 400
+
+    import pathlib
+    fw_dir = pathlib.Path(os.environ.get("DATA_DIR", "data")) / "firmware"
+    fw_dir.mkdir(parents=True, exist_ok=True)
+    fw_path = fw_dir / f"{chip_id}.bin"
+    file.save(str(fw_path))
+
+    size = fw_path.stat().st_size
+    log.info(f"OTA remoto: firmware recebido pra {chip_id} ({size} bytes)")
+    return jsonify({"status": "ok", "size": size, "message": f"Firmware salvo. ESP32 vai baixar no proximo register (~10s)."})
+
+
+@app.route("/api/modules/<chip_id>/firmware", methods=["GET"])
+def firmware_download(chip_id):
+    """Download do firmware .bin pelo ESP32. Sem auth (ESP32 nao carrega token)."""
+    import pathlib
+    fw_path = pathlib.Path(os.environ.get("DATA_DIR", "data")) / "firmware" / f"{chip_id}.bin"
+    if not fw_path.exists():
+        return jsonify({"error": "Sem firmware pendente"}), 404
+
+    log.info(f"OTA remoto: ESP32 {chip_id} baixando firmware ({fw_path.stat().st_size} bytes)")
+    return Response(
+        fw_path.read_bytes(),
+        mimetype="application/octet-stream",
+        headers={"Content-Length": str(fw_path.stat().st_size)}
+    )
+
+
+@app.route("/api/modules/<chip_id>/firmware", methods=["DELETE"])
+def firmware_delete(chip_id):
+    """Remove firmware pendente (cancela OTA). Requer auth."""
+    user = require_auth_func()
+    if not user:
+        return jsonify({"error": "Nao autenticado"}), 401
+
+    import pathlib
+    fw_path = pathlib.Path(os.environ.get("DATA_DIR", "data")) / "firmware" / f"{chip_id}.bin"
+    if fw_path.exists():
+        fw_path.unlink()
+        log.info(f"OTA remoto: firmware removido pra {chip_id}")
+        return jsonify({"status": "ok", "message": "Firmware pendente removido"})
+    return jsonify({"status": "ok", "message": "Nenhum firmware pendente"})
 
 
 @app.route("/api/modules/poll")

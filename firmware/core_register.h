@@ -119,6 +119,62 @@ void pollCommands() {
   http.end();
 }
 
+// ===================== OTA REMOTO (via servidor) =====================
+// O ESP32 recebe "firmware_url" na resposta do register. Se presente,
+// baixa o .bin via HTTP e se auto-atualiza. So tenta 1x por boot
+// (flag em RAM) para evitar loop infinito se o OTA falhar.
+
+bool otaRemoteAttempted = false;  // Reseta no reboot (RAM, nao NVS)
+
+void performRemoteOTA(String url) {
+  if (otaRemoteAttempted) return;  // Ja tentou neste boot — espera proximo reboot
+  otaRemoteAttempted = true;
+
+  Serial.println("=== OTA REMOTO ===");
+  Serial.println("Baixando: " + url);
+
+  HTTPClient http;
+  http.begin(url);
+  http.setTimeout(30000);  // 30s timeout — arquivo grande (~1.2 MB)
+  int httpCode = http.GET();
+
+  if (httpCode != 200) {
+    Serial.printf("OTA remoto: HTTP %d — abortando\n", httpCode);
+    http.end();
+    return;
+  }
+
+  int contentLength = http.getSize();
+  if (contentLength <= 0) {
+    Serial.println("OTA remoto: tamanho invalido — abortando");
+    http.end();
+    return;
+  }
+
+  Serial.printf("OTA remoto: %d bytes. Gravando na particao OTA...\n", contentLength);
+
+  if (!Update.begin(contentLength)) {
+    Serial.printf("OTA remoto: sem espaco ou particao OTA ausente: %s\n", Update.errorString());
+    http.end();
+    return;
+  }
+
+  WiFiClient *stream = http.getStreamPtr();
+  size_t written = Update.writeStream(*stream);
+
+  if (written == (size_t)contentLength && Update.end(true)) {
+    Serial.printf("OTA remoto: SUCESSO! %u bytes gravados. Reiniciando em 2s...\n", written);
+    http.end();
+    delay(2000);
+    ESP.restart();
+  } else {
+    Serial.printf("OTA remoto: ERRO — escreveu %u/%d bytes: %s\n", written, contentLength, Update.errorString());
+    Update.end(false);
+  }
+
+  http.end();
+}
+
 // ===================== REGISTRO =====================
 
 // Forward declarations — cada modulo contribui com seu JSON
@@ -203,6 +259,20 @@ void registerOnServer() {
           Serial.printf("Poll interval: %lu -> %lu ms\n", currentPollInterval, newInterval);
         }
         currentPollInterval = newInterval;
+      }
+    }
+
+    // OTA remoto: se o servidor retornou firmware_url, baixa e aplica
+    int fwKey = response.indexOf("\"firmware_url\":\"");
+    if (fwKey >= 0) {
+      int fwStart = fwKey + 16;  // pula ate apos o segundo "
+      int fwEnd = response.indexOf("\"", fwStart);
+      if (fwEnd > fwStart) {
+        String fwUrl = response.substring(fwStart, fwEnd);
+        http.end();  // Libera a conexao HTTP antes de iniciar o download OTA
+        performRemoteOTA(fwUrl);
+        // Se chegar aqui, OTA falhou (nao reiniciou). Continua normalmente.
+        return;  // Sai do register — proximo ciclo tenta de novo (se nao tentou ainda)
       }
     }
 
