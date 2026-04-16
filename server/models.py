@@ -220,10 +220,13 @@ def register_module(chip_id, short_id, module_type="ctrl", ip="", ssid="", rssi=
             new_data = json.loads(ctrl_data or "{}")
         except (json.JSONDecodeError, TypeError):
             new_data = {}
-        # Campos de config — servidor e fonte da verdade.
-        # ESP32 apenas ecoa; nunca deve sobrescrever o que o app salvou.
-        server_keys = ("phases", "num_phases", "start_date",
-                       "recording", "capture_interval", "cam_resolution",
+        # Campos de config da CAMERA — servidor e fonte da verdade.
+        # Para camera: o PWA configura resolution/quality/interval e o ESP32 apenas ecoa.
+        # Para hidro/hidro-farm: o ESP32 e a fonte de verdade (NVS) — phases, start_date
+        # e num_phases NAO sao protegidos aqui. Se o ESP32 reboota com NVS intacto,
+        # manda os dados corretos; se NVS foi apagado, manda defaults e o usuario
+        # reconfigura. Isso garante consistencia entre start_date e cycle_day.
+        server_keys = ("recording", "capture_interval", "cam_resolution",
                        "cam_quality", "last_capture_at", "capture_folder",
                        "cam_wb_mode", "cam_brightness", "cam_contrast",
                        "cam_saturation", "cam_ae_level", "cam_gainceiling",
