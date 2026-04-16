@@ -1015,10 +1015,10 @@ function renderModule_cam(container, mod) {
 
     container.innerHTML = `
         <div class="card" style="padding:0;overflow:hidden">
-            <!-- Header Camera -->
-            <div style="display:flex;align-items:center;gap:8px;padding:14px">
-                <span style="width:8px;height:8px;border-radius:50%;background:${statusColor}"></span>
-                <b style="font-size:0.9rem">Câmera</b>
+            <!-- Header Camera (mesma classe dos outros modulos) -->
+            <div class="module-inline-title" style="margin:0;padding:14px;border-bottom:1px solid var(--border, hsl(210,15%,20%))">
+                <span class="mch-dot" style="background:${statusColor};box-shadow:0 0 6px ${statusColor}40"></span>
+                <b>Câmera</b>
             </div>
 
             <!-- Dropdown: Captura -->
