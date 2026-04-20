@@ -229,11 +229,14 @@ void handleStream() {
 // ===================== STATUS JSON =====================
 
 String cam_register_json() {
-  return "\"camera_ready\":" + String(cameraReady ? "true" : "false");
+  // v4.1.9: reporta cam_live_mode pra persistir estado entre reloads do browser
+  return "\"camera_ready\":" + String(cameraReady ? "true" : "false")
+       + ",\"cam_live_mode\":" + String(camLiveMode ? "true" : "false");
 }
 
 String cam_status_json() {
-  return ",\"camera_ready\":" + String(cameraReady ? "true" : "false");
+  return ",\"camera_ready\":" + String(cameraReady ? "true" : "false")
+       + ",\"cam_live_mode\":" + String(camLiveMode ? "true" : "false");
 }
 
 // ===================== DASHBOARD HTML =====================

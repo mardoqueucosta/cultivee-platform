@@ -1,7 +1,7 @@
 """
 Cultivee — Blueprint Camera
 Rotas de captura: enfileirar captura, upload push, live frame, servir imagem.
-Registrado com url_prefix dinamico (ex: /api/hidro-cam).
+Registrado em /api/cam (valida capability "cam").
 """
 
 import os
@@ -176,6 +176,9 @@ def start_live(chip_id):
     if not module:
         return jsonify({"error": "Modulo nao encontrado"}), 404
 
+    # v4.1.9: escreve cam_live_mode=true otimisticamente (ESP32 confirma no proximo register)
+    # Isso persiste o estado mesmo se o usuario recarregar o browser antes do ESP32 reportar
+    models.update_ctrl_data(chip_id, {"cam_live_mode": True})
     models.add_pending_command(chip_id, "start-live")
     models.mark_activity(chip_id)
     return jsonify({"status": "queued"})
@@ -194,6 +197,8 @@ def stop_live(chip_id):
     if not module:
         return jsonify({"error": "Modulo nao encontrado"}), 404
 
+    # v4.1.9: escreve cam_live_mode=false otimisticamente
+    models.update_ctrl_data(chip_id, {"cam_live_mode": False})
     models.add_pending_command(chip_id, "stop-live")
     models.mark_activity(chip_id)
 

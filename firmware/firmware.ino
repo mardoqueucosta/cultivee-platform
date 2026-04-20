@@ -125,7 +125,7 @@ bool camLiveMode = false;
 bool localStreamActive = false;  // true durante /stream local — suspende registro
 unsigned long lastLiveFrame = 0;
 #define LIVE_FRAME_INTERVAL 800
-#define LIVE_MAX_DURATION 120000
+#define LIVE_MAX_DURATION 600000  // v4.1.10: 10 min (antes 2 min — muito curto para observacao de transplante/poda)
 unsigned long liveStartTime = 0;
 framesize_t captureFrameSize = FRAMESIZE_SVGA;  // SVGA 800x600 — melhor relacao qualidade/tamanho para processamento
 int captureQuality = 5;                          // q5 — maxima nitidez para deteccao em plantas

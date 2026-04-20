@@ -1084,7 +1084,28 @@ const CAM_GALLERY_PER_PAGE = 20;
 function renderModule_cam(container, mod) {
     const chipId = mod.chip_id;
     const moduleType = mod.type;
-    const camReady = mod.online && mod.ctrl_data && mod.ctrl_data.camera_ready;
+    const ctrlData = mod.ctrl_data || {};
+    const camReady = mod.online && ctrlData.camera_ready;
+
+    // v4.1.9: sincroniza estado live do servidor apos reload do browser.
+    // Servidor eh fonte de verdade (ESP32 reporta cam_live_mode no register,
+    // start-live/stop-live escrevem otimisticamente). Se o PWA nao tem sessao
+    // live tracked (cam_liveChipId=null) e o servidor diz que esta live, adota.
+    const serverSaysLive = ctrlData.cam_live_mode === true && mod.online;
+    if (!cam_liveChipId && serverSaysLive && camReady) {
+        cam_liveOn = true;
+        cam_liveChipId = chipId;
+        cam_liveType = moduleType;
+        cam_liveLastTs = 0;
+        // Dispara pollLoop pra retomar frames (nao precisa chamar start-live de novo)
+        setTimeout(() => cam_pollLoop(chipId, moduleType), 300);
+    } else if (cam_liveChipId === chipId && !serverSaysLive && mod.online) {
+        // Servidor diz off mas PWA acha que ta on — corrige (ex: auto-timeout do ESP32)
+        cam_liveOn = false;
+        cam_liveChipId = null;
+        cam_liveType = null;
+    }
+
     const statusColor = camReady ? '#27ae60' : '#e74c3c';
     const statusText = camReady ? 'Pronta' : 'Offline';
     const btnDisabled = !camReady || cam_pending;
