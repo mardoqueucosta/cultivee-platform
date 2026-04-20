@@ -74,17 +74,66 @@ const moduleRenderers = {
 };
 
 // =====================================================================
-// Module Prefs (selecao + ordem — localStorage)
+// Module Prefs (selecao + ordem) — v4.1.10
+// Persistido no servidor (sobrevive a limpeza de cache + sync cross-device).
+// localStorage continua como cache local pra fallback offline e inicializacao
+// rapida antes do fetch assincrono terminar.
 // =====================================================================
 
-function loadModulePrefs() {
+let _modulePrefsCache = null;       // {selected: [...], order: [...]}
+let _modulePrefsSaveTimer = null;   // debouncer pra nao bombardear o servidor
+
+function _readLocalPrefs() {
     try {
         return JSON.parse(localStorage.getItem(`${STORAGE_PREFIX}_module_prefs`) || '{}');
     } catch (e) { return {}; }
 }
 
+function _writeLocalPrefs(prefs) {
+    try { localStorage.setItem(`${STORAGE_PREFIX}_module_prefs`, JSON.stringify(prefs)); } catch (e) {}
+}
+
+// Fetch inicial — chamado uma vez no boot (apos login)
+// Faz migracao de localStorage -> servidor se for o primeiro acesso
+async function fetchModulePrefs() {
+    try {
+        const server = await api('/api/user/prefs');
+        const serverEmpty = !(server.selected?.length) && !(server.order?.length);
+        const local = _readLocalPrefs();
+        const localHasData = !!(local.selected?.length) || !!(local.order?.length);
+        if (serverEmpty && localHasData) {
+            // Primeira sincronizacao: migra localStorage -> servidor
+            _modulePrefsCache = local;
+            try {
+                await api('/api/user/prefs', { method: 'PUT', body: JSON.stringify(local) });
+                console.log('[prefs] migrado localStorage -> servidor');
+            } catch (e) { /* ok, tenta denovo depois */ }
+        } else {
+            _modulePrefsCache = server || {};
+            _writeLocalPrefs(_modulePrefsCache);
+        }
+    } catch (e) {
+        // Sem rede/erro: cai pro cache local
+        _modulePrefsCache = _readLocalPrefs();
+        console.warn('[prefs] fallback offline (localStorage)', e.message);
+    }
+}
+
+function loadModulePrefs() {
+    // Se ainda nao buscou do servidor (chamado antes do fetch), devolve localStorage
+    if (_modulePrefsCache === null) _modulePrefsCache = _readLocalPrefs();
+    return _modulePrefsCache;
+}
+
 function saveModulePrefs(prefs) {
-    localStorage.setItem(`${STORAGE_PREFIX}_module_prefs`, JSON.stringify(prefs));
+    _modulePrefsCache = prefs;
+    _writeLocalPrefs(prefs);  // cache local (instantaneo)
+    // Debounce: espera 500ms sem novas mudancas antes de enviar ao servidor
+    clearTimeout(_modulePrefsSaveTimer);
+    _modulePrefsSaveTimer = setTimeout(() => {
+        api('/api/user/prefs', { method: 'PUT', body: JSON.stringify(prefs) })
+            .catch(e => console.warn('[prefs] falha ao salvar no servidor:', e.message));
+    }, 500);
 }
 
 function getSelectedChips() {
@@ -234,10 +283,13 @@ function doLogout() {
 // App Init
 // =====================================================================
 
-function enterApp() {
+async function enterApp() {
     document.getElementById("auth-screen").classList.add("hidden");
     document.getElementById("app-screen").classList.remove("hidden");
     document.getElementById("nav-user").textContent = user.name;
+    // v4.1.10: carrega prefs do servidor ANTES do loadModules pra evitar
+    // flash visual de "ordem errada" -> "ordem certa"
+    await fetchModulePrefs();
     loadModules();
     setTimeout(checkPendingCode, 500);
     // Push notifications — pede permissao apos login (nao-bloqueante)

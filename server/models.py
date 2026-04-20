@@ -126,6 +126,14 @@ def init_db():
     except Exception:
         conn.execute("ALTER TABLE modules ADD COLUMN cam_quality INTEGER DEFAULT 10")
 
+    # Migracao v4.1.10: preferencias de UI do usuario (ordem + selecao de modulos)
+    # Antes ficava so em localStorage do navegador; agora persiste no servidor
+    # pra sobreviver a limpeza de cache e sincronizar entre devices.
+    try:
+        conn.execute("SELECT module_prefs FROM users LIMIT 0")
+    except Exception:
+        conn.execute("ALTER TABLE users ADD COLUMN module_prefs TEXT DEFAULT '{}'")
+
     conn.commit()
     conn.close()
 
@@ -175,6 +183,33 @@ def get_user_by_id(user_id):
     user = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
     conn.close()
     return user
+
+
+# --- User Module Prefs (v4.1.10) ---
+# Persiste ordem + selecao de modulos no servidor (antes so localStorage)
+
+def get_user_module_prefs(user_id):
+    """Retorna {selected: [...], order: [...]} ou {} se nao ha."""
+    conn = get_db()
+    row = conn.execute("SELECT module_prefs FROM users WHERE id = ?", (user_id,)).fetchone()
+    conn.close()
+    if not row or not row["module_prefs"]:
+        return {}
+    try:
+        return json.loads(row["module_prefs"])
+    except (json.JSONDecodeError, TypeError):
+        return {}
+
+
+def save_user_module_prefs(user_id, prefs):
+    """Salva dict {selected: [chipIds], order: [chipIds]} no banco."""
+    conn = get_db()
+    conn.execute(
+        "UPDATE users SET module_prefs = ? WHERE id = ?",
+        (json.dumps(prefs or {}), user_id)
+    )
+    conn.commit()
+    conn.close()
 
 
 # --- Tokens ---

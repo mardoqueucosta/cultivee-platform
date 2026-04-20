@@ -129,6 +129,33 @@ def logout():
 
 
 # =====================================================================
+# User module prefs (v4.1.10) — persiste ordem + selecao no servidor
+# (antes so localStorage, perdia ao limpar cache do browser)
+# =====================================================================
+
+@app.route("/api/user/prefs", methods=["GET"])
+@require_auth
+def get_user_prefs():
+    user = request.user
+    return jsonify(models.get_user_module_prefs(user["id"]))
+
+
+@app.route("/api/user/prefs", methods=["PUT"])
+@require_auth
+def save_user_prefs():
+    user = request.user
+    data = request.get_json(silent=True) or {}
+    # Validacao basica: aceita apenas chaves conhecidas, listas de strings
+    clean = {}
+    if isinstance(data.get("selected"), list):
+        clean["selected"] = [str(x) for x in data["selected"] if x]
+    if isinstance(data.get("order"), list):
+        clean["order"] = [str(x) for x in data["order"] if x]
+    models.save_user_module_prefs(user["id"], clean)
+    return jsonify({"status": "ok"})
+
+
+# =====================================================================
 # Module endpoints (core — todos os produtos)
 # =====================================================================
 
