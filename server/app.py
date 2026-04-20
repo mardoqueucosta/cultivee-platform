@@ -144,7 +144,9 @@ def get_user_prefs():
 @require_auth
 def save_user_prefs():
     user = request.user
-    data = request.get_json(silent=True) or {}
+    # force=True: aceita JSON mesmo sem Content-Type: application/json
+    # (defesa contra clientes que esquecem o header)
+    data = request.get_json(silent=True, force=True) or {}
     # Validacao basica: aceita apenas chaves conhecidas, listas de strings
     clean = {}
     if isinstance(data.get("selected"), list):

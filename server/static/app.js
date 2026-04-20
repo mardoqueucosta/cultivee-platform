@@ -105,7 +105,8 @@ async function fetchModulePrefs() {
             // Primeira sincronizacao: migra localStorage -> servidor
             _modulePrefsCache = local;
             try {
-                await api('/api/user/prefs', { method: 'PUT', body: JSON.stringify(local) });
+                // body como OBJETO (nao string) — api() helper faz stringify e seta Content-Type
+                await api('/api/user/prefs', { method: 'PUT', body: local });
                 console.log('[prefs] migrado localStorage -> servidor');
             } catch (e) { /* ok, tenta denovo depois */ }
         } else {
@@ -131,7 +132,8 @@ function saveModulePrefs(prefs) {
     // Debounce: espera 500ms sem novas mudancas antes de enviar ao servidor
     clearTimeout(_modulePrefsSaveTimer);
     _modulePrefsSaveTimer = setTimeout(() => {
-        api('/api/user/prefs', { method: 'PUT', body: JSON.stringify(prefs) })
+        // body como OBJETO — api() helper faz stringify e seta Content-Type: application/json
+        api('/api/user/prefs', { method: 'PUT', body: prefs })
             .catch(e => console.warn('[prefs] falha ao salvar no servidor:', e.message));
     }, 500);
 }
