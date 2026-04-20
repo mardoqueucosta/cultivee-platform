@@ -243,7 +243,15 @@ void registerOnServer() {
   #ifdef MOD_CAM
   if (!firstModule) json += ",";
   json += cam_register_json();
+  firstModule = false;
   #endif
+
+  // v4.1.8: telemetria de conectividade WiFi (cross-produto, sempre presente)
+  // Usado pra dashboard/suporte entender por que o modulo caiu
+  if (!firstModule) json += ",";
+  json += "\"wifi_last_error\":\"" + wifiLastError + "\"";
+  json += ",\"wifi_last_connected_ms\":" + String(wifiLastConnectedMs);
+  json += ",\"wifi_disconnect_count\":" + String(wifiDisconnectCount);
 
   json += "}}";
 

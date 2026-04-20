@@ -51,7 +51,7 @@ cultivee-platform/
 │   ├── core_wifi.h           # WiFi AP+STA, captive portal + RTC DS3231 (compartilhado hidro/hidro-farm)
 │   ├── core_server.h         # WebServer, rotas setup WiFi, save WiFi
 │   ├── core_register.h       # Registro no servidor, polling, command dispatch
-│   ├── core_ota.h            # Rotas /update e /doUpdate (Hidro e Hidro-Farm usam — Cam e no_ota)
+│   ├── core_ota.h            # Rotas /update e /doUpdate (todos os produtos — Cam migrou pra min_spiffs em v4.1.8)
 │   ├── mod_hidro.h           # MOD_HIDRO — 4 reles, fases, automacao, dashboard local
 │   ├── mod_hidrofarm.h       # MOD_HIDROFARM — 6 reles (4 auto + 2 manuais), dashboard local
 │   └── mod_cam.h             # MOD_CAM — Camera OV2640: capture, stream MJPEG, dashboard local
@@ -59,7 +59,7 @@ cultivee-platform/
 ├── products/                 # 1 arquivo = 1 produto (define modulos + pinos)
 │   ├── hidro.h               # MOD_HIDRO — ESP32-WROOM, 4 reles, RTC DS3231, min_spiffs
 │   ├── hidro-farm.h          # MOD_HIDROFARM — ESP32-WROOM, 6 reles (GPIO 4/5/16/17/18/19), min_spiffs
-│   └── cam.h                 # MOD_CAM — ESP32-WROVER, OV2640 standalone, no_ota
+│   └── cam.h                 # MOD_CAM — ESP32-WROVER, OV2640 standalone, min_spiffs (OTA habilitado v4.1.8+)
 │
 ├── server/                   # UM servidor Flask unificado
 │   ├── app.py                # Core: auth, modules, PWA, blueprints, migracao fotos
@@ -77,7 +77,6 @@ cultivee-platform/
 │   ├── sim_esp32.py          # Simulador de hardware (ctrl, hidro-farm, cam) para dev sem ESP32
 │   ├── run-app.py            # Dev server local preferido (porta 5002)
 │   ├── run-ctrl.py           # Dev server dedicado a Ctrl (DB separado)
-│   ├── run-hidro-cam.py      # Launcher legado (porta 5003) — ver "Desenvolvimento local"
 │   ├── test_routes.py        # Smoke tests das rotas HTTP
 │   ├── Dockerfile            # python:3.10-slim + gunicorn (2w x 4t)
 │   ├── requirements.txt      # flask, python-dotenv, gunicorn, pillow, pywebpush
@@ -149,8 +148,6 @@ Validacao por capability (cada blueprint checa seu proprio campo em `capabilitie
 As capabilities sao reportadas pelo ESP32 em cada `POST /api/modules/register` e armazenadas como JSON array no DB.
 
 > **Nota convencional:** `hidro` usa `MODULE_TYPE="ctrl"` por motivo historico (prefixo `/api/ctrl`), mas o novo padrao — adotado pelo `hidro-farm` — e usar `MODULE_TYPE` igual a capability (ex: `"hidro-farm"` e prefixo `/api/hidro-farm`). Proximos modulos devem seguir o novo padrao. O helper [`getCtrlContainer(chipId, moduleType)`](./server/static/app.js) em `app.js` faz o mapping `ctrl→hidro` internamente.
-
-> **Historico:** versoes anteriores do CLAUDE.md listavam 4 registros com um prefixo `/api/hidro-cam` compartilhado entre `hidro_bp` e `cam_bp`. Esse registro foi removido e o prefixo `/api/hidro-cam` nao existe mais no servidor — ver "Desenvolvimento local" para a nota sobre o launcher legado `run-hidro-cam.py`.
 
 ### PWA: Registry Pattern
 ```javascript
@@ -396,7 +393,7 @@ Os 4 reles automatizados compartilham toda a logica de fases do HIDRO via `struc
 
 ### CAM (ESP32-WROVER-DEV) — Standalone
 - **Porta:** COM9
-- **Board:** `esp32:esp32:esp32wroverkit` com particao `no_ota` (2.0 MB app unica — gravacao **so** via USB, sem OTA)
+- **Board:** `esp32:esp32:esp32wroverkit` com particao `min_spiffs` (1.9 MB app0 + 1.9 MB app1, OTA habilitado desde v4.1.8 — antes era `no_ota`). Firmware ocupa 1.27 MB (64% — sobra ~690 KB)
 - **Camera:** OV2640 always-on (init unico no boot, nunca `esp_camera_deinit()`)
 - **Reset WiFi:** botao BOOT (GPIO0 — `RESET_BTN`), segurar por 3s
 - **AP:** `Cultivee-Cam`
@@ -454,18 +451,13 @@ bash compile-hidrofarm.sh upload     # compila + grava via USB em COM16
 #   http://<ip-do-esp32>/update
 # no navegador e enviar o build/firmware.ino.bin gerado.
 # O IP e 192.168.4.1 se estiver no AP do ESP32, ou o IP na rede local se ja conectado.
-# Funciona para HIDRO e HIDRO-FARM (ambos usam min_spiffs). Cam nao tem OTA.
+# Funciona para HIDRO, HIDRO-FARM e CAM (todos usam min_spiffs a partir da v4.1.8).
 
-# CAM (ESP32-WROVER) — sem OTA, gravacao so via USB (particao no_ota)
-"C:/Users/user/arduino-cli/arduino-cli.exe" compile \
-  --fqbn esp32:esp32:esp32wroverkit \
-  --build-property "build.partitions=no_ota" \
-  --build-property "upload.maximum_size=2097152" \
-  "D:/01-projetos-claude/00-Sites/site-cultivee.com.br/cultivee-platform/firmware"
-
-"C:/Users/user/arduino-cli/arduino-cli.exe" upload \
-  --fqbn esp32:esp32:esp32wroverkit -p COM9 \
-  "D:/01-projetos-claude/00-Sites/site-cultivee.com.br/cultivee-platform/firmware"
+# CAM (ESP32-WROVER) — OTA habilitado desde v4.1.8 (antes era no_ota).
+# A PRIMEIRA gravacao apos migracao de partition table DEVE ser via USB.
+# Depois disso, atualizacoes podem ser remotas via ota-remote.sh.
+bash compile-cam.sh            # compila
+bash compile-cam.sh upload     # compila + grava via USB em COM7
 ```
 
 ### OTA Remoto via Servidor (v4.0.15)
@@ -491,7 +483,7 @@ Atualiza firmware sem acesso fisico ao ESP32 e sem estar na mesma rede local. O 
 
 **Protecoes:**
 - Flag `otaRemoteAttempted` (RAM, nao NVS): so tenta OTA 1x por boot. Evita loop infinito se o .bin for invalido (ESP32 reinicia → registra → ve firmware_url → tenta → falha → reinicia → ...). Apos reboot por OTA bem-sucedido, a flag reseta naturalmente.
-- Cam (`no_ota`): `Update.begin()` retorna false silenciosamente — nao trava nem reinicia, so loga erro.
+- Desde v4.1.8 todos os produtos (incluindo Cam) usam `min_spiffs` — OTA funciona em todos. Antes disso, Cam tinha particao `no_ota` e `Update.begin()` retornava false silenciosamente.
 - O .bin e servido via `GET /api/modules/<chip_id>/firmware` **sem auth** (ESP32 nao carrega token). Seguranca por obscuridade do chip_id + o arquivo e removido apos download ou cancelamento.
 
 **Bootstrap problem:** a feature de OTA remoto precisa estar no firmware do ESP32 para funcionar. A **primeira gravacao** de um ESP32 novo (ou de um que nao tem essa feature) **sempre** precisa ser via USB ou OTA local (`/update`). Depois da primeira gravacao com core_register.h v4.0.15+, todas as atualizacoes seguintes podem ser remotas.
@@ -508,7 +500,7 @@ Atualiza firmware sem acesso fisico ao ESP32 e sem estar na mesma rede local. O 
 ### Ambiente (config.h)
 ```c
 // #define ENV_LOCAL        // http://192.168.7.233:5002
-#define ENV_PRODUCTION      // http://cam.cultivee.com.br (ou hidro, hidro-cam)
+#define ENV_PRODUCTION      // http://app.cultivee.com.br
 ```
 
 Cada produto define dois URLs:
@@ -521,7 +513,7 @@ Cada produto define dois URLs:
 - **Windows:** `/connecttest.txt` → 302 redirect
 
 ### OTA Remoto em core_register.h (v4.0.15)
-- `performRemoteOTA(url)`: HTTP GET streaming com `httpUpdate`-style manual — `Update.begin()`, `http.getStream()`, `Update.writeStream()`, `Update.end()`, `ESP.restart()`. Funciona com particao `min_spiffs` (Hidro, Hidro-Farm). Em Cam (`no_ota`), `Update.begin()` retorna false silenciosamente.
+- `performRemoteOTA(url)`: HTTP GET streaming com `httpUpdate`-style manual — `Update.begin()`, `http.getStream()`, `Update.writeStream()`, `Update.end()`, `ESP.restart()`. Funciona com particao `min_spiffs` em todos os produtos (Hidro, Hidro-Farm, Cam). Cam foi migrado de `no_ota` para `min_spiffs` na v4.1.8.
 - `registerOnServer()` checa campo `firmware_url` na resposta JSON do servidor. Se presente e `otaRemoteAttempted == false`, dispara `performRemoteOTA()`.
 - Flag `otaRemoteAttempted` (bool em RAM): inicializa false, setada true antes de tentar. So reseta no reboot. Evita loop infinito de reboot se o .bin for invalido.
 
@@ -780,8 +772,6 @@ python -u sim_esp32.py cam          # cam        — codigo de pareamento: CA01
 python test_routes.py
 ```
 
-> **Legado:** [`server/run-hidro-cam.py`](./server/run-hidro-cam.py) existe e sobe na porta 5003 com `MODULE_TYPE=hidro-cam`, mas o blueprint `/api/hidro-cam` **nao** esta registrado em [`server/app.py:290-297`](./server/app.py) — apenas `/api/ctrl`, `/api/cam` e `/api/gallery` estao. O launcher e residuo de uma arquitetura anterior (quando havia um blueprint compartilhado hidro-cam) e nao serve nenhum fluxo funcional hoje. Nao depender dele; usar `run-app.py`.
-
 ---
 
 ## Checklist
@@ -807,7 +797,7 @@ python test_routes.py
 7. Se precisar cancelar: `curl -X DELETE -H "Authorization: Bearer <token>" https://app.cultivee.com.br/api/modules/<chip_id>/firmware`
 
 **Pre-requisito:** firmware >=v4.0.15 ja gravado no ESP32 (primeira vez sempre via USB ou OTA local).
-**Cam nao suporta** — particao `no_ota`, `Update.begin()` falha silenciosamente.
+**Cam suporta desde v4.1.8** — migrou de `no_ota` para `min_spiffs`. Primeira gravacao pos-migracao exige USB (muda partition table); depois disso, OTA remoto funciona igual aos outros produtos.
 
 ### Alterar docker-compose.yml
 1. Editar no REPOSITORIO (nunca no servidor)
@@ -849,7 +839,7 @@ Se a capability tiver prefixo comum a outra ja existente (ex: `"hidro-sensor"` v
 7. DNS: `sensor.cultivee.com.br` → DNS only no Cloudflare
 8. `docker-compose.yml`: adicionar subdominio nos labels do Traefik
 
-**OTA remoto e herdado automaticamente** por qualquer modulo novo que use `core_register.h` (todos usam). Nao precisa de codigo adicional — `registerOnServer()` ja checa `firmware_url` e `performRemoteOTA()` e generico. A unica excecao e se o produto usar particao `no_ota` (como Cam) — nesse caso o `Update.begin()` falha silenciosamente.
+**OTA remoto e herdado automaticamente** por qualquer modulo novo que use `core_register.h` (todos usam). Nao precisa de codigo adicional — `registerOnServer()` ja checa `firmware_url` e `performRemoteOTA()` e generico. Desde v4.1.8, todos os produtos (Hidro, Hidro-Farm, Cam) usam particao `min_spiffs` e suportam OTA nativamente. Se criar um produto novo, usar `min_spiffs` — nunca `no_ota`.
 
 **Total: ~4 arquivos novos, ~15 linhas em existentes. Verificar SEMPRE os guards em `core_*.h`.**
 

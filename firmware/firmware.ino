@@ -219,6 +219,25 @@ body{font-family:-apple-system,sans-serif;background:#1a1d23;color:#e0e0e0;max-w
   html += hidrofarm_dashboard_html();
   #endif
 
+  // WiFi telemetry (v4.1.8+) — cross-produto, antes do footer
+  {
+    String errColor = (wifiLastError == "OK" || wifiLastError == "") ? "#27ae60" : "#e74c3c";
+    String errText  = (wifiLastError == "") ? "OK" : wifiLastError;
+    String dropColor = (wifiDisconnectCount > 0) ? "#e74c3c" : "#666";
+    html += "<div style='text-align:center;font-size:0.7rem;color:#666;padding:8px 10px;margin:8px 10px 0;border-top:1px dashed #333'>";
+    html += "&#128246; <span style='color:" + errColor + ";font-weight:600'>" + errText + "</span>";
+    html += " &middot; " + String(WiFi.RSSI()) + " dBm";
+    html += " &middot; <span style='color:" + dropColor + "'>" + String(wifiDisconnectCount) + " quedas</span>";
+    if (wifiLastConnectedMs > 0 && millis() > wifiLastConnectedMs) {
+      unsigned long onlineSec = (millis() - wifiLastConnectedMs) / 1000;
+      unsigned long oh = onlineSec / 3600, om = (onlineSec % 3600) / 60;
+      String onlineStr = (oh > 0) ? (String(oh) + "h " + String(om) + "min")
+                                   : (om > 0 ? (String(om) + "min") : (String(onlineSec) + "s"));
+      html += " &middot; online ha " + onlineStr;
+    }
+    html += "</div>";
+  }
+
   html += "<div class='footer'>";
   html += "<a href='/setup-wifi'>&#9881; WiFi</a> &nbsp;|&nbsp; <a href='/update'>&#8679; Firmware</a> &nbsp;|&nbsp; " + String(PRODUCT_NAME) + " v" + String(FIRMWARE_VERSION);
   html += "</div>";
@@ -282,7 +301,10 @@ void setup() {
   Serial.println("\n=== " + String(PRODUCT_NAME) + " ===");
   Serial.printf("Chip ID: %s (%s)\n", chipId.c_str(), shortId.c_str());
 
-  // WiFi
+  // WiFi — registra callback de eventos ANTES de begin() pra capturar GOT_IP/DISCONNECTED
+  // (v4.1.8: detecta queda em ~1s em vez de esperar 60s do retry)
+  WiFi.onEvent(onWiFiEvent);
+
   loadWiFiCredentials();
   if (savedSSID.length() > 0) {
     if (connectWiFi()) {

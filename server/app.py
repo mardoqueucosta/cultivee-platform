@@ -2,8 +2,7 @@
 """
 Cultivee — Servidor Unificado
 Core: auth, modules, groups, dashboard.
-Servidor unico serve todos os tipos de modulo (ctrl, cam, hidro-cam).
-Blueprints registrados em multiplos prefixos por tipo de firmware.
+Blueprints registrados por capability: /api/ctrl, /api/hidro-farm, /api/cam, /api/gallery.
 """
 
 import os
@@ -20,7 +19,7 @@ except ImportError:
 
 import urllib.request
 import urllib.error
-from flask import Flask, request, jsonify, send_from_directory, render_template, Response
+from flask import Flask, request, jsonify, send_from_directory, render_template, Response, after_this_request
 
 from config import PORT, PRODUCT_NAME, APP_VERSION
 import models
@@ -255,17 +254,36 @@ def firmware_upload(chip_id):
 
 @app.route("/api/modules/<chip_id>/firmware", methods=["GET"])
 def firmware_download(chip_id):
-    """Download do firmware .bin pelo ESP32. Sem auth (ESP32 nao carrega token)."""
+    """Download do firmware .bin pelo ESP32. Sem auth (ESP32 nao carrega token).
+
+    CRITICO: apos download bem-sucedido, o .bin eh removido automaticamente.
+    Sem isso, o ESP32 entraria em loop infinito de OTA (apos reboot, nova tentativa
+    da mesma versao). A flag otaRemoteAttempted eh RAM e reseta a cada reboot, entao
+    a unica forma segura de cortar o loop eh remover o arquivo no servidor.
+    Se o download falhar no ESP32, o usuario precisa fazer upload novamente.
+    """
     import pathlib
     fw_path = pathlib.Path(os.environ.get("DATA_DIR", "data")) / "firmware" / f"{chip_id}.bin"
     if not fw_path.exists():
         return jsonify({"error": "Sem firmware pendente"}), 404
 
-    log.info(f"OTA remoto: ESP32 {chip_id} baixando firmware ({fw_path.stat().st_size} bytes)")
+    size = fw_path.stat().st_size
+    log.info(f"OTA remoto: ESP32 {chip_id} baixando firmware ({size} bytes)")
+
+    @after_this_request
+    def remove_after_download(response):
+        try:
+            if fw_path.exists():
+                fw_path.unlink()
+                log.info(f"OTA remoto: {chip_id}.bin removido apos download ({size} bytes) — loop prevenido")
+        except Exception as e:
+            log.error(f"OTA remoto: falha ao remover {chip_id}.bin: {e}")
+        return response
+
     return Response(
         fw_path.read_bytes(),
         mimetype="application/octet-stream",
-        headers={"Content-Length": str(fw_path.stat().st_size)}
+        headers={"Content-Length": str(size)}
     )
 
 

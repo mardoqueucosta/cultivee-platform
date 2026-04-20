@@ -11,7 +11,7 @@ const DEFAULT_NAME = C.defaultName || 'Dispositivo';
 
 // Migracao de token: prefix antigo → novo (1x)
 if (!localStorage.getItem(`${STORAGE_PREFIX}_token`)) {
-    for (const old of ['cultivee_ctrl', 'cultivee_hidro_cam', 'cultivee_cam']) {
+    for (const old of ['cultivee_ctrl', 'cultivee_cam']) {
         const t = localStorage.getItem(`${old}_token`);
         if (t) {
             localStorage.setItem(`${STORAGE_PREFIX}_token`, t);
@@ -276,6 +276,39 @@ function formatUptime(seconds) {
     if (h > 0) return `${h}h ${m}min`;
     if (m > 0) return `${m}min`;
     return `${seconds}s`;
+}
+
+// v4.1.8: pequena linha de telemetria WiFi exibida no fim de cada card de modulo
+// Mostra estado ("OK" verde / erro vermelho), RSSI, quedas e tempo online
+function renderWifiTelemetry(data) {
+    if (!data) return '';
+    const err = data.wifi_last_error;
+    const rssi = data.rssi;
+    const discCount = data.wifi_disconnect_count;
+    const uptime = data.uptime || 0;
+    const connectedMs = data.wifi_last_connected_ms;
+
+    // Se nenhum campo novo existir (firmware < v4.1.8), nao renderiza nada
+    if (err === undefined && connectedMs === undefined && discCount === undefined) return '';
+
+    // Tempo online: uptime - wifi_last_connected_ms/1000
+    let onlineText = '';
+    if (typeof connectedMs === 'number' && typeof uptime === 'number' && connectedMs > 0) {
+        const onlineSec = Math.max(0, uptime - Math.floor(connectedMs / 1000));
+        onlineText = `ha ${formatUptime(onlineSec)}`;
+    }
+
+    const errLabel = (err === 'OK' || !err) ? 'OK' : err;
+    const errColor = (err === 'OK' || !err) ? 'var(--primary)' : '#e74c3c';
+    const dropColor = (discCount && discCount > 0) ? '#e74c3c' : 'var(--text-dim)';
+    const rssiText = (typeof rssi === 'number' && rssi !== 0) ? `${rssi} dBm` : '--';
+
+    return `<div style="text-align:center;font-size:0.7rem;color:var(--text-dim);margin:0.6rem 0 0;padding-top:0.5rem;border-top:1px dashed rgba(255,255,255,0.06);letter-spacing:0.2px">
+        &#128246; <span style="color:${errColor};font-weight:600">${errLabel}</span>
+        &middot; ${rssiText}
+        &middot; <span style="color:${dropColor}">${discCount ?? 0} quedas</span>
+        ${onlineText ? `&middot; online ${onlineText}` : ''}
+    </div>`;
 }
 
 function hasCap(mod, cap) {
@@ -841,7 +874,8 @@ function renderDashboard(container, chipId, moduleType, data) {
         </div>` : ''}
         ${ambientHtml}
         ${reservoirHtml}
-        ${extrasHtml}`;
+        ${extrasHtml}
+        ${renderWifiTelemetry(data)}`;
 }
 
 async function toggleRelay(chipId, moduleType, device) {
@@ -1159,7 +1193,8 @@ function renderModule_cam(container, mod) {
                     </div>
                 </div>
             </div>
-        </div>`;
+        </div>
+        ${renderWifiTelemetry({ ...(mod.ctrl_data || {}), rssi: mod.rssi, uptime: mod.uptime })}`;
 
     if (cam_captureOpen && !cam_imageUrl && camReady) cam_loadLast(chipId, moduleType);
     if (cam_recordOpen) {

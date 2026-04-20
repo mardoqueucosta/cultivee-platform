@@ -6,6 +6,63 @@
 #ifndef CORE_WIFI_H
 #define CORE_WIFI_H
 
+// ===================== TELEMETRIA WIFI (v4.1.8) =====================
+// Expostas via register.ctrl_data para dashboard/debug/suporte
+String wifiLastError      = "";  // "OK","NO_SSID","WRONG_PASS","BEACON_LOST","AUTH_EXPIRE","DISCONNECTED","TIMEOUT","IDLE","UNKNOWN"
+unsigned long wifiLastConnectedMs = 0;  // millis() da ultima vez que STA ficou up (GOT_IP)
+int wifiDisconnectCount   = 0;   // quantas quedas desde o boot
+bool wifiAutoReconnectSet = false;  // guard pra so chamar setAutoReconnect 1x
+
+// Traduz status do driver em rotulo de erro legivel
+String wifiStatusToError(wl_status_t s) {
+  switch (s) {
+    case WL_CONNECTED:       return "OK";
+    case WL_NO_SSID_AVAIL:   return "NO_SSID";
+    case WL_CONNECT_FAILED:  return "WRONG_PASS";
+    case WL_CONNECTION_LOST: return "LOST";
+    case WL_DISCONNECTED:    return "DISCONNECTED";
+    case WL_IDLE_STATUS:     return "IDLE";
+    case WL_NO_SHIELD:       return "NO_SHIELD";
+    case WL_SCAN_COMPLETED:  return "SCAN";
+    default:                 return "UNKNOWN";
+  }
+}
+
+// Callback de eventos WiFi — detecta queda/reconexao em ~1s (vs 60s do poll antigo)
+// Roda num task FreeRTOS dedicado; so atualiza flags (leve) — transicoes de MODE
+// continuam sendo feitas em tryReconnectWiFi/checkWiFiConnection no main loop.
+void onWiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
+  switch (event) {
+    case ARDUINO_EVENT_WIFI_STA_GOT_IP:
+      Serial.printf("[WiFi evt] GOT_IP %s | RSSI %d dBm\n",
+        WiFi.localIP().toString().c_str(), WiFi.RSSI());
+      wifiLastError = "OK";
+      wifiLastConnectedMs = millis();
+      break;
+    case ARDUINO_EVENT_WIFI_STA_DISCONNECTED: {
+      uint8_t reason = info.wifi_sta_disconnected.reason;
+      // Mapeamento dos codigos mais comuns (esp_wifi_types.h)
+      if (reason == 201)      wifiLastError = "NO_SSID";        // NO_AP_FOUND
+      else if (reason == 202 || reason == 15) wifiLastError = "WRONG_PASS"; // AUTH_FAIL / 4WAY_TIMEOUT
+      else if (reason == 200) wifiLastError = "BEACON_LOST";    // BEACON_TIMEOUT
+      else if (reason == 2)   wifiLastError = "AUTH_EXPIRE";
+      else if (reason == 8)   wifiLastError = "ASSOC_LEAVE";
+      else                    wifiLastError = "DISCONNECTED";
+      Serial.printf("[WiFi evt] DISCONNECTED reason=%u err=%s\n", reason, wifiLastError.c_str());
+      if (currentMode == MODE_CONNECTED) {
+        wifiDisconnectCount++;
+        // A transicao MODE_CONNECTED -> MODE_OFFLINE eh feita em checkWiFiConnection
+      }
+      break;
+    }
+    case ARDUINO_EVENT_WIFI_STA_CONNECTED:
+      Serial.println("[WiFi evt] STA_CONNECTED (aguardando IP)");
+      break;
+    default:
+      break;
+  }
+}
+
 // ===================== WIFI MANAGER =====================
 
 void loadWiFiCredentials() {
@@ -46,6 +103,11 @@ bool connectWiFi() {
   if (savedSSID.length() == 0) return false;
   Serial.printf("Conectando em '%s'...\n", savedSSID.c_str());
   WiFi.mode(WIFI_AP_STA);
+  // setAutoReconnect: stack ESP32 reconecta sozinho em C — complementa tryReconnectWiFi
+  if (!wifiAutoReconnectSet) {
+    WiFi.setAutoReconnect(true);
+    wifiAutoReconnectSet = true;
+  }
   startAP();
   WiFi.begin(savedSSID.c_str(), savedPass.c_str());
   unsigned long start = millis();
@@ -54,12 +116,22 @@ bool connectWiFi() {
     Serial.print(".");
   }
   Serial.println();
-  if (WiFi.status() == WL_CONNECTED) {
+  wl_status_t finalStatus = WiFi.status();
+  if (finalStatus == WL_CONNECTED) {
     Serial.printf("Conectado! IP STA: %s | IP AP: %s\n",
       WiFi.localIP().toString().c_str(), WiFi.softAPIP().toString().c_str());
+    wifiLastError = "OK";
+    wifiLastConnectedMs = millis();
     return true;
   }
-  Serial.println("Falha ao conectar WiFi (AP continua ativo)");
+  // Timeout bloqueante de 15s terminou sem conectar — classifica erro
+  // (onWiFiEvent normalmente ja populou wifiLastError; so sobrescreve se ficou vazio)
+  if (finalStatus == WL_IDLE_STATUS || finalStatus == WL_DISCONNECTED) {
+    if (wifiLastError.length() == 0 || wifiLastError == "OK") wifiLastError = "TIMEOUT";
+  } else {
+    wifiLastError = wifiStatusToError(finalStatus);
+  }
+  Serial.printf("Falha ao conectar WiFi (%s) — AP continua ativo\n", wifiLastError.c_str());
   return false;
 }
 
@@ -182,9 +254,11 @@ void tryReconnectWiFi() {
   if (localStreamActive) return;
   #endif
 
-  // Verifica se ja reconectou (WiFi.begin disparado em ciclo anterior)
+  // Verifica se ja reconectou (setAutoReconnect + WiFi.begin de ciclo anterior)
   if (WiFi.status() == WL_CONNECTED) {
     currentMode = MODE_CONNECTED;
+    wifiLastError = "OK";
+    wifiLastConnectedMs = millis();
     Serial.printf("Reconectado! IP: %s\n", WiFi.localIP().toString().c_str());
     if (!ntpSynced) setupNTP();
     if (MDNS.begin(MDNS_NAME)) {
@@ -196,14 +270,18 @@ void tryReconnectWiFi() {
   // Dispara tentativa a cada 60s (nao-bloqueante)
   if (millis() - lastWiFiRetry < 60000) return;
   lastWiFiRetry = millis();
-  Serial.println("Reconexao WiFi (background)...");
+  Serial.printf("Reconexao WiFi (background, last_err=%s)...\n", wifiLastError.c_str());
   WiFi.begin(savedSSID.c_str(), savedPass.c_str());
 }
 
 void checkWiFiConnection() {
   if (currentMode == MODE_CONNECTED && WiFi.status() != WL_CONNECTED) {
     currentMode = MODE_OFFLINE;
-    Serial.println("WiFi desconectado! Modo OFFLINE — automacao continua");
+    if (wifiLastError == "OK" || wifiLastError.length() == 0) {
+      wifiLastError = wifiStatusToError(WiFi.status());
+    }
+    Serial.printf("WiFi desconectado (%s)! Modo OFFLINE — automacao continua\n",
+      wifiLastError.c_str());
   }
 }
 
