@@ -20,6 +20,7 @@ except ImportError:
 import urllib.request
 import urllib.error
 from flask import Flask, request, jsonify, send_from_directory, render_template, Response, after_this_request
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 from config import PORT, PRODUCT_NAME, APP_VERSION
 import models
@@ -31,6 +32,13 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 app = Flask(__name__, static_folder="static", static_url_path="/static")
+
+# v4.1.23: ProxyFix — honra X-Forwarded-* do Traefik (scheme, host, IP real)
+# Sem isso, request.scheme sempre volta "http" (mesmo atras de HTTPS),
+# request.remote_addr volta o IP do proxy e nao do cliente, e request.host
+# pode volta o interno. Necessario antes de security headers (HSTS precisa
+# saber se request e HTTPS) e logs estruturados com IP real do usuario.
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1, x_prefix=1)
 
 models.init_db()
 log.info(f"Banco de dados inicializado ({PRODUCT_NAME})")
@@ -669,6 +677,86 @@ self.addEventListener('notificationclick', (event) => {{
                         "Service-Worker-Allowed": "/",
                         "Cache-Control": "no-cache, no-store, must-revalidate"
                     })
+
+
+# =====================================================================
+# Security Headers (v4.1.23) — Rodada 1 infra quick wins
+# =====================================================================
+# Headers aplicados em todas as respostas exceto endpoints do ESP32
+# (onde sao texto morto e so aumentam banda). HSTS so em request HTTPS.
+#
+# CSP atual usa 'unsafe-inline' + 'unsafe-eval' por causa de:
+#   - scripts inline no index.html (PWA gera handlers inline)
+#   - Turnstile (Cloudflare CAPTCHA)
+# Evolucao ideal: migrar pra nonces por request (mais restritivo).
+#
+# Hosts externos liberados:
+#   - fonts.googleapis.com / fonts.gstatic.com → Google Fonts (Inter)
+#   - challenges.cloudflare.com → Turnstile (CAPTCHA scaffolding)
+#   - api.qrserver.com → QR code do 2FA TOTP
+
+_CSP = (
+    "default-src 'self'; "
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://challenges.cloudflare.com; "
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+    "font-src 'self' https://fonts.gstatic.com data:; "
+    "img-src 'self' data: blob: https://api.qrserver.com; "
+    "connect-src 'self'; "
+    "frame-src https://challenges.cloudflare.com; "
+    "manifest-src 'self'; "
+    "worker-src 'self'; "
+    "base-uri 'self'; "
+    "form-action 'self'; "
+    "object-src 'none'; "
+    "frame-ancestors 'self'"
+)
+
+# Permissions-Policy — desativa APIs sensiveis que a PWA nao usa
+# (camera/mic do navegador nao sao usadas — fotos vem do ESP32 via HTTP)
+_PERMISSIONS_POLICY = (
+    "camera=(), microphone=(), geolocation=(), payment=(), usb=(), "
+    "accelerometer=(), gyroscope=(), magnetometer=()"
+)
+
+
+def _is_esp32_endpoint():
+    """Retorna True para rotas chamadas pelo ESP32 (nao pelo navegador).
+    Essas rotas nao precisam de security headers — ESP32 ignora e so gasta banda."""
+    p = request.path
+    if p in ("/api/modules/register", "/api/modules/poll"):
+        return True
+    # GET /api/modules/<chip_id>/firmware — ESP32 baixa .bin
+    if p.endswith("/firmware") and request.method == "GET" and "/modules/" in p:
+        return True
+    # POST /api/cam/<chip_id>/upload-capture — ESP32 envia foto
+    if p.endswith("/upload-capture") and request.method == "POST":
+        return True
+    # POST /api/cam/<chip_id>/live-frame — ESP32 faz push de frame
+    if p.endswith("/live-frame") and request.method == "POST":
+        return True
+    return False
+
+
+@app.after_request
+def _add_security_headers(response):
+    if _is_esp32_endpoint():
+        return response
+    # HSTS so em HTTPS (navegador ignora via HTTP) — ProxyFix garante
+    # que request.scheme reflete o X-Forwarded-Proto do Traefik
+    if request.scheme == "https":
+        response.headers.setdefault(
+            "Strict-Transport-Security",
+            "max-age=31536000; includeSubDomains"
+        )
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault("Permissions-Policy", _PERMISSIONS_POLICY)
+    # CSP — so em respostas HTML (nao em JSON/imagens pra economizar banda)
+    ctype = response.headers.get("Content-Type", "")
+    if ctype.startswith("text/html") or "html" in ctype:
+        response.headers.setdefault("Content-Security-Policy", _CSP)
+    return response
 
 
 @app.after_request
