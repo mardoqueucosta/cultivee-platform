@@ -388,11 +388,36 @@
                     <div id="admin-modules"><div class="empty-state"><p>Carregando...</p></div></div>
                 </div>
 
-                <!-- v4.1.15: Audit Log -->
+                <!-- v4.1.15 + v4.1.21: Audit Log com filtros -->
                 <div class="card" style="margin:10px">
                     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
                         <h3 style="margin:0;font-size:0.95rem">Audit Log (acoes administrativas)</h3>
-                        <button onclick="loadAdminAudit()" style="background:transparent;border:1px solid var(--border);color:var(--text-muted);padding:4px 10px;border-radius:6px;cursor:pointer;font-size:0.75rem">↻ Atualizar</button>
+                        <button onclick="loadAdminAudit()" style="background:transparent;border:1px solid var(--border);color:var(--text-muted);padding:4px 10px;border-radius:6px;cursor:pointer;font-size:0.75rem">↻ Aplicar filtros</button>
+                    </div>
+                    <!-- Barra de filtros -->
+                    <div style="display:grid;grid-template-columns:1.5fr 1fr 1fr 1fr;gap:8px;margin-bottom:10px">
+                        <div>
+                            <label style="font-size:0.65rem;color:var(--text-dim)">Acao</label>
+                            <select id="audit-filter-action" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg-card);color:var(--text);font-size:0.75rem">
+                                <option value="">Todas</option>
+                                <option value="impersonate">Impersonate</option>
+                                <option value="user.role_change">Mudanca de role</option>
+                                <option value="user.force_password_reset">Reset de senha forcado</option>
+                                <option value="module.transfer">Transferencia de modulo</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label style="font-size:0.65rem;color:var(--text-dim)">Admin ID</label>
+                            <input type="number" id="audit-filter-admin" placeholder="#" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg-card);color:var(--text);font-size:0.75rem">
+                        </div>
+                        <div>
+                            <label style="font-size:0.65rem;color:var(--text-dim)">De</label>
+                            <input type="date" id="audit-filter-from" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg-card);color:var(--text);font-size:0.75rem">
+                        </div>
+                        <div>
+                            <label style="font-size:0.65rem;color:var(--text-dim)">Ate</label>
+                            <input type="date" id="audit-filter-to" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg-card);color:var(--text);font-size:0.75rem">
+                        </div>
                     </div>
                     <div id="admin-audit"><div class="empty-state"><p>Carregando...</p></div></div>
                 </div>

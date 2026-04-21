@@ -221,7 +221,17 @@ Cultivee Admin Monitor
 @admin_bp.route("/audit")
 @require_admin
 def audit_log():
-    """Lista as ultimas acoes administrativas (paginado)."""
+    """
+    Lista acoes administrativas com filtros opcionais (v4.1.21).
+
+    Query params (todos opcionais):
+      limit      — default 100, max 500
+      offset     — default 0
+      action     — filtra por tipo de acao (ex: 'impersonate')
+      admin_id   — filtra por quem executou
+      from       — ISO date/datetime (inclusive)
+      to         — ISO date/datetime (inclusive)
+    """
     try:
         limit = int(request.args.get("limit", 100))
     except (TypeError, ValueError):
@@ -232,5 +242,237 @@ def audit_log():
         offset = 0
     limit = max(1, min(500, limit))
     offset = max(0, offset)
-    entries = models.get_audit_log(limit=limit, offset=offset)
-    return jsonify({"entries": entries, "count": len(entries), "limit": limit, "offset": offset})
+
+    action = request.args.get("action", "").strip() or None
+    try:
+        admin_id = int(request.args.get("admin_id")) if request.args.get("admin_id") else None
+    except (TypeError, ValueError):
+        admin_id = None
+    date_from = request.args.get("from", "").strip() or None
+    date_to = request.args.get("to", "").strip() or None
+
+    entries = models.get_audit_log_filtered(
+        limit=limit, offset=offset,
+        action=action, admin_id=admin_id,
+        date_from=date_from, date_to=date_to,
+    )
+    return jsonify({
+        "entries": entries,
+        "count": len(entries),
+        "limit": limit,
+        "offset": offset,
+        "filters": {
+            "action": action, "admin_id": admin_id,
+            "from": date_from, "to": date_to,
+        },
+    })
+
+
+# =====================================================================
+# R2.1: Promover/rebaixar role (v4.1.21)
+# =====================================================================
+
+@admin_bp.route("/users/<int:user_id>/role", methods=["POST"])
+@require_admin
+def set_role(user_id):
+    """
+    Altera role do usuario. Protege contra remover o ultimo admin.
+    Body: {role: 'user'/'support'/'admin'}
+    """
+    admin = request.user
+    data = request.get_json(silent=True, force=True) or {}
+    new_role = (data.get("role") or "").strip().lower()
+
+    if new_role not in ("user", "support", "admin"):
+        return jsonify({"error": "Role invalida. Use 'user', 'support' ou 'admin'"}), 400
+
+    target = models.get_user_by_id(user_id)
+    if not target:
+        return jsonify({"error": "Usuario nao encontrado"}), 404
+
+    current_role = None
+    try: current_role = target["role"] or "user"
+    except (KeyError, IndexError, TypeError): pass
+
+    # Sem mudanca? Retorna ok sem log
+    if current_role == new_role:
+        return jsonify({"status": "ok", "message": "Role nao alterada (ja era {})".format(new_role)})
+
+    # Protecao: nao pode rebaixar o ULTIMO admin
+    if current_role == "admin" and new_role != "admin" and models.count_admins() <= 1:
+        return jsonify({
+            "error": "Nao e possivel rebaixar o ultimo admin do sistema. Promova outro usuario primeiro."
+        }), 400
+
+    if not models.set_user_role(user_id, new_role):
+        return jsonify({"error": "Falha ao alterar role"}), 500
+
+    ip = request.headers.get("X-Forwarded-For", request.remote_addr or "unknown").split(",")[0].strip()
+    models.log_admin_action(
+        admin, "user.role_change",
+        target_type="user", target_id=user_id, target_label=target["email"],
+        details={"from": current_role, "to": new_role},
+        ip=ip, user_agent=request.headers.get("User-Agent"),
+    )
+    log.warning(f"[admin] role change: {target['email']} {current_role} -> {new_role} by {admin['email']}")
+
+    return jsonify({
+        "status": "ok",
+        "message": f"Role alterada de '{current_role}' para '{new_role}'",
+        "user": {"id": user_id, "email": target["email"], "role": new_role},
+    })
+
+
+# =====================================================================
+# R2.2: Forcar reset de senha (v4.1.21)
+# =====================================================================
+
+@admin_bp.route("/users/<int:user_id>/force-password-reset", methods=["POST"])
+@require_admin
+def force_password_reset(user_id):
+    """
+    Admin forca reset de senha do usuario:
+      - Gera token de reset (1h) como se o user tivesse clicado em "esqueci"
+      - Envia email com link pro user
+      - Invalida TODOS os tokens ativos do user (deslog forcado)
+    """
+    admin = request.user
+    target = models.get_user_by_id(user_id)
+    if not target:
+        return jsonify({"error": "Usuario nao encontrado"}), 404
+
+    # Gera token + envia email
+    token = models.create_password_reset_token(user_id, expires_minutes=60)
+    try:
+        _send_admin_forced_reset_email(target, admin, token)
+    except Exception as e:
+        log.error(f"Falha ao enviar email de reset forcado: {e}")
+        # Mesmo sem email, invalida tokens e prossegue — admin pode avisar por outro meio
+
+    # Invalida TODOS os tokens do user (forca re-login em todos os devices)
+    conn = models.get_db()
+    conn.execute("DELETE FROM tokens WHERE user_id = ?", (user_id,))
+    conn.commit()
+    conn.close()
+
+    ip = request.headers.get("X-Forwarded-For", request.remote_addr or "unknown").split(",")[0].strip()
+    models.log_admin_action(
+        admin, "user.force_password_reset",
+        target_type="user", target_id=user_id, target_label=target["email"],
+        details={"email_sent": True},
+        ip=ip, user_agent=request.headers.get("User-Agent"),
+    )
+    log.warning(f"[admin] force reset: {target['email']} by {admin['email']}")
+
+    return jsonify({
+        "status": "ok",
+        "message": f"Reset forcado. Email enviado para {target['email']}. Sessoes ativas revogadas.",
+    })
+
+
+def _send_admin_forced_reset_email(target, admin, token):
+    """Email pro user avisando que um admin forcou reset."""
+    from notifications import send_email
+    destination = None
+    try: destination = target["notification_email"]
+    except (KeyError, IndexError, TypeError): pass
+    if not destination:
+        destination = target["email"]
+
+    reset_url = f"https://app.cultivee.com.br/?reset={token}"
+    name = target["name"] if target["name"] else "Usuario"
+
+    body = f"""Ola, {name}!
+
+Um administrador do Cultivee iniciou um reset de senha da sua conta
+(provavelmente como parte de suporte — ex: voce entrou em contato pedindo
+ajuda pra recuperar acesso).
+
+Clique no link abaixo pra definir uma nova senha (valido por 1 hora):
+
+    {reset_url}
+
+Todas as suas sessoes ativas foram encerradas por seguranca.
+Se nao foi voce que solicitou, entre em contato imediatamente.
+
+--
+Equipe Cultivee
+contato@cultivee.com.br
+"""
+    send_email(destination, "Cultivee - Reset de senha solicitado por administrador", body)
+
+
+# =====================================================================
+# R2.3: Transferir modulo entre users (v4.1.21)
+# =====================================================================
+
+@admin_bp.route("/modules/<chip_id>/transfer", methods=["POST"])
+@require_admin
+def transfer_module(chip_id):
+    """
+    Move um modulo pra outro usuario. Usado quando cliente trocou de conta
+    ou modulo foi repassado pra outro user.
+
+    Body: {new_user_id: N, new_name?: "..."}
+    Valida que ambos existem (modulo + user target).
+    """
+    admin = request.user
+    data = request.get_json(silent=True, force=True) or {}
+    try:
+        new_user_id = int(data.get("new_user_id"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "new_user_id invalido"}), 400
+    new_name = (data.get("new_name") or "").strip()
+
+    module = models.get_module_by_chip_id(chip_id)
+    if not module:
+        return jsonify({"error": "Modulo nao encontrado"}), 404
+
+    target_user = models.get_user_by_id(new_user_id)
+    if not target_user:
+        return jsonify({"error": "Usuario alvo nao encontrado"}), 404
+
+    # Se ja eh do target, no-op
+    if module.get("user_id") == new_user_id:
+        return jsonify({"status": "ok", "message": "Modulo ja pertence a este usuario"})
+
+    old_user_id = module.get("user_id")
+    old_user_email = None
+    if old_user_id:
+        old_user = models.get_user_by_id(old_user_id)
+        if old_user:
+            old_user_email = old_user["email"]
+
+    # Transfere (UPDATE direto, ignora validacao de propriedade que pair_module faz)
+    conn = models.get_db()
+    conn.execute(
+        "UPDATE modules SET user_id = ?, name = ? WHERE chip_id = ?",
+        (new_user_id, new_name or module.get("name", ""), chip_id)
+    )
+    conn.commit()
+    conn.close()
+
+    ip = request.headers.get("X-Forwarded-For", request.remote_addr or "unknown").split(",")[0].strip()
+    models.log_admin_action(
+        admin, "module.transfer",
+        target_type="module", target_id=chip_id, target_label=module.get("name") or chip_id,
+        details={
+            "from_user_id": old_user_id,
+            "from_user_email": old_user_email,
+            "to_user_id": new_user_id,
+            "to_user_email": target_user["email"],
+            "module_type": module.get("type"),
+        },
+        ip=ip, user_agent=request.headers.get("User-Agent"),
+    )
+    log.warning(f"[admin] transfer {chip_id}: {old_user_email} -> {target_user['email']} by {admin['email']}")
+
+    return jsonify({
+        "status": "ok",
+        "message": f"Modulo transferido para {target_user['email']}",
+        "module": {
+            "chip_id": chip_id,
+            "new_user_id": new_user_id,
+            "new_user_email": target_user["email"],
+        },
+    })

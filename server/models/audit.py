@@ -48,15 +48,50 @@ def log_admin_action(admin, action, target_type=None, target_id=None,
 
 
 def get_audit_log(limit=100, offset=0):
-    """Retorna entradas de audit log, mais recentes primeiro."""
-    conn = get_db()
-    rows = conn.execute("""
+    """Retorna entradas de audit log, mais recentes primeiro (sem filtros)."""
+    return get_audit_log_filtered(limit=limit, offset=offset)
+
+
+def get_audit_log_filtered(limit=100, offset=0, action=None, admin_id=None,
+                           date_from=None, date_to=None):
+    """
+    Retorna entradas de audit log com filtros opcionais (v4.1.21).
+
+    action: filtra por tipo de acao (ex: 'impersonate', 'user.role_change')
+    admin_id: filtra por id do admin que executou
+    date_from / date_to: strings ISO — SQLite compara lexicograficamente
+                        (ex: '2026-04-21' inclui tudo desse dia em diante)
+    """
+    where_clauses = []
+    params = []
+    if action:
+        where_clauses.append("action = ?")
+        params.append(action)
+    if admin_id is not None:
+        where_clauses.append("admin_id = ?")
+        params.append(admin_id)
+    if date_from:
+        where_clauses.append("created_at >= ?")
+        params.append(date_from)
+    if date_to:
+        # Inclusivo — se vier so data (2026-04-21), usa o final do dia
+        if len(date_to) == 10:  # YYYY-MM-DD
+            date_to = date_to + " 23:59:59"
+        where_clauses.append("created_at <= ?")
+        params.append(date_to)
+
+    sql = """
         SELECT id, admin_id, admin_email, action, target_type, target_id, target_label,
                details, ip, user_agent, created_at
         FROM audit_log
-        ORDER BY id DESC
-        LIMIT ? OFFSET ?
-    """, (limit, offset)).fetchall()
+    """
+    if where_clauses:
+        sql += " WHERE " + " AND ".join(where_clauses)
+    sql += " ORDER BY id DESC LIMIT ? OFFSET ?"
+    params.extend([limit, offset])
+
+    conn = get_db()
+    rows = conn.execute(sql, tuple(params)).fetchall()
     conn.close()
     out = []
     for r in rows:

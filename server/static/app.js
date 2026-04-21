@@ -2309,6 +2309,7 @@ async function loadAdminUsers() {
     const el = document.getElementById("admin-users");
     try {
         const data = await api("/api/admin/users");
+        _adminUsersCache = data.users || [];  // cache pra usar no modal de transfer
         if (!data.users || !data.users.length) {
             el.innerHTML = '<p class="empty-state">Nenhum usuario.</p>';
             return;
@@ -2317,18 +2318,25 @@ async function loadAdminUsers() {
         const rows = data.users.map(u => {
             const roleColor = u.role === 'admin' ? '#e67e22' : (u.role === 'support' ? '#3498db' : '#888');
             const roleBadge = `<span style="background:${roleColor}22;color:${roleColor};padding:2px 6px;border-radius:4px;font-size:0.65rem;font-weight:600;text-transform:uppercase">${u.role||'user'}</span>`;
-            // v4.1.14: botao "Acessar como" — so pra non-admin e non-self
+            const safeLabel = (u.name || u.email).replace(/'/g, "&#39;");
+            // v4.1.14 + v4.1.21: menu de acoes
             const canImpersonate = u.role !== 'admin' && u.id !== myId;
-            const actionBtn = canImpersonate
-                ? `<button onclick="impersonateUser(${u.id}, '${(u.name||u.email).replace(/'/g,"&#39;")}')" style="background:transparent;border:1px solid var(--border);color:var(--primary);padding:3px 8px;border-radius:6px;cursor:pointer;font-size:0.7rem;font-weight:600">Acessar como</button>`
-                : '<span style="color:var(--text-dim);font-size:0.7rem">—</span>';
+            const actions = [];
+            if (canImpersonate) {
+                actions.push(`<button onclick="impersonateUser(${u.id}, '${safeLabel}')" style="background:transparent;border:1px solid var(--border);color:var(--primary);padding:3px 8px;border-radius:6px;cursor:pointer;font-size:0.7rem;font-weight:600">Acessar</button>`);
+            }
+            if (u.id !== myId) {
+                actions.push(`<button onclick="showRoleModal(${u.id}, '${safeLabel}', '${u.role||'user'}')" style="background:transparent;border:1px solid var(--border);color:#e67e22;padding:3px 8px;border-radius:6px;cursor:pointer;font-size:0.7rem;font-weight:600">Role</button>`);
+            }
+            actions.push(`<button onclick="forceResetPwd(${u.id}, '${safeLabel}')" style="background:transparent;border:1px solid var(--border);color:#3498db;padding:3px 8px;border-radius:6px;cursor:pointer;font-size:0.7rem;font-weight:600">Reset pwd</button>`);
+            const actionBtn = actions.length ? actions.join(" ") : '<span style="color:var(--text-dim);font-size:0.7rem">—</span>';
             return `<tr>
                 <td style="padding:6px 4px;font-family:monospace;font-size:0.75rem">#${u.id}</td>
                 <td style="padding:6px 4px">${u.name||'—'}</td>
                 <td style="padding:6px 4px;font-size:0.75rem;color:var(--text-dim)">${u.email}</td>
                 <td style="padding:6px 4px;text-align:center">${roleBadge}</td>
                 <td style="padding:6px 4px;text-align:center;font-size:0.75rem">${u.module_count}</td>
-                <td style="padding:6px 4px;text-align:center">${actionBtn}</td>
+                <td style="padding:6px 4px;text-align:center;white-space:nowrap">${actionBtn}</td>
             </tr>`;
         }).join("");
         el.innerHTML = `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:0.8rem">
@@ -2338,12 +2346,93 @@ async function loadAdminUsers() {
                 <th style="padding:6px 4px">Email</th>
                 <th style="padding:6px 4px;text-align:center">Role</th>
                 <th style="padding:6px 4px;text-align:center">Mods</th>
-                <th style="padding:6px 4px;text-align:center">Acao</th>
+                <th style="padding:6px 4px;text-align:center">Acoes</th>
             </tr></thead>
             <tbody>${rows}</tbody>
         </table></div>`;
     } catch (e) {
         el.innerHTML = `<p style="color:#e74c3c;font-size:0.8rem">Erro: ${e.message}</p>`;
+    }
+}
+
+// v4.1.21: cache de users pra uso em outros modais (ex: transfer de modulo)
+let _adminUsersCache = [];
+
+// =====================================================================
+// R2 admin actions (v4.1.21) — alterar role + forcar reset + transferir modulo
+// =====================================================================
+
+function showRoleModal(userId, userLabel, currentRole) {
+    const newRole = prompt(
+        `Alterar role de "${userLabel}"\n\nRole atual: ${currentRole}\nDigite: user, support ou admin`,
+        currentRole
+    );
+    if (!newRole) return;
+    const clean = newRole.trim().toLowerCase();
+    if (!["user", "support", "admin"].includes(clean)) {
+        alert("Role invalida. Use: user, support ou admin");
+        return;
+    }
+    if (clean === currentRole) return;
+    _setUserRole(userId, clean);
+}
+
+async function _setUserRole(userId, role) {
+    try {
+        const r = await api(`/api/admin/users/${userId}/role`, {
+            method: "POST", body: { role }
+        });
+        alert(r.message || "Role alterada");
+        loadAdminUsers();
+        loadAdminAudit();
+    } catch (e) {
+        alert("Erro: " + e.message);
+    }
+}
+
+async function forceResetPwd(userId, userLabel) {
+    if (!confirm(`Forçar reset de senha de "${userLabel}"?\n\n- Email sera enviado ao usuario com link de reset (valido 1h)\n- TODAS as sessoes ativas desse user serao revogadas\n- Acao registrada no audit log\n\nContinuar?`)) return;
+    try {
+        const r = await api(`/api/admin/users/${userId}/force-password-reset`, { method: "POST" });
+        alert(r.message);
+        loadAdminAudit();
+    } catch (e) {
+        alert("Erro: " + e.message);
+    }
+}
+
+function transferModule(chipId, currentOwnerEmail) {
+    // Monta lista de candidatos (users != atual dono)
+    const candidates = _adminUsersCache.filter(u => u.email !== currentOwnerEmail);
+    if (!candidates.length) {
+        alert("Nenhum outro usuario disponivel");
+        return;
+    }
+    const options = candidates.map(u => `${u.id}: ${u.email} (${u.role})`).join("\n");
+    const input = prompt(
+        `Transferir modulo ${chipId}\n\nDono atual: ${currentOwnerEmail || '(sem dono)'}\n\nDigite o ID do novo dono:\n\n${options}`
+    );
+    if (!input) return;
+    const newUserId = parseInt(input.trim(), 10);
+    if (!newUserId || !candidates.find(u => u.id === newUserId)) {
+        alert("ID invalido");
+        return;
+    }
+    if (!confirm(`Confirma transferir ${chipId} pro user #${newUserId}?`)) return;
+    _transferModule(chipId, newUserId);
+}
+
+async function _transferModule(chipId, newUserId) {
+    try {
+        const r = await api(`/api/admin/modules/${encodeURIComponent(chipId)}/transfer`, {
+            method: "POST", body: { new_user_id: newUserId }
+        });
+        alert(r.message);
+        loadAdminUsers();
+        loadAdminModules();
+        loadAdminAudit();
+    } catch (e) {
+        alert("Erro: " + e.message);
     }
 }
 
@@ -2432,12 +2521,23 @@ function stopImpersonating() {
     location.reload();
 }
 
-// v4.1.15: Audit Log panel
+// v4.1.15 + v4.1.21: Audit Log panel com filtros
 async function loadAdminAudit() {
     const el = document.getElementById("admin-audit");
     if (!el) return;
     try {
-        const data = await api("/api/admin/audit?limit=50");
+        // Le filtros da UI (se existirem)
+        const fAction = document.getElementById("audit-filter-action")?.value.trim() || "";
+        const fAdmin = document.getElementById("audit-filter-admin")?.value.trim() || "";
+        const fFrom = document.getElementById("audit-filter-from")?.value || "";
+        const fTo = document.getElementById("audit-filter-to")?.value || "";
+        const qs = new URLSearchParams();
+        qs.set("limit", "100");
+        if (fAction) qs.set("action", fAction);
+        if (fAdmin) qs.set("admin_id", fAdmin);
+        if (fFrom) qs.set("from", fFrom);
+        if (fTo) qs.set("to", fTo);
+        const data = await api("/api/admin/audit?" + qs.toString());
         if (!data.entries || !data.entries.length) {
             el.innerHTML = '<p class="empty-state">Nenhuma acao administrativa registrada.</p>';
             return;
@@ -2486,6 +2586,9 @@ async function loadAdminModules() {
                 ? '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#27ae60"></span>'
                 : '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#555"></span>';
             const owner = m.user_email ? `${m.user_name||'—'} <span style="color:var(--text-dim);font-size:0.7rem">${m.user_email}</span>` : '<span style="color:var(--text-dim)">nao pareado</span>';
+            const safeEmail = (m.user_email || '').replace(/'/g, "&#39;");
+            // v4.1.21: botao Transferir
+            const transferBtn = `<button onclick="transferModule('${m.chip_id}', '${safeEmail}')" style="background:transparent;border:1px solid var(--border);color:var(--primary);padding:3px 8px;border-radius:6px;cursor:pointer;font-size:0.7rem;font-weight:600">Transferir</button>`;
             return `<tr>
                 <td style="padding:6px 4px;text-align:center">${onlineDot}</td>
                 <td style="padding:6px 4px;font-family:monospace;font-size:0.7rem">${m.chip_id}</td>
@@ -2493,6 +2596,7 @@ async function loadAdminModules() {
                 <td style="padding:6px 4px">${m.name||'—'}</td>
                 <td style="padding:6px 4px">${owner}</td>
                 <td style="padding:6px 4px;font-size:0.7rem;color:var(--text-dim)">${m.ip||'—'}</td>
+                <td style="padding:6px 4px;text-align:center">${transferBtn}</td>
             </tr>`;
         }).join("");
         el.innerHTML = `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:0.8rem">
@@ -2503,6 +2607,7 @@ async function loadAdminModules() {
                 <th style="padding:6px 4px">Nome</th>
                 <th style="padding:6px 4px">Dono</th>
                 <th style="padding:6px 4px">IP</th>
+                <th style="padding:6px 4px;text-align:center">Acao</th>
             </tr></thead>
             <tbody>${rows}</tbody>
         </table></div>`;
