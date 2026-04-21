@@ -445,7 +445,11 @@ function getModuleLabel(mod) {
 // Load Modules
 // =====================================================================
 
-let _lastModulesKey = "";
+// v4.1.18: null (nao "") como sentinela inicial. Bug: modules=[] produzia
+// chave "" que COINCIDIA com valor inicial "" -> loadModules retornava antes
+// de renderizar, e a UI ficava presa em "Carregando..." pra usuarios com 0
+// modulos (ex: admin recem-criado).
+let _lastModulesKey = null;
 
 function modulesVisualKey() {
     return modules.map(m => {
@@ -455,7 +459,7 @@ function modulesVisualKey() {
 }
 
 function forceFullRefresh() {
-    _lastModulesKey = "";
+    _lastModulesKey = null;  // forca re-render na proxima chamada
     _lastCtrlKey = "";
     const mc = document.getElementById("module-content");
     if (mc) mc.dataset.structKey = "";  // Forca recriacao dos containers
@@ -467,7 +471,8 @@ async function loadModules() {
         const data = await api("/api/modules");
         modules = data.modules;
         const key = modulesVisualKey();
-        if (key === _lastModulesKey) return;
+        // v4.1.18: null e sentinela de "nunca renderizou" — sempre renderiza na primeira chamada
+        if (_lastModulesKey !== null && key === _lastModulesKey) return;
         _lastModulesKey = key;
 
         // Sincroniza prefs com modulos existentes
