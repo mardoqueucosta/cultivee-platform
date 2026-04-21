@@ -58,6 +58,9 @@
                     <span class="pass-toggle" onclick="togglePass('login-pass', this)">mostrar</span>
                 </div>
                 <button onclick="doLogin()">Entrar</button>
+                <p class="auth-switch" style="margin-top:0.75rem">
+                    <a href="#" onclick="showForgot()" style="color:var(--text-dim);font-size:0.85rem">Esqueci minha senha</a>
+                </p>
                 <p class="auth-switch">Nao tem conta? <a href="#" onclick="showRegister()">Criar conta</a></p>
             </div>
             <div id="auth-register" class="hidden">
@@ -70,7 +73,27 @@
                 <button onclick="doRegister()">Criar conta</button>
                 <p class="auth-switch">Ja tem conta? <a href="#" onclick="showLogin()">Entrar</a></p>
             </div>
+            <div id="auth-forgot" class="hidden">
+                <p style="font-size:0.85rem;color:var(--text-dim);margin-bottom:0.75rem">
+                    Digite seu email e enviaremos um link para redefinir sua senha.
+                </p>
+                <input type="email" id="forgot-email" placeholder="Email">
+                <button onclick="doForgot()">Enviar link de recuperacao</button>
+                <p class="auth-switch">Lembrou a senha? <a href="#" onclick="showLogin()">Entrar</a></p>
+            </div>
+            <div id="auth-reset" class="hidden">
+                <p style="font-size:0.85rem;color:var(--text-dim);margin-bottom:0.75rem">
+                    Defina uma nova senha para sua conta.
+                </p>
+                <div class="pass-group">
+                    <input type="password" id="reset-pass" placeholder="Nova senha (min 6 caracteres)">
+                    <span class="pass-toggle" onclick="togglePass('reset-pass', this)">mostrar</span>
+                </div>
+                <button onclick="doReset()">Salvar nova senha</button>
+                <p class="auth-switch"><a href="#" onclick="showLogin()">Voltar ao login</a></p>
+            </div>
             <p id="auth-error" class="auth-error hidden"></p>
+            <p id="auth-success" class="auth-error hidden" style="color:var(--primary);background:rgba(39,174,96,0.1);border-color:var(--primary)"></p>
             <div style="margin-top:1.5rem;padding-top:1rem;border-top:1px solid var(--border);text-align:center">
                 <a href="http://192.168.4.1" style="color:var(--text-dim);font-size:0.75rem;text-decoration:none">
                     Sem internet? <span style="color:var(--primary)">Modo Local</span>

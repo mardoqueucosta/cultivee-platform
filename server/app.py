@@ -67,65 +67,10 @@ def require_auth(f):
 
 
 # =====================================================================
-# Auth endpoints
+# Auth endpoints — movidos para bp_auth.py (v4.1.12)
+# register, login, me, logout, forgot-password, reset-password
+# Registrado abaixo no bloco de blueprints.
 # =====================================================================
-
-@app.route("/api/auth/register", methods=["POST"])
-def register():
-    data = request.get_json()
-    if not data:
-        return jsonify({"error": "JSON invalido"}), 400
-
-    email = data.get("email", "").strip()
-    password = data.get("password", "")
-    name = data.get("name", "").strip()
-
-    if not email or not password or not name:
-        return jsonify({"error": "email, password e name obrigatorios"}), 400
-    if len(password) < 6:
-        return jsonify({"error": "Senha deve ter pelo menos 6 caracteres"}), 400
-
-    user_id = models.create_user(email, password, name)
-    if not user_id:
-        return jsonify({"error": "Email ja cadastrado"}), 409
-
-    token = models.create_token(user_id)
-    return jsonify({"token": token, "user": {"id": user_id, "email": email, "name": name}})
-
-
-@app.route("/api/auth/login", methods=["POST"])
-def login():
-    data = request.get_json()
-    if not data:
-        return jsonify({"error": "JSON invalido"}), 400
-
-    email = data.get("email", "")
-    password = data.get("password", "")
-
-    user = models.get_user_by_email(email)
-    if not user or not models.check_password(password, user["password_hash"]):
-        return jsonify({"error": "Email ou senha invalidos"}), 401
-
-    token = models.create_token(user["id"])
-    return jsonify({
-        "token": token,
-        "user": {"id": user["id"], "email": user["email"], "name": user["name"]}
-    })
-
-
-@app.route("/api/auth/me")
-@require_auth
-def me():
-    user = request.user
-    return jsonify({"id": user["id"], "email": user["email"], "name": user["name"]})
-
-
-@app.route("/api/auth/logout", methods=["POST"])
-def logout():
-    auth = request.headers.get("Authorization", "")
-    if auth.startswith("Bearer "):
-        models.delete_token(auth[7:])
-    return jsonify({"status": "ok"})
 
 
 # =====================================================================
@@ -446,10 +391,14 @@ def list_modules():
 # Registro de blueprints — todos os prefixos (servidor unico)
 # =====================================================================
 
+from bp_auth import auth_bp
 from bp_hidro import hidro_bp
 from bp_hidrofarm import hidrofarm_bp
 from bp_cam import cam_bp
 from bp_gallery import gallery_bp
+
+# Auth (registro, login, logout, recuperacao de senha) — separado pra MVP comercial
+app.register_blueprint(auth_bp, url_prefix="/api/auth", name="auth")
 
 # Cada tipo de firmware encontra suas rotas pelo prefixo
 app.register_blueprint(hidro_bp, url_prefix="/api/ctrl", name="hidro_ctrl")
@@ -457,6 +406,7 @@ app.register_blueprint(hidrofarm_bp, url_prefix="/api/hidro-farm", name="hidrofa
 app.register_blueprint(cam_bp, url_prefix="/api/cam", name="cam_standalone")
 app.register_blueprint(gallery_bp, url_prefix="/api/gallery", name="gallery")
 
+log.info("  [+] auth_bp registrado em /api/auth")
 log.info("  [+] hidro_bp registrado em /api/ctrl")
 log.info("  [+] hidrofarm_bp registrado em /api/hidro-farm")
 log.info("  [+] cam_bp registrado em /api/cam")

@@ -222,17 +222,22 @@ async function api(path, options = {}) {
 // Auth
 // =====================================================================
 
-function showLogin() {
-    document.getElementById("auth-login").classList.remove("hidden");
-    document.getElementById("auth-register").classList.add("hidden");
-    document.getElementById("auth-error").classList.add("hidden");
+// v4.1.12: usa classe interna pra esconder/mostrar painel de auth ativo
+function _switchAuthPanel(activeId) {
+    ['auth-login', 'auth-register', 'auth-forgot', 'auth-reset'].forEach(id => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.classList.toggle('hidden', id !== activeId);
+    });
+    document.getElementById('auth-error').classList.add('hidden');
+    const ok = document.getElementById('auth-success');
+    if (ok) ok.classList.add('hidden');
 }
 
-function showRegister() {
-    document.getElementById("auth-login").classList.add("hidden");
-    document.getElementById("auth-register").classList.remove("hidden");
-    document.getElementById("auth-error").classList.add("hidden");
-}
+function showLogin()    { _switchAuthPanel('auth-login'); }
+function showRegister() { _switchAuthPanel('auth-register'); }
+function showForgot()   { _switchAuthPanel('auth-forgot'); }
+function showReset()    { _switchAuthPanel('auth-reset'); }
 
 function togglePass(inputId, el) {
     const input = document.getElementById(inputId);
@@ -242,8 +247,17 @@ function togglePass(inputId, el) {
 
 function showAuthError(msg) {
     const el = document.getElementById("auth-error");
+    const ok = document.getElementById("auth-success");
+    if (ok) ok.classList.add("hidden");
     el.textContent = msg;
     el.classList.remove("hidden");
+}
+
+function showAuthSuccess(msg) {
+    const err = document.getElementById("auth-error");
+    const ok = document.getElementById("auth-success");
+    err.classList.add("hidden");
+    if (ok) { ok.textContent = msg; ok.classList.remove("hidden"); }
 }
 
 async function doLogin() {
@@ -270,6 +284,53 @@ async function doRegister() {
         localStorage.setItem(`${STORAGE_PREFIX}_user`, JSON.stringify(user));
         enterApp();
     } catch (e) { showAuthError(e.message); }
+}
+
+// v4.1.12: recuperacao de senha
+async function doForgot() {
+    const email = document.getElementById("forgot-email").value.trim();
+    if (!email) { showAuthError("Digite seu email"); return; }
+    try {
+        const resp = await api("/api/auth/forgot-password", {
+            method: "POST",
+            body: { email }
+        });
+        // Servidor sempre retorna sucesso (anti-enumeration) — mensagem e generica
+        showAuthSuccess(resp.message || "Se o email estiver cadastrado, voce recebera instrucoes em instantes.");
+        document.getElementById("forgot-email").value = "";
+    } catch (e) { showAuthError(e.message); }
+}
+
+let _resetToken = null;
+async function doReset() {
+    const pass = document.getElementById("reset-pass").value;
+    if (!pass || pass.length < 6) { showAuthError("Senha deve ter pelo menos 6 caracteres"); return; }
+    if (!_resetToken) { showAuthError("Token invalido — solicite um novo link"); return; }
+    try {
+        await api("/api/auth/reset-password", {
+            method: "POST",
+            body: { token: _resetToken, password: pass }
+        });
+        // Limpa URL (remove o ?reset=TOKEN) e volta pro login
+        try { history.replaceState(null, "", window.location.pathname); } catch (e) {}
+        _resetToken = null;
+        showLogin();
+        showAuthSuccess("Senha alterada com sucesso. Entre com sua nova senha.");
+    } catch (e) { showAuthError(e.message); }
+}
+
+// Detecta ?reset=TOKEN na URL e mostra tela de reset automaticamente
+function _checkResetLink() {
+    try {
+        const params = new URLSearchParams(window.location.search);
+        const t = params.get("reset");
+        if (t && t.length > 10) {
+            _resetToken = t;
+            showReset();
+            return true;
+        }
+    } catch (e) {}
+    return false;
 }
 
 function doLogout() {
@@ -1801,6 +1862,20 @@ async function initApp() {
     const params = new URLSearchParams(window.location.search);
     const code = params.get("code");
     if (code) localStorage.setItem(`${STORAGE_PREFIX}_pending_code`, code);
+
+    // v4.1.12: se URL tem ?reset=TOKEN, vai direto pra tela de reset
+    // (mesmo se o usuario estiver logado — ele clicou no link intencionalmente)
+    const hasResetLink = _checkResetLink();
+    if (hasResetLink) {
+        // Desloga caso esteja logado (seguranca: so quem tem o token do email acessa)
+        if (token) {
+            token = null; user = null;
+            localStorage.removeItem(`${STORAGE_PREFIX}_token`);
+            localStorage.removeItem(`${STORAGE_PREFIX}_user`);
+        }
+        document.getElementById("auth-screen").classList.remove("hidden");
+        return;
+    }
 
     const serverOnline = await checkServerConnection();
     if (token && user && serverOnline) { enterApp(); }

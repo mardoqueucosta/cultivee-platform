@@ -188,48 +188,60 @@ def _send_web_push(subscription, payload):
         log.error(f"WebPush error: {e}")
 
 
-def _send_email_alert(to_email, payload):
-    """Envia email de alerta via SMTP."""
+def send_email(to_email, subject, body):
+    """
+    Envia email generico via SMTP (reutilizado por alertas, auth, onboarding, etc.)
+
+    Retorna True se enviou, False se SMTP nao esta configurado.
+    Lanca excecao em caso de erro SMTP — chamador decide se ignora ou re-lanca.
+    """
     smtp_host = os.environ.get("SMTP_HOST", "")
     if not smtp_host:
-        return  # Email nao configurado — skip silenciosamente
+        log.warning("SMTP nao configurado — email ignorado")
+        return False
 
-    title = payload.get("title", "Alerta")
-    body = payload.get("body", "")
-
-    msg = MIMEText(f"""Cultivee Alerta
-
-{title}
-{body}
-
-Acesse: https://app.cultivee.com.br
----
-Para desativar alertas, acesse o app e desabilite notificacoes.
-""", "plain", "utf-8")
-
-    msg["Subject"] = f"Cultivee Alerta - {title}"
-    msg["From"] = os.environ.get("SMTP_FROM", "alertas@cultivee.com.br")
+    msg = MIMEText(body, "plain", "utf-8")
+    msg["Subject"] = subject
+    msg["From"] = os.environ.get("SMTP_FROM", "contato@cultivee.com.br")
     msg["To"] = to_email
     msg["Message-ID"] = make_msgid(domain="cultivee.com.br")
     msg["Date"] = formatdate(localtime=True)
 
+    port = int(os.environ.get("SMTP_PORT", "587"))
+    user = os.environ.get("SMTP_USER", "")
+    passwd = os.environ.get("SMTP_PASS", "")
+
+    if port == 465:
+        # SSL direto (HostGator, Gmail com SSL)
+        with smtplib.SMTP_SSL(smtp_host, port) as s:
+            s.login(user, passwd)
+            s.send_message(msg)
+    else:
+        # STARTTLS (porta 587)
+        with smtplib.SMTP(smtp_host, port) as s:
+            s.starttls()
+            s.login(user, passwd)
+            s.send_message(msg)
+    return True
+
+
+def _send_email_alert(to_email, payload):
+    """Envia email de alerta (wrapper sobre send_email com template de alerta)."""
+    title = payload.get("title", "Alerta")
+    body_text = payload.get("body", "")
+    full_body = f"""Cultivee Alerta
+
+{title}
+{body_text}
+
+Acesse: https://app.cultivee.com.br
+---
+Para desativar alertas, acesse o app e desabilite notificacoes.
+"""
     try:
-        port = int(os.environ.get("SMTP_PORT", "587"))
-        user = os.environ.get("SMTP_USER", "")
-        passwd = os.environ.get("SMTP_PASS", "")
-        if port == 465:
-            # SSL direto (HostGator, Gmail com SSL)
-            with smtplib.SMTP_SSL(smtp_host, port) as s:
-                s.login(user, passwd)
-                s.send_message(msg)
-        else:
-            # STARTTLS (porta 587)
-            with smtplib.SMTP(smtp_host, port) as s:
-                s.starttls()
-                s.login(user, passwd)
-                s.send_message(msg)
+        send_email(to_email, f"Cultivee Alerta - {title}", full_body)
     except Exception as e:
-        log.error(f"SMTP error: {e}")
+        log.error(f"SMTP error (alerta): {e}")
         raise
 
 

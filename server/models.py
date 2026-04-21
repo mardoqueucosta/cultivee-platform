@@ -96,6 +96,16 @@ def init_db():
             alert_type TEXT NOT NULL,
             sent_at TEXT DEFAULT (datetime('now'))
         );
+
+        CREATE TABLE IF NOT EXISTS password_reset_tokens (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            token TEXT UNIQUE NOT NULL,
+            expires_at TEXT NOT NULL,
+            used INTEGER DEFAULT 0,
+            created_at TEXT DEFAULT (datetime('now')),
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        );
     """)
 
     # Migracao: adiciona group_id na tabela modules (se nao existir)
@@ -183,6 +193,66 @@ def get_user_by_id(user_id):
     user = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
     conn.close()
     return user
+
+
+def update_user_password(user_id, new_password):
+    """Atualiza hash de senha do usuario."""
+    conn = get_db()
+    conn.execute(
+        "UPDATE users SET password_hash = ? WHERE id = ?",
+        (hash_password(new_password), user_id)
+    )
+    conn.commit()
+    conn.close()
+
+
+# --- Password Reset (v4.1.12) ---
+
+def create_password_reset_token(user_id, expires_minutes=60):
+    """Cria token de reset, invalida tokens anteriores do mesmo usuario. Retorna o token."""
+    token = secrets.token_urlsafe(32)
+    expires = (datetime.now() + timedelta(minutes=expires_minutes)).isoformat()
+    conn = get_db()
+    # Invalida tokens anteriores nao usados (evita acumulo + protege contra reuso)
+    conn.execute(
+        "UPDATE password_reset_tokens SET used = 1 WHERE user_id = ? AND used = 0",
+        (user_id,)
+    )
+    conn.execute(
+        "INSERT INTO password_reset_tokens (user_id, token, expires_at) VALUES (?, ?, ?)",
+        (user_id, token, expires)
+    )
+    conn.commit()
+    conn.close()
+    return token
+
+
+def validate_password_reset_token(token):
+    """Retorna user_id se token valido (nao expirado, nao usado), senao None."""
+    conn = get_db()
+    row = conn.execute(
+        "SELECT user_id, expires_at, used FROM password_reset_tokens WHERE token = ?",
+        (token,)
+    ).fetchone()
+    conn.close()
+    if not row:
+        return None
+    if row["used"]:
+        return None
+    try:
+        if datetime.fromisoformat(row["expires_at"]) < datetime.now():
+            return None
+    except (ValueError, TypeError):
+        return None
+    return row["user_id"]
+
+
+def consume_password_reset_token(token):
+    """Marca token como usado (chamado depois do reset bem-sucedido)."""
+    conn = get_db()
+    conn.execute("UPDATE password_reset_tokens SET used = 1 WHERE token = ?", (token,))
+    conn.commit()
+    conn.close()
 
 
 # --- User Module Prefs (v4.1.10) ---
