@@ -357,6 +357,14 @@ async function enterApp() {
     // flash visual de "ordem errada" -> "ordem certa"
     await fetchModulePrefs();
     loadModules();
+
+    // v4.1.19: admin entra direto no painel de admin (padrao SaaS — GitLab,
+    // WordPress, Linear, etc.). Client "user comum" continua caindo em modulos.
+    // Se admin estiver impersonando outro user, ignora (ve como o user veria).
+    if (user && user.role === "admin" && !isImpersonating()) {
+        showAdminPanel();
+    }
+
     setTimeout(checkPendingCode, 500);
     // Push notifications — pede permissao apos login (nao-bloqueante)
     setTimeout(setupPushNotifications, 2000);
