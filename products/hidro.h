@@ -14,9 +14,12 @@
 #define MOD_HIDRO
 
 // ===== IDENTIDADE =====
-#define MODULE_TYPE        "ctrl"
+// v4.1.28: MODULE_TYPE="hidro" (antes "ctrl" legado). Servidor normaliza qualquer
+// ESP32 com firmware antigo, entao deployar esse novo firmware e seguro em qualquer
+// ordem. MDNS "cultivee-hidro.local" substitui "cultivee-ctrl.local".
+#define MODULE_TYPE        "hidro"
 #define PRODUCT_NAME       "Cultivee Hidro"
-#define MDNS_NAME          "cultivee-ctrl"
+#define MDNS_NAME          "cultivee-hidro"
 #define AP_SSID            "Cultivee-Hidro"
 
 // ===== SERVIDOR =====
