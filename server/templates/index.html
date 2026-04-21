@@ -545,6 +545,40 @@
             </div>
         </div>
 
+        <!-- v4.1.27: Modal de upload de firmware (admin OTA) -->
+        <div id="firmware-modal" class="modal hidden" onclick="if(event.target===this)closeFirmwareModal()">
+            <div class="modal-content" style="max-width:460px">
+                <button class="modal-close" onclick="closeFirmwareModal()">&times;</button>
+                <h3 style="margin:0 0 10px">Enviar firmware OTA</h3>
+                <p style="color:var(--text-dim);font-size:0.85rem;margin-bottom:14px">
+                    Modulo: <b id="firmware-target-name" style="color:var(--text)"></b>
+                    <br>
+                    <span style="font-family:monospace;font-size:0.75rem">Chip: <span id="firmware-target-chip"></span> · Tipo: <span id="firmware-target-type"></span></span>
+                </p>
+
+                <div id="firmware-step-pick">
+                    <label style="display:block;font-size:0.8rem;color:var(--text-dim);margin-bottom:4px">Arquivo .bin compilado</label>
+                    <input id="firmware-file" type="file" accept=".bin,application/octet-stream" onchange="onFirmwareFileChange(event)" style="width:100%;padding:10px;border-radius:8px;border:1px solid var(--border);background:var(--bg-card);color:var(--text);margin-bottom:10px;font-size:0.85rem">
+                    <div id="firmware-preview" style="display:none;font-size:0.8rem;color:var(--text-dim);background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:14px;font-family:monospace;word-break:break-all">
+                        <div>Tamanho: <b id="firmware-size" style="color:var(--text)"></b></div>
+                        <div style="margin-top:4px">SHA-256: <b id="firmware-sha" style="color:var(--text);font-size:0.7rem"></b></div>
+                    </div>
+                    <div style="background:rgba(52,152,219,0.1);border:1px solid #3498db;border-radius:8px;padding:10px;margin-bottom:14px;font-size:0.75rem;color:var(--text-dim)">
+                        O servidor armazena o .bin + hash. No proximo poll do ESP32 (ate 30s), ele baixa, valida SHA-256 e se atualiza. Se o hash nao bater, o firmware atual e preservado.
+                    </div>
+                    <div style="display:flex;gap:8px">
+                        <button onclick="closeFirmwareModal()" style="flex:1;padding:12px;background:transparent;border:1px solid var(--border);color:var(--text);border-radius:8px;font-weight:600;cursor:pointer;font-size:0.9rem">Cancelar</button>
+                        <button id="firmware-upload-btn" onclick="doUploadFirmware()" disabled style="flex:2;padding:12px;background:var(--primary);color:#fff;border:none;border-radius:8px;font-weight:700;cursor:pointer;font-size:0.95rem;opacity:0.5">Enviar OTA</button>
+                    </div>
+                </div>
+
+                <div id="firmware-step-result" style="display:none">
+                    <div id="firmware-result-box" style="padding:14px;border-radius:8px;margin-bottom:14px;font-size:0.85rem"></div>
+                    <button onclick="closeFirmwareModal()" style="width:100%;padding:12px;background:var(--primary);color:#fff;border:none;border-radius:8px;font-weight:700;cursor:pointer;font-size:0.95rem">Fechar</button>
+                </div>
+            </div>
+        </div>
+
         <footer class="footer">
             <p id="app-footer">{{ config.title }} v{{ config.version }}</p>
         </footer>

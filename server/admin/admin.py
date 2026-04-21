@@ -15,7 +15,10 @@ Fase 1 e READ-ONLY: sem endpoints de mutacao (promote, delete, transfer, etc.)
 Fase 2 adicionara: set_role, reset-password forcado, transfer, deactivate.
 """
 
+import os
 import json
+import hashlib
+import pathlib
 import logging
 from flask import Blueprint, request, jsonify
 
@@ -476,3 +479,134 @@ def transfer_module(chip_id):
             "new_user_email": target_user["email"],
         },
     })
+
+
+# =====================================================================
+# R3: OTA Remoto via Admin (v4.1.27)
+# =====================================================================
+# Admin pode enviar firmware .bin para qualquer modulo sem precisar do token
+# do dono. Mesmo fluxo do endpoint legacy (POST /api/modules/<chip>/firmware)
+# mas com gate por role=admin + audit log.
+#
+# Rotas:
+#   POST   /api/admin/modules/<chip>/firmware  upload .bin + hash
+#   GET    /api/admin/modules/<chip>/firmware  status (pendente? sha? tamanho?)
+#   DELETE /api/admin/modules/<chip>/firmware  cancela
+# =====================================================================
+
+# Limite defensivo — .bin tipico e 1.25MB; 3MB cobre crescimento futuro
+_ADMIN_OTA_MAX_BYTES = 3 * 1024 * 1024
+
+
+def _admin_ota_paths(chip_id):
+    base = pathlib.Path(os.environ.get("DATA_DIR", "data")) / "firmware"
+    return base, base / f"{chip_id}.bin", base / f"{chip_id}.sha256"
+
+
+@admin_bp.route("/modules/<chip_id>/firmware", methods=["POST"])
+@require_admin
+def admin_firmware_upload(chip_id):
+    """Upload OTA com autenticacao admin (sem precisar do token do dono).
+    Calcula SHA-256, grava .bin + sidecar .sha256, registra no audit_log."""
+    admin = request.user
+    module = models.get_module_by_chip_id(chip_id)
+    if not module:
+        return jsonify({"error": "Modulo nao encontrado"}), 404
+
+    file = request.files.get("firmware")
+    if not file or not file.filename:
+        return jsonify({"error": "Campo 'firmware' obrigatorio (multipart form)"}), 400
+
+    # Le ate o limite; se exceder, rejeita sem gravar
+    blob = file.read(_ADMIN_OTA_MAX_BYTES + 1)
+    if len(blob) > _ADMIN_OTA_MAX_BYTES:
+        return jsonify({
+            "error": f"Firmware maior que {_ADMIN_OTA_MAX_BYTES // (1024*1024)}MB"
+        }), 413
+
+    fw_dir, fw_path, sha_path = _admin_ota_paths(chip_id)
+    fw_dir.mkdir(parents=True, exist_ok=True)
+    fw_path.write_bytes(blob)
+    digest = hashlib.sha256(blob).hexdigest()
+    sha_path.write_text(digest, encoding="utf-8")
+
+    size = len(blob)
+    ip = request.headers.get("X-Forwarded-For", request.remote_addr or "unknown").split(",")[0].strip()
+    models.log_admin_action(
+        admin, "module.firmware_upload",
+        target_type="module", target_id=chip_id,
+        target_label=module.get("name") or chip_id,
+        details={
+            "size_bytes": size,
+            "sha256": digest,
+            "filename": (file.filename or "")[:80],
+            "module_type": module.get("type"),
+            "owner_email": (
+                models.get_user_by_id(module["user_id"])["email"]
+                if module.get("user_id") else None
+            ),
+        },
+        ip=ip, user_agent=request.headers.get("User-Agent"),
+    )
+    log.warning(
+        f"[admin] firmware upload: {chip_id} ({size} bytes, sha={digest[:12]}...) by {admin['email']}"
+    )
+    return jsonify({
+        "status": "ok",
+        "size": size,
+        "sha256": digest,
+        "message": "Firmware pendente. ESP32 vai baixar no proximo register (~10s).",
+    })
+
+
+@admin_bp.route("/modules/<chip_id>/firmware", methods=["GET"])
+@require_admin
+def admin_firmware_status(chip_id):
+    """Retorna se ha firmware pendente para o modulo + metadata."""
+    if not models.get_module_by_chip_id(chip_id):
+        return jsonify({"error": "Modulo nao encontrado"}), 404
+    _, fw_path, sha_path = _admin_ota_paths(chip_id)
+    if not fw_path.exists():
+        return jsonify({"pending": False})
+    sha = None
+    if sha_path.exists():
+        try:
+            sha = sha_path.read_text(encoding="utf-8").strip() or None
+        except OSError:
+            sha = None
+    stat = fw_path.stat()
+    return jsonify({
+        "pending": True,
+        "size": stat.st_size,
+        "sha256": sha,
+        "uploaded_at": stat.st_mtime,
+    })
+
+
+@admin_bp.route("/modules/<chip_id>/firmware", methods=["DELETE"])
+@require_admin
+def admin_firmware_cancel(chip_id):
+    """Cancela OTA pendente (remove .bin + .sha256) e registra no audit."""
+    admin = request.user
+    module = models.get_module_by_chip_id(chip_id)
+    if not module:
+        return jsonify({"error": "Modulo nao encontrado"}), 404
+    _, fw_path, sha_path = _admin_ota_paths(chip_id)
+    had_bin = fw_path.exists()
+    if had_bin:
+        fw_path.unlink()
+    if sha_path.exists():
+        sha_path.unlink()
+    if not had_bin:
+        return jsonify({"status": "ok", "message": "Nenhum firmware pendente"})
+
+    ip = request.headers.get("X-Forwarded-For", request.remote_addr or "unknown").split(",")[0].strip()
+    models.log_admin_action(
+        admin, "module.firmware_cancel",
+        target_type="module", target_id=chip_id,
+        target_label=module.get("name") or chip_id,
+        details={"module_type": module.get("type")},
+        ip=ip, user_agent=request.headers.get("User-Agent"),
+    )
+    log.warning(f"[admin] firmware cancel: {chip_id} by {admin['email']}")
+    return jsonify({"status": "ok", "message": "Firmware pendente cancelado"})

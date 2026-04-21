@@ -2702,6 +2702,145 @@ async function _transferModule(chipId, newUserId) {
     }
 }
 
+
+// =====================================================================
+// Firmware upload modal (v4.1.27) — admin envia .bin OTA sem precisar
+// do token do dono. Calcula SHA-256 client-side pra conferir antes de subir.
+// =====================================================================
+
+let _firmwareTargetChip = null;
+let _firmwareSelectedFile = null;
+let _firmwareClientSha = null;
+
+function showFirmwareModal(chipId, moduleName, moduleType) {
+    _firmwareTargetChip = chipId;
+    _firmwareSelectedFile = null;
+    _firmwareClientSha = null;
+    document.getElementById("firmware-target-chip").textContent = chipId;
+    document.getElementById("firmware-target-name").textContent = moduleName || chipId;
+    document.getElementById("firmware-target-type").textContent = moduleType || '—';
+    // Reset do formulario
+    const fileInput = document.getElementById("firmware-file");
+    if (fileInput) fileInput.value = "";
+    document.getElementById("firmware-preview").style.display = "none";
+    document.getElementById("firmware-step-pick").style.display = "block";
+    document.getElementById("firmware-step-result").style.display = "none";
+    const btn = document.getElementById("firmware-upload-btn");
+    btn.disabled = true;
+    btn.style.opacity = "0.5";
+    btn.textContent = "Enviar OTA";
+    document.getElementById("firmware-modal").classList.remove("hidden");
+}
+
+function closeFirmwareModal() {
+    document.getElementById("firmware-modal").classList.add("hidden");
+    _firmwareTargetChip = null;
+    _firmwareSelectedFile = null;
+    _firmwareClientSha = null;
+}
+
+function _fmtBytes(n) {
+    if (n < 1024) return `${n} B`;
+    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+    return `${(n / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+async function _sha256Hex(arrayBuffer) {
+    const digest = await crypto.subtle.digest("SHA-256", arrayBuffer);
+    return Array.from(new Uint8Array(digest))
+        .map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
+async function onFirmwareFileChange(event) {
+    const file = event.target.files && event.target.files[0];
+    const preview = document.getElementById("firmware-preview");
+    const btn = document.getElementById("firmware-upload-btn");
+    if (!file) {
+        _firmwareSelectedFile = null;
+        _firmwareClientSha = null;
+        preview.style.display = "none";
+        btn.disabled = true;
+        btn.style.opacity = "0.5";
+        return;
+    }
+    const MAX = 3 * 1024 * 1024;
+    if (file.size > MAX) {
+        alert(`Arquivo grande demais (${_fmtBytes(file.size)}). Limite 3MB.`);
+        event.target.value = "";
+        return;
+    }
+    _firmwareSelectedFile = file;
+    document.getElementById("firmware-size").textContent = _fmtBytes(file.size);
+    document.getElementById("firmware-sha").textContent = "calculando...";
+    preview.style.display = "block";
+    btn.disabled = true;
+    btn.style.opacity = "0.5";
+    try {
+        const buf = await file.arrayBuffer();
+        _firmwareClientSha = await _sha256Hex(buf);
+        document.getElementById("firmware-sha").textContent = _firmwareClientSha;
+        btn.disabled = false;
+        btn.style.opacity = "1";
+    } catch (e) {
+        document.getElementById("firmware-sha").textContent = "erro ao calcular hash";
+        _firmwareClientSha = null;
+    }
+}
+
+async function doUploadFirmware() {
+    if (!_firmwareTargetChip || !_firmwareSelectedFile) return;
+    const btn = document.getElementById("firmware-upload-btn");
+    btn.disabled = true;
+    btn.style.opacity = "0.5";
+    btn.textContent = "Enviando...";
+
+    const fd = new FormData();
+    fd.append("firmware", _firmwareSelectedFile);
+    try {
+        const resp = await fetch(`/api/admin/modules/${encodeURIComponent(_firmwareTargetChip)}/firmware`, {
+            method: "POST",
+            headers: { "Authorization": "Bearer " + token },
+            body: fd,
+        });
+        const data = await resp.json();
+        const box = document.getElementById("firmware-result-box");
+        if (resp.ok) {
+            const shaMatch = data.sha256 && _firmwareClientSha && (data.sha256.toLowerCase() === _firmwareClientSha.toLowerCase());
+            const shaLine = shaMatch
+                ? `<div style="color:#27ae60;margin-top:6px">SHA-256 do servidor bate com o local: OK</div>`
+                : `<div style="color:#e67e22;margin-top:6px">Aviso: SHA-256 divergente. Verifique o arquivo.</div>`;
+            box.style.background = "rgba(39,174,96,0.1)";
+            box.style.border = "1px solid #27ae60";
+            box.innerHTML = `
+                <div style="font-weight:700;color:#27ae60;margin-bottom:6px">Firmware pendente no servidor</div>
+                <div style="font-family:monospace;font-size:0.7rem;color:var(--text-dim);word-break:break-all">
+                    Tamanho: ${_fmtBytes(data.size)}<br>
+                    SHA-256: ${escapeHtml(data.sha256 || '—')}
+                </div>
+                ${shaLine}
+                <div style="color:var(--text-dim);font-size:0.78rem;margin-top:10px">
+                    ${escapeHtml(data.message || 'ESP32 vai baixar no proximo poll.')}
+                </div>`;
+        } else {
+            box.style.background = "rgba(231,76,60,0.1)";
+            box.style.border = "1px solid #e74c3c";
+            box.innerHTML = `<div style="color:#e74c3c;font-weight:700">Erro HTTP ${resp.status}</div>
+                <div style="margin-top:6px">${escapeHtml(data.error || JSON.stringify(data))}</div>`;
+        }
+        document.getElementById("firmware-step-pick").style.display = "none";
+        document.getElementById("firmware-step-result").style.display = "block";
+        if (resp.ok) {
+            loadAdminAudit();
+            loadAdminModules();
+        }
+    } catch (e) {
+        alert("Erro no upload: " + e.message);
+        btn.disabled = false;
+        btn.style.opacity = "1";
+        btn.textContent = "Enviar OTA";
+    }
+}
+
 // =====================================================================
 // Impersonation (v4.1.14) — admin entra como outro user
 // Guarda token+user do admin em localStorage separado, troca pelo do target.
@@ -2814,6 +2953,8 @@ async function loadAdminAudit() {
             'user.role_change': 'Mudanca de nivel',
             'user.force_password_reset': 'Reset de senha',
             'module.transfer': 'Transferencia de modulo',
+            'module.firmware_upload': 'Upload de firmware',
+            'module.firmware_cancel': 'Cancelamento de firmware',
         };
         const rows = data.entries.map(e => {
             const ts = e.created_at || '—';
@@ -2863,8 +3004,12 @@ async function loadAdminModules() {
                 ? `${escapeHtml(m.user_name||'—')} <span style="color:var(--text-dim);font-size:0.7rem">${escapeHtml(m.user_email)}</span>`
                 : '<span style="color:var(--text-dim)">nao pareado</span>';
             const safeEmail = escapeAttr(m.user_email || '');
-            // v4.1.21: botao Transferir
-            const transferBtn = `<button onclick="transferModule('${escapeAttr(m.chip_id)}', '${safeEmail}')" style="background:transparent;border:1px solid var(--border);color:var(--primary);padding:3px 8px;border-radius:6px;cursor:pointer;font-size:0.7rem;font-weight:600">Transferir</button>`;
+            const safeChip = escapeAttr(m.chip_id);
+            const safeName = escapeAttr(m.name || m.chip_id);
+            // v4.1.21: botao Transferir + v4.1.27: botao Firmware
+            const transferBtn = `<button onclick="transferModule('${safeChip}', '${safeEmail}')" style="background:transparent;border:1px solid var(--border);color:var(--primary);padding:3px 8px;border-radius:6px;cursor:pointer;font-size:0.7rem;font-weight:600">Transferir</button>`;
+            const firmwareBtn = `<button onclick="showFirmwareModal('${safeChip}', '${safeName}', '${escapeAttr(m.type||'')}')" style="background:transparent;border:1px solid var(--border);color:#3498db;padding:3px 8px;border-radius:6px;cursor:pointer;font-size:0.7rem;font-weight:600">Firmware</button>`;
+            const actionBtns = `${firmwareBtn} ${transferBtn}`;
             return `<tr>
                 <td style="padding:6px 4px;text-align:center">${onlineDot}</td>
                 <td style="padding:6px 4px;font-family:monospace;font-size:0.7rem">${escapeHtml(m.chip_id)}</td>
@@ -2872,7 +3017,7 @@ async function loadAdminModules() {
                 <td style="padding:6px 4px">${escapeHtml(m.name||'—')}</td>
                 <td style="padding:6px 4px">${owner}</td>
                 <td style="padding:6px 4px;font-size:0.7rem;color:var(--text-dim)">${escapeHtml(m.ip||'—')}</td>
-                <td style="padding:6px 4px;text-align:center">${transferBtn}</td>
+                <td style="padding:6px 4px;text-align:center;white-space:nowrap">${actionBtns}</td>
             </tr>`;
         }).join("");
         el.innerHTML = `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:0.8rem">
