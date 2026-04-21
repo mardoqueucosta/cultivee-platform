@@ -2012,7 +2012,7 @@ function _renderUserMenu() {
     const roleEl = document.getElementById("user-menu-role");
     if (roleEl) {
         const roleColor = user.role === "admin" ? "#e67e22" : (user.role === "support" ? "#3498db" : "#888");
-        const roleLabel = user.role === "admin" ? "Admin" : (user.role === "support" ? "Support" : "Usuario");
+        const roleLabel = user.role === "admin" ? "Admin" : (user.role === "support" ? "Suporte" : "Usuario");
         roleEl.innerHTML = `<span style="background:${roleColor}22;color:${roleColor};padding:2px 8px;border-radius:10px;font-size:0.65rem;font-weight:700;text-transform:uppercase;letter-spacing:0.5px">${roleLabel}</span>`;
     }
     // Mostra item "Admin" no dropdown so se role === 'admin'
@@ -2071,7 +2071,7 @@ async function loadProfile() {
         const p = await api("/api/profile/");
         // Header info (read-only)
         document.getElementById("profile-email").textContent = p.email || "";
-        const roleBadge = p.role === "admin" ? "Admin" : (p.role === "support" ? "Support" : "Usuario");
+        const roleBadge = p.role === "admin" ? "Admin" : (p.role === "support" ? "Suporte" : "Usuario");
         const roleColor = p.role === "admin" ? "#e67e22" : (p.role === "support" ? "#3498db" : "#888");
         document.getElementById("profile-role").innerHTML =
             `<span style="background:${roleColor}22;color:${roleColor};padding:2px 6px;border-radius:4px;font-size:0.7rem;font-weight:600">${roleBadge}</span>`;
@@ -2533,9 +2533,9 @@ async function loadAdminUsers() {
                 actions.push(`<button onclick="impersonateUser(${u.id}, '${safeLabel}')" style="background:transparent;border:1px solid var(--border);color:var(--primary);padding:3px 8px;border-radius:6px;cursor:pointer;font-size:0.7rem;font-weight:600">Acessar</button>`);
             }
             if (u.id !== myId) {
-                actions.push(`<button onclick="showRoleModal(${u.id}, '${safeLabel}', '${u.role||'user'}')" style="background:transparent;border:1px solid var(--border);color:#e67e22;padding:3px 8px;border-radius:6px;cursor:pointer;font-size:0.7rem;font-weight:600">Role</button>`);
+                actions.push(`<button onclick="showRoleModal(${u.id}, '${safeLabel}', '${u.role||'user'}')" style="background:transparent;border:1px solid var(--border);color:#e67e22;padding:3px 8px;border-radius:6px;cursor:pointer;font-size:0.7rem;font-weight:600">Nivel</button>`);
             }
-            actions.push(`<button onclick="forceResetPwd(${u.id}, '${safeLabel}')" style="background:transparent;border:1px solid var(--border);color:#3498db;padding:3px 8px;border-radius:6px;cursor:pointer;font-size:0.7rem;font-weight:600">Reset pwd</button>`);
+            actions.push(`<button onclick="forceResetPwd(${u.id}, '${safeLabel}')" style="background:transparent;border:1px solid var(--border);color:#3498db;padding:3px 8px;border-radius:6px;cursor:pointer;font-size:0.7rem;font-weight:600">Resetar senha</button>`);
             const actionBtn = actions.length ? actions.join(" ") : '<span style="color:var(--text-dim);font-size:0.7rem">—</span>';
             return `<tr>
                 <td style="padding:6px 4px;font-family:monospace;font-size:0.75rem">#${u.id}</td>
@@ -2551,8 +2551,8 @@ async function loadAdminUsers() {
                 <th style="padding:6px 4px">ID</th>
                 <th style="padding:6px 4px">Nome</th>
                 <th style="padding:6px 4px">Email</th>
-                <th style="padding:6px 4px;text-align:center">Role</th>
-                <th style="padding:6px 4px;text-align:center">Mods</th>
+                <th style="padding:6px 4px;text-align:center">Nivel</th>
+                <th style="padding:6px 4px;text-align:center">Modulos</th>
                 <th style="padding:6px 4px;text-align:center">Acoes</th>
             </tr></thead>
             <tbody>${rows}</tbody>
@@ -2571,13 +2571,13 @@ let _adminUsersCache = [];
 
 function showRoleModal(userId, userLabel, currentRole) {
     const newRole = prompt(
-        `Alterar role de "${userLabel}"\n\nRole atual: ${currentRole}\nDigite: user, support ou admin`,
+        `Alterar nivel de "${userLabel}"\n\nNivel atual: ${currentRole}\nDigite: user, support ou admin`,
         currentRole
     );
     if (!newRole) return;
     const clean = newRole.trim().toLowerCase();
     if (!["user", "support", "admin"].includes(clean)) {
-        alert("Role invalida. Use: user, support ou admin");
+        alert("Nivel invalido. Use: user, support ou admin");
         return;
     }
     if (clean === currentRole) return;
@@ -2589,7 +2589,7 @@ async function _setUserRole(userId, role) {
         const r = await api(`/api/admin/users/${userId}/role`, {
             method: "POST", body: { role }
         });
-        alert(r.message || "Role alterada");
+        alert(r.message || "Nivel alterado");
         loadAdminUsers();
         loadAdminAudit();
     } catch (e) {
@@ -2749,16 +2749,24 @@ async function loadAdminAudit() {
             el.innerHTML = '<p class="empty-state">Nenhuma acao administrativa registrada.</p>';
             return;
         }
+        // Mapper visual das acoes internas -> labels PT
+        const actionLabels = {
+            'impersonate': 'Acesso como',
+            'user.role_change': 'Mudanca de nivel',
+            'user.force_password_reset': 'Reset de senha',
+            'module.transfer': 'Transferencia de modulo',
+        };
         const rows = data.entries.map(e => {
             const ts = e.created_at || '—';
             const admin = e.admin_email || `id=${e.admin_id}`;
             const target = e.target_label ? `${e.target_type||''} ${e.target_label}` : (e.target_id || '—');
             const dtx = e.details && Object.keys(e.details).length ? JSON.stringify(e.details) : '';
             const actColor = e.action === 'impersonate' ? '#e67e22' : 'var(--primary)';
+            const actLabel = actionLabels[e.action] || e.action;
             return `<tr>
                 <td style="padding:6px 4px;font-family:monospace;font-size:0.7rem;color:var(--text-dim);white-space:nowrap">${ts}</td>
                 <td style="padding:6px 4px;font-size:0.75rem">${admin}</td>
-                <td style="padding:6px 4px"><span style="background:${actColor}22;color:${actColor};padding:2px 6px;border-radius:4px;font-size:0.7rem;font-weight:600">${e.action}</span></td>
+                <td style="padding:6px 4px"><span style="background:${actColor}22;color:${actColor};padding:2px 6px;border-radius:4px;font-size:0.7rem;font-weight:600">${actLabel}</span></td>
                 <td style="padding:6px 4px;font-size:0.75rem">${target}</td>
                 <td style="padding:6px 4px;font-size:0.7rem;color:var(--text-dim);font-family:monospace;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${dtx.replace(/"/g,'&quot;')}">${dtx}</td>
                 <td style="padding:6px 4px;font-size:0.7rem;color:var(--text-dim);font-family:monospace">${e.ip||'—'}</td>

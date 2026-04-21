@@ -460,7 +460,7 @@
                 <!-- v4.1.15 + v4.1.21: Audit Log com filtros -->
                 <div class="card" style="margin:10px">
                     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-                        <h3 style="margin:0;font-size:0.95rem">Audit Log (acoes administrativas)</h3>
+                        <h3 style="margin:0;font-size:0.95rem">Registro de Acoes (historico administrativo)</h3>
                         <button onclick="loadAdminAudit()" style="background:transparent;border:1px solid var(--border);color:var(--text-muted);padding:4px 10px;border-radius:6px;cursor:pointer;font-size:0.75rem">↻ Aplicar filtros</button>
                     </div>
                     <!-- Barra de filtros -->
@@ -469,8 +469,8 @@
                             <label style="font-size:0.65rem;color:var(--text-dim)">Acao</label>
                             <select id="audit-filter-action" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg-card);color:var(--text);font-size:0.75rem">
                                 <option value="">Todas</option>
-                                <option value="impersonate">Impersonate</option>
-                                <option value="user.role_change">Mudanca de role</option>
+                                <option value="impersonate">Acesso como</option>
+                                <option value="user.role_change">Mudanca de nivel</option>
                                 <option value="user.force_password_reset">Reset de senha forcado</option>
                                 <option value="module.transfer">Transferencia de modulo</option>
                             </select>
@@ -499,7 +499,7 @@
                 <button class="modal-close" onclick="closeImpersonateModal()">&times;</button>
                 <h3 style="margin:0 0 10px">Acessar como outro usuario</h3>
                 <p style="color:var(--text-dim);font-size:0.85rem;margin-bottom:14px">
-                    Voce entrara como <b id="imp-target-name" style="color:var(--text)"></b>. Toda acao ficara registrada no Audit Log.
+                    Voce entrara como <b id="imp-target-name" style="color:var(--text)"></b>. Toda acao ficara registrada no Registro de Acoes.
                 </p>
                 <label style="display:block;font-size:0.8rem;color:var(--text-dim);margin-bottom:4px">Duracao da sessao</label>
                 <select id="imp-minutes" style="width:100%;padding:10px;border-radius:8px;border:1px solid var(--border);background:var(--bg-card);color:var(--text);margin-bottom:12px;font-size:0.9rem">
