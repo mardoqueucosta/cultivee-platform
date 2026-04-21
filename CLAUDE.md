@@ -31,7 +31,7 @@ Plataforma IoT para cultivo inteligente. Arquitetura modular:
 Hardware especializado: cada ESP32 faz uma coisa so.
 Composicao por software: o app mostra os modulos que o usuario adicionar.
 
-Versao ativa: **v4.1.22** (backend/PWA) — definida como fonte unica em [`server/config.py:24`](./server/config.py) (`APP_VERSION`).
+Versao ativa: **v4.1.25** (backend/PWA) — definida como fonte unica em [`server/config.py:24`](./server/config.py) (`APP_VERSION`).
 
 Firmware: **v4.1.8** (Hidro-Farm, Hidro) e **v4.1.10** (Cam) — replicado manualmente em [`products/hidro.h:11`](./products/hidro.h), [`products/hidro-farm.h:16`](./products/hidro-farm.h) e [`products/cam.h:11`](./products/cam.h) (`FIRMWARE_VERSION`).
 
@@ -876,6 +876,18 @@ O Cultivee atende aos requisitos basicos da LGPD (Lei 13.709/2018):
 
 **Impersonation audit:** toda impersonation gera entrada no `audit_log` + email pra outros admins (transparencia multi-admin).
 
+**Security headers** (v4.1.23) — todas as respostas HTML tem headers defensivos aplicados por `@app.after_request` em `app.py`:
+- `Strict-Transport-Security: max-age=31536000; includeSubDomains` (so em HTTPS — navegador ignora via HTTP)
+- `X-Content-Type-Options: nosniff`
+- `X-Frame-Options: SAMEORIGIN`
+- `Referrer-Policy: strict-origin-when-cross-origin`
+- `Permissions-Policy`: desativa camera/mic/geolocation/payment/usb/accelerometer/gyroscope/magnetometer do browser (nao usamos)
+- `Content-Security-Policy`: `default-src 'self'`; libera `'unsafe-inline'` + `'unsafe-eval'` pra scripts (scripts inline no template + Turnstile), `fonts.googleapis.com`/`fonts.gstatic.com` (Google Fonts), `challenges.cloudflare.com` (CAPTCHA), `api.qrserver.com` (QR do 2FA)
+
+Headers sao pulados em endpoints do ESP32 (register, poll, firmware GET, upload-capture, live-frame POST) pra economizar banda — ESP32 ignora mesmo e cada header custa ~500 bytes/poll. CSP so em respostas `text/html` (nao em JSON/imagens).
+
+**ProxyFix do Werkzeug** (v4.1.23) — aplicado em `app.wsgi_app` pra honrar headers `X-Forwarded-*` do Traefik (scheme, host, IP real). Sem isso, `request.scheme` sempre voltaria `"http"` mesmo atras de HTTPS, e HSTS nao funcionaria. Tambem corrige `request.remote_addr` pra IP real do cliente (importante pra rate limiting e audit log).
+
 ---
 
 ## Infraestrutura
@@ -1062,6 +1074,9 @@ Historico de versoes significativas. Formato: **`vX.Y.Z`** — `feat`/`fix`/`ref
 
 ### v4.1.x — Commercial-grade (2026-04)
 
+- **v4.1.25** — `feat`(admin): modal custom com dropdown pra alterar nivel do user (antes era `prompt()` do navegador — feio, permitia digitacao livre, ruim em mobile). Segue o mesmo padrao visual do modal de impersonation (header + botao fechar + Cancelar + acao primaria). Cada opcao do select tem descricao curta do que o nivel faz.
+- **v4.1.24** — `i18n`(admin): traducao completa da area administrativa pra PT. Botoes ("Role"→"Nivel", "Reset pwd"→"Resetar senha"), colunas ("Mods"→"Modulos"), badges de nivel ("Support"→"Suporte"), Audit Log→"Registro de Acoes", mapper visual dos action types (`impersonate`→"Acesso como", `user.role_change`→"Mudanca de nivel", etc.). Valores internos da API continuam em ingles (chaves tecnicas, nao quebra filtros nem historico).
+- **v4.1.23** — `feat`(security): Rodada 1 de infra comercial. Adiciona security headers completos (HSTS, CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy) via `@app.after_request` — pulados em endpoints do ESP32 pra economizar banda. Aplica `ProxyFix` do Werkzeug pra honrar `X-Forwarded-*` do Traefik (necessario pra HSTS detectar HTTPS, e pra IP real em rate limit/audit).
 - **v4.1.22** — `feat`: 2FA TOTP (Google Auth/Authy) + session management ("Meus dispositivos") + CAPTCHA scaffolding (Turnstile, auto-desativado sem env keys). Novas colunas: `users.totp_secret/totp_enabled`, `tokens.user_agent/ip/last_used_at`. Depends `pyotp`.
 - **v4.1.21** — `feat`: admin operacional — promover/rebaixar role (`POST /api/admin/users/<id>/role`), forcar reset de senha (`/force-password-reset`), transferir modulo (`/modules/<chip>/transfer`), audit log com filtros (action, admin_id, from, to).
 - **v4.1.20** — `feat`: compliance LGPD + NF-e + verificacao de email + termos. Campos fiscais (PF/PJ, CPF/CNPJ, razao social). Endpoints `DELETE /api/profile/` e `GET /api/profile/export`. Paginas publicas `/termos` e `/privacidade`. Aceite obrigatorio no cadastro.
