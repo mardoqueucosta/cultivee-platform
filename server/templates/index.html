@@ -70,6 +70,11 @@
                     <input type="password" id="reg-pass" placeholder="Senha (min 6 caracteres)">
                     <span class="pass-toggle" onclick="togglePass('reg-pass', this)">mostrar</span>
                 </div>
+                <!-- v4.1.20: aceite de termos (LGPD + obrigatorio) -->
+                <label style="display:flex;align-items:start;gap:10px;margin:12px 0;font-size:0.8rem;color:var(--text-dim);cursor:pointer">
+                    <input type="checkbox" id="reg-accept-terms" style="width:18px;height:18px;accent-color:var(--primary);flex-shrink:0;margin-top:2px">
+                    <span>Li e aceito os <a href="/termos" target="_blank" style="color:var(--primary)">Termos de Uso</a> e a <a href="/privacidade" target="_blank" style="color:var(--primary)">Politica de Privacidade</a></span>
+                </label>
                 <button onclick="doRegister()">Criar conta</button>
                 <p class="auth-switch">Ja tem conta? <a href="#" onclick="showLogin()">Entrar</a></p>
             </div>
@@ -108,6 +113,12 @@
         <div id="impersonation-banner" class="hidden" style="background:#e67e22;color:#fff;padding:8px 14px;display:flex;justify-content:space-between;align-items:center;font-size:0.85rem;font-weight:600;position:sticky;top:0;z-index:1000;box-shadow:0 2px 8px rgba(0,0,0,0.4)">
             <span>👤 <span id="impersonation-label">Acessando como...</span></span>
             <button onclick="stopImpersonating()" style="background:rgba(255,255,255,0.2);color:#fff;border:1px solid rgba(255,255,255,0.4);padding:6px 12px;border-radius:6px;cursor:pointer;font-weight:700;font-size:0.8rem">&larr; Voltar pra admin</button>
+        </div>
+
+        <!-- v4.1.20: Banner de email nao verificado — azul escuro, com acao -->
+        <div id="email-verification-banner" class="hidden" style="background:#2980b9;color:#fff;padding:8px 14px;display:flex;justify-content:space-between;align-items:center;font-size:0.8rem;gap:10px;position:sticky;top:0;z-index:999;box-shadow:0 2px 8px rgba(0,0,0,0.4)">
+            <span>&#9888; Seu email nao foi confirmado. Verifique sua caixa de entrada e clique no link que enviamos.</span>
+            <button onclick="resendVerification()" style="background:rgba(255,255,255,0.2);color:#fff;border:1px solid rgba(255,255,255,0.4);padding:5px 10px;border-radius:6px;cursor:pointer;font-weight:600;font-size:0.75rem;white-space:nowrap">Reenviar</button>
         </div>
         <!-- Navbar -->
         <nav class="navbar">
@@ -263,6 +274,32 @@
                     <p id="profile-save-msg" class="hidden" style="text-align:center;font-size:0.8rem;margin-top:8px"></p>
                 </div>
 
+                <!-- v4.1.20: Dados fiscais (opcional — necessario pra emissao de NF-e) -->
+                <div class="card" style="margin:10px">
+                    <h3 style="margin:0 0 4px;font-size:0.95rem">Dados fiscais</h3>
+                    <p style="color:var(--text-dim);font-size:0.7rem;margin:0 0 12px">Opcional. Necessario apenas se voce precisar de nota fiscal.</p>
+                    <div style="display:grid;gap:10px">
+                        <div style="display:flex;gap:10px">
+                            <label style="flex:1;display:flex;align-items:center;gap:8px;padding:10px;border:1px solid var(--border);border-radius:8px;cursor:pointer">
+                                <input type="radio" name="person-type" id="prof-ptype-pf" value="pf" checked onchange="onPersonTypeChange()" style="accent-color:var(--primary)">
+                                <span style="font-size:0.85rem">Pessoa Fisica (CPF)</span>
+                            </label>
+                            <label style="flex:1;display:flex;align-items:center;gap:8px;padding:10px;border:1px solid var(--border);border-radius:8px;cursor:pointer">
+                                <input type="radio" name="person-type" id="prof-ptype-pj" value="pj" onchange="onPersonTypeChange()" style="accent-color:var(--primary)">
+                                <span style="font-size:0.85rem">Pessoa Juridica (CNPJ)</span>
+                            </label>
+                        </div>
+                        <div>
+                            <label style="font-size:0.7rem;color:var(--text-dim)" id="prof-tax-label">CPF</label>
+                            <input type="text" id="prof-tax-id" placeholder="000.000.000-00" maxlength="18" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg-card);color:var(--text);font-size:0.9rem;font-family:monospace">
+                        </div>
+                        <div id="prof-company-row" class="hidden">
+                            <label style="font-size:0.7rem;color:var(--text-dim)">Razao social</label>
+                            <input type="text" id="prof-company" placeholder="Nome da empresa" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg-card);color:var(--text);font-size:0.9rem">
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Alterar senha -->
                 <div class="card" style="margin:10px">
                     <h3 style="margin:0 0 10px;font-size:0.95rem">Alterar senha</h3>
@@ -285,6 +322,47 @@
                     </p>
                     <button onclick="changePasswordProfile()" style="width:100%;padding:12px;background:var(--primary);color:#fff;border:none;border-radius:8px;font-weight:700;cursor:pointer;font-size:0.95rem;margin-top:12px">Alterar senha</button>
                     <p id="profile-pwd-msg" class="hidden" style="text-align:center;font-size:0.8rem;margin-top:8px"></p>
+                </div>
+
+                <!-- v4.1.20: LGPD — exportar dados + deletar conta -->
+                <div class="card" style="margin:10px">
+                    <h3 style="margin:0 0 10px;font-size:0.95rem">Meus dados (LGPD)</h3>
+                    <p style="color:var(--text-dim);font-size:0.75rem;margin:0 0 12px">
+                        Voce pode baixar uma copia completa dos seus dados ou excluir sua conta a qualquer momento.
+                    </p>
+                    <button onclick="exportMyData()" style="width:100%;padding:10px;background:transparent;color:var(--primary);border:1px solid var(--primary);border-radius:8px;cursor:pointer;font-size:0.9rem;font-weight:600">
+                        &#128229; Baixar meus dados (JSON)
+                    </button>
+                </div>
+
+                <!-- Zona de perigo -->
+                <div class="card" style="margin:10px;border:1px solid rgba(231,76,60,0.4)">
+                    <h3 style="margin:0 0 6px;font-size:0.95rem;color:#e74c3c">Zona de perigo</h3>
+                    <p style="color:var(--text-dim);font-size:0.75rem;margin:0 0 12px">
+                        Excluir a conta e <b>permanente</b>. Seus modulos ficarao despareados e todos os dados pessoais serao removidos.
+                    </p>
+                    <button onclick="showDeleteAccountModal()" style="width:100%;padding:10px;background:transparent;color:#e74c3c;border:1px solid #e74c3c;border-radius:8px;cursor:pointer;font-size:0.9rem;font-weight:600">
+                        Excluir minha conta
+                    </button>
+                </div>
+            </div>
+
+            <!-- v4.1.20: Modal de confirmacao de exclusao de conta (exige senha) -->
+            <div id="delete-account-modal" class="modal hidden" onclick="if(event.target===this)closeDeleteAccountModal()">
+                <div class="modal-content" style="max-width:420px">
+                    <button class="modal-close" onclick="closeDeleteAccountModal()">&times;</button>
+                    <h3 style="margin:0 0 10px;color:#e74c3c">Excluir conta permanentemente</h3>
+                    <p style="color:var(--text-dim);font-size:0.85rem;margin-bottom:12px">
+                        Esta acao e <b>irreversivel</b>. Seus modulos serao despareados e seus dados pessoais removidos.
+                    </p>
+                    <p style="color:var(--text-dim);font-size:0.85rem;margin-bottom:12px">
+                        Digite sua <b>senha atual</b> pra confirmar:
+                    </p>
+                    <input type="password" id="delete-pass" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg-card);color:var(--text);font-size:0.9rem;margin-bottom:12px">
+                    <button onclick="deleteMyAccount()" style="width:100%;padding:12px;background:#e74c3c;color:#fff;border:none;border-radius:8px;font-weight:700;cursor:pointer;font-size:0.95rem">
+                        Confirmar exclusao
+                    </button>
+                    <p id="delete-msg" class="hidden" style="text-align:center;font-size:0.8rem;margin-top:8px;color:#e74c3c"></p>
                 </div>
             </div>
 

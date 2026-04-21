@@ -122,6 +122,8 @@ def register():
     email = data.get("email", "").strip().lower()
     password = data.get("password", "")
     name = data.get("name", "").strip()
+    # v4.1.20: aceite obrigatorio de termos + privacidade (LGPD)
+    accepted_terms = bool(data.get("accepted_terms", False))
 
     if not email or not password or not name:
         return jsonify({"error": "email, password e name obrigatorios"}), 400
@@ -131,17 +133,93 @@ def register():
         return jsonify({"error": "Senha deve ter pelo menos 6 caracteres"}), 400
     if len(name) < 2 or len(name) > 80:
         return jsonify({"error": "Nome deve ter entre 2 e 80 caracteres"}), 400
+    if not accepted_terms:
+        return jsonify({
+            "error": "Voce precisa aceitar os Termos de Uso e a Politica de Privacidade"
+        }), 400
 
     user_id = models.create_user(email, password, name)
     if not user_id:
         return jsonify({"error": "Email ja cadastrado"}), 409
 
+    # Registra aceite com timestamp (LGPD — prova que o user consentiu)
+    models.mark_terms_accepted(user_id)
+
+    # v4.1.20: envia email de verificacao (nao bloqueia cadastro se SMTP falhar)
+    verify_token = models.generate_email_verification_token(user_id)
+    try:
+        _send_verification_email(email, name, verify_token)
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Falha ao enviar email de verificacao: {e}")
+
     token = models.create_token(user_id)
-    # Novo usuario sempre entra como 'user' (role default da tabela)
     return jsonify({
         "token": token,
-        "user": {"id": user_id, "email": email, "name": name, "role": "user"}
+        "user": {
+            "id": user_id, "email": email, "name": name, "role": "user",
+            "email_verified": False,
+        }
     })
+
+
+def _send_verification_email(email, name, verify_token):
+    """Envia email com link pro user confirmar o endereco."""
+    from notifications import send_email
+    url = f"https://app.cultivee.com.br/?verify={verify_token}"
+    body = f"""Ola, {name}!
+
+Bem-vindo ao Cultivee! Pra ativar sua conta e garantir que os alertas
+cheguem no email certo, confirme este endereco clicando no link abaixo:
+
+    {url}
+
+Se nao foi voce que se cadastrou, ignore este email — a conta nao sera
+ativada sem confirmacao.
+
+--
+Equipe Cultivee
+contato@cultivee.com.br
+"""
+    send_email(email, "Cultivee - Confirme seu email", body)
+
+
+@auth_bp.route("/verify-email", methods=["GET", "POST"])
+@rate_limit(max_requests=10, window_seconds=60)
+def verify_email():
+    """Confirma email via token (usado pelo link do email ou chamada do frontend)."""
+    token = request.args.get("token", "") or (request.get_json(silent=True, force=True) or {}).get("token", "")
+    if not token:
+        return jsonify({"error": "Token obrigatorio"}), 400
+
+    user_id = models.verify_email_with_token(token)
+    if not user_id:
+        return jsonify({"error": "Token invalido ou ja usado"}), 400
+
+    return jsonify({"status": "ok", "message": "Email confirmado com sucesso!"})
+
+
+@auth_bp.route("/resend-verification", methods=["POST"])
+@rate_limit(max_requests=3, window_seconds=600)  # 3 por IP a cada 10 min
+def resend_verification():
+    """Reenvia o email de verificacao (user precisa estar logado)."""
+    from app import require_auth_func
+    user = require_auth_func()
+    if not user:
+        return jsonify({"error": "Nao autenticado"}), 401
+    # Ja verificado? Sucesso silencioso
+    try:
+        if user["email_verified_at"]:
+            return jsonify({"status": "ok", "message": "Email ja estava verificado"})
+    except (KeyError, IndexError, TypeError):
+        pass
+
+    verify_token = models.generate_email_verification_token(user["id"])
+    try:
+        _send_verification_email(user["email"], user["name"], verify_token)
+    except Exception as e:
+        return jsonify({"error": f"Falha ao enviar email: {e}"}), 502
+    return jsonify({"status": "ok", "message": "Email de verificacao reenviado"})
 
 
 @auth_bp.route("/login", methods=["POST"])
@@ -163,6 +241,10 @@ def login():
     role = "user"
     try: role = user["role"] or "user"
     except (KeyError, IndexError, TypeError): pass
+    # v4.1.20: inclui email_verified (PWA mostra banner se false)
+    email_verified = False
+    try: email_verified = bool(user["email_verified_at"])
+    except (KeyError, IndexError, TypeError): pass
     return jsonify({
         "token": token,
         "user": {
@@ -170,6 +252,7 @@ def login():
             "email": user["email"],
             "name": user["name"],
             "role": role,
+            "email_verified": email_verified,
         }
     })
 
@@ -183,11 +266,15 @@ def me():
     role = "user"
     try: role = user["role"] or "user"
     except (KeyError, IndexError, TypeError): pass
+    email_verified = False
+    try: email_verified = bool(user["email_verified_at"])
+    except (KeyError, IndexError, TypeError): pass
     return jsonify({
         "id": user["id"],
         "email": user["email"],
         "name": user["name"],
         "role": role,
+        "email_verified": email_verified,
     })
 
 

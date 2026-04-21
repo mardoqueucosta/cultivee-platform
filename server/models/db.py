@@ -208,5 +208,36 @@ def init_db():
         except Exception:
             conn.execute(ddl)
 
+    # Migracao v4.1.20: dados fiscais + compliance (LGPD, NF-e, termos, verificacao de email)
+    # person_type: 'pf' (Pessoa Fisica, CPF) ou 'pj' (Pessoa Juridica, CNPJ)
+    # tax_id: CPF ou CNPJ (so digitos, sem formatacao)
+    # company_name: razao social (so PJ)
+    # terms_accepted_at: timestamp de quando aceitou os termos (obrigatorio pra novos)
+    # email_verified_at: timestamp de verificacao do email (null = nao verificado)
+    # email_verification_token: token pra link de verificacao por email
+    for col, ddl in [
+        ("person_type", "ALTER TABLE users ADD COLUMN person_type TEXT DEFAULT 'pf'"),
+        ("tax_id", "ALTER TABLE users ADD COLUMN tax_id TEXT DEFAULT ''"),
+        ("company_name", "ALTER TABLE users ADD COLUMN company_name TEXT DEFAULT ''"),
+        ("terms_accepted_at", "ALTER TABLE users ADD COLUMN terms_accepted_at TEXT"),
+        ("email_verified_at", "ALTER TABLE users ADD COLUMN email_verified_at TEXT"),
+        ("email_verification_token", "ALTER TABLE users ADD COLUMN email_verification_token TEXT"),
+    ]:
+        try:
+            conn.execute(f"SELECT {col} FROM users LIMIT 0")
+        except Exception:
+            conn.execute(ddl)
+
+    # Bootstrap: users que ja existiam antes da v4.1.20 sao considerados verificados
+    # automaticamente (caso contrario, admin/users existentes perderiam acesso).
+    # Tambem marca terms_accepted_at retroativamente (usuarios antigos implicitamente
+    # aceitaram ao continuar usando o sistema).
+    conn.execute("""
+        UPDATE users
+        SET email_verified_at = COALESCE(email_verified_at, created_at),
+            terms_accepted_at = COALESCE(terms_accepted_at, created_at)
+        WHERE email_verified_at IS NULL OR terms_accepted_at IS NULL
+    """)
+
     conn.commit()
     conn.close()

@@ -76,15 +76,134 @@ def update_user_password(user_id, new_password):
     conn.close()
 
 
+# --- LGPD + compliance (v4.1.20) ---
+
+def delete_user_cascade(user_id):
+    """
+    Hard delete do usuario + todas as suas dependencias.
+    Usado pelo direito de exclusao (LGPD).
+
+    Cascade:
+      - tokens (sessoes + impersonation)
+      - password_reset_tokens
+      - push_subscriptions
+      - module_prefs (fica em users.module_prefs, sumira com o DELETE)
+      - Modulos pareados: user_id setado pra NULL (modulo fica "livre", pode ser repareado)
+      - audit_log: MANTIDO (registros historicos — admin_email preservado)
+      - alert_log: MANTIDO (historico)
+    """
+    conn = get_db()
+    conn.execute("DELETE FROM tokens WHERE user_id = ?", (user_id,))
+    conn.execute("DELETE FROM password_reset_tokens WHERE user_id = ?", (user_id,))
+    conn.execute("DELETE FROM push_subscriptions WHERE user_id = ?", (user_id,))
+    conn.execute("UPDATE modules SET user_id = NULL, name = '' WHERE user_id = ?", (user_id,))
+    conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+    conn.commit()
+    conn.close()
+
+
+def export_user_data(user_id):
+    """
+    Exporta TODOS os dados do usuario em um dict serializavel (LGPD/portabilidade).
+    Nao inclui password_hash ou tokens (dados sensiveis que nao devem ser exportados).
+    """
+    conn = get_db()
+    # Dados do usuario (sem hash de senha)
+    user = conn.execute(
+        "SELECT id, email, name, notification_email, role, phone, birth_date, "
+        "person_type, tax_id, company_name, "
+        "cep, street, number, complement, neighborhood, city, state, "
+        "created_at, email_verified_at, terms_accepted_at "
+        "FROM users WHERE id = ?",
+        (user_id,)
+    ).fetchone()
+    if not user:
+        conn.close()
+        return None
+    # Modulos pareados
+    modules = conn.execute(
+        "SELECT chip_id, short_id, type, name, created_at FROM modules WHERE user_id = ?",
+        (user_id,)
+    ).fetchall()
+    # Push subscriptions (so endpoints, sem keys)
+    subs = conn.execute(
+        "SELECT substr(endpoint, 1, 80) as endpoint, created_at FROM push_subscriptions WHERE user_id = ?",
+        (user_id,)
+    ).fetchall()
+    # Alertas enviados ao usuario
+    alerts = conn.execute(
+        "SELECT chip_id, alert_type, sent_at FROM alert_log WHERE user_id = ?",
+        (user_id,)
+    ).fetchall()
+    conn.close()
+    return {
+        "exported_at": datetime.now().isoformat(),
+        "user": dict(user),
+        "modules": [dict(m) for m in modules],
+        "push_devices_count": len(subs),
+        "alerts_received": [dict(a) for a in alerts],
+    }
+
+
+# --- Email verification (v4.1.20) ---
+
+def generate_email_verification_token(user_id):
+    """Cria e armazena token de verificacao no proprio user (1 token por user, substitui)."""
+    token = secrets.token_urlsafe(32)
+    conn = get_db()
+    conn.execute(
+        "UPDATE users SET email_verification_token = ? WHERE id = ?",
+        (token, user_id)
+    )
+    conn.commit()
+    conn.close()
+    return token
+
+
+def verify_email_with_token(token):
+    """Consome token e marca email como verificado. Retorna user_id se sucesso."""
+    if not token:
+        return None
+    conn = get_db()
+    row = conn.execute(
+        "SELECT id FROM users WHERE email_verification_token = ?",
+        (token,)
+    ).fetchone()
+    if not row:
+        conn.close()
+        return None
+    user_id = row["id"]
+    conn.execute(
+        "UPDATE users SET email_verified_at = ?, email_verification_token = NULL WHERE id = ?",
+        (datetime.now().isoformat(), user_id)
+    )
+    conn.commit()
+    conn.close()
+    return user_id
+
+
+def mark_terms_accepted(user_id):
+    """Registra aceite dos termos com timestamp."""
+    conn = get_db()
+    conn.execute(
+        "UPDATE users SET terms_accepted_at = ? WHERE id = ?",
+        (datetime.now().isoformat(), user_id)
+    )
+    conn.commit()
+    conn.close()
+
+
 # =====================================================================
 # User profile (v4.1.16) — dados editaveis via /api/profile
 # =====================================================================
 
 # Campos do perfil que o usuario pode editar. notification_email fica separado porque
 # e gerenciado em outra area (notificacoes) e name/email tem fluxo especifico.
+# v4.1.20: adiciona dados fiscais (PF/PJ, CPF/CNPJ, razao social)
 PROFILE_EDITABLE_FIELDS = (
     "name", "phone", "birth_date", "notification_email",
     "cep", "street", "number", "complement", "neighborhood", "city", "state",
+    "person_type", "tax_id", "company_name",
 )
 
 

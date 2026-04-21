@@ -36,6 +36,12 @@ from .users import (
     # profile (v4.1.16)
     update_user_profile,
     PROFILE_EDITABLE_FIELDS,
+    # LGPD + verificacao de email (v4.1.20)
+    delete_user_cascade,
+    export_user_data,
+    generate_email_verification_token,
+    verify_email_with_token,
+    mark_terms_accepted,
     # tokens
     create_token,
     create_impersonation_token,

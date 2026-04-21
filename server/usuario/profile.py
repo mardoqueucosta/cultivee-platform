@@ -138,6 +138,74 @@ def change_password():
 
 
 # =====================================================================
+# LGPD — deletar conta + exportar dados (v4.1.20)
+# =====================================================================
+
+@profile_bp.route("/", methods=["DELETE"])
+@_require_auth
+def delete_account():
+    """
+    Deleta a conta do usuario logado (hard delete + cascade).
+    Exige senha atual pra confirmar (anti acidente).
+
+    Cascade:
+      - Tokens, push subscriptions e reset tokens sao removidos
+      - Modulos pareados sao DESPAREADOS (ficam livres pra re-pareamento)
+      - Audit log e alert_log sao PRESERVADOS (historico legal)
+      - Registro do user some da tabela users
+    """
+    user = request.user
+    data = request.get_json(silent=True, force=True) or {}
+    password = data.get("password", "")
+
+    if not password:
+        return jsonify({"error": "Senha atual e obrigatoria pra confirmar exclusao"}), 400
+    if not models.check_password(password, user["password_hash"]):
+        return jsonify({"error": "Senha incorreta"}), 401
+
+    # Bloqueia auto-delete se for o ultimo admin (evita sistema sem admin)
+    try:
+        is_admin = user["role"] == "admin"
+    except (KeyError, IndexError, TypeError):
+        is_admin = False
+    if is_admin and models.count_admins() <= 1:
+        return jsonify({
+            "error": "Voce e o ultimo admin. Promova outro usuario a admin antes de deletar sua conta."
+        }), 400
+
+    log.warning(f"[profile] CONTA DELETADA: user={user['email']} (id={user['id']})")
+    models.delete_user_cascade(user["id"])
+
+    return jsonify({
+        "status": "ok",
+        "message": "Sua conta foi excluida. Esperamos te ver de volta um dia."
+    })
+
+
+@profile_bp.route("/export", methods=["GET"])
+@_require_auth
+def export_my_data():
+    """
+    Exporta todos os dados do usuario em JSON (direito de portabilidade LGPD).
+    Download com nome cultivee-dados-YYYYMMDD.json.
+    """
+    user = request.user
+    data = models.export_user_data(user["id"])
+    if not data:
+        return jsonify({"error": "Nao foi possivel exportar"}), 500
+
+    from datetime import datetime
+    from flask import Response
+    filename = f"cultivee-dados-{datetime.now().strftime('%Y%m%d')}.json"
+    body = json.dumps(data, ensure_ascii=False, indent=2, default=str)
+    return Response(
+        body,
+        mimetype="application/json",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+# =====================================================================
 # ViaCEP proxy — auto-preenchimento de endereco pelo CEP
 # =====================================================================
 

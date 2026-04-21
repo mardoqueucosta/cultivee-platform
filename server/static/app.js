@@ -274,10 +274,21 @@ async function doLogin() {
 }
 
 async function doRegister() {
+    // v4.1.20: valida aceite de termos no cliente (duplicado no server)
+    const acceptedTerms = document.getElementById("reg-accept-terms")?.checked || false;
+    if (!acceptedTerms) {
+        showAuthError("Voce precisa aceitar os Termos de Uso e a Politica de Privacidade");
+        return;
+    }
     try {
         const data = await api("/api/auth/register", {
             method: "POST",
-            body: { name: document.getElementById("reg-name").value, email: document.getElementById("reg-email").value, password: document.getElementById("reg-pass").value }
+            body: {
+                name: document.getElementById("reg-name").value,
+                email: document.getElementById("reg-email").value,
+                password: document.getElementById("reg-pass").value,
+                accepted_terms: true,
+            }
         });
         token = data.token; user = data.user;
         localStorage.setItem(`${STORAGE_PREFIX}_token`, token);
@@ -353,6 +364,8 @@ async function enterApp() {
     _renderUserMenu();
     // v4.1.14: banner de impersonation (se estiver ativo)
     renderImpersonationBanner();
+    // v4.1.20: banner de email nao verificado
+    renderEmailVerificationBanner();
     // v4.1.10: carrega prefs do servidor ANTES do loadModules pra evitar
     // flash visual de "ordem errada" -> "ordem certa"
     await fetchModulePrefs();
@@ -1879,6 +1892,9 @@ async function initApp() {
     const code = params.get("code");
     if (code) localStorage.setItem(`${STORAGE_PREFIX}_pending_code`, code);
 
+    // v4.1.20: ?verify=TOKEN (link de confirmacao de email) — consome antes de tudo
+    await _checkVerifyLink();
+
     // v4.1.12: se URL tem ?reset=TOKEN, vai direto pra tela de reset
     // (mesmo se o usuario estiver logado — ele clicou no link intencionalmente)
     const hasResetLink = _checkResetLink();
@@ -2042,14 +2058,42 @@ async function loadProfile() {
         document.getElementById("prof-neighborhood").value = p.neighborhood || "";
         document.getElementById("prof-city").value = p.city || "";
         document.getElementById("prof-state").value = p.state || "";
+        // v4.1.20: dados fiscais
+        const ptype = p.person_type || "pf";
+        document.getElementById("prof-ptype-pf").checked = ptype === "pf";
+        document.getElementById("prof-ptype-pj").checked = ptype === "pj";
+        document.getElementById("prof-tax-id").value = p.tax_id || "";
+        document.getElementById("prof-company").value = p.company_name || "";
+        onPersonTypeChange();  // ajusta label + visibilidade de razao social
     } catch (e) {
         alert("Erro ao carregar perfil: " + e.message);
+    }
+}
+
+// v4.1.20: Alterna entre PF e PJ (muda label do campo + mostra/esconde razao social)
+function onPersonTypeChange() {
+    const isPj = document.getElementById("prof-ptype-pj")?.checked;
+    const label = document.getElementById("prof-tax-label");
+    const input = document.getElementById("prof-tax-id");
+    const companyRow = document.getElementById("prof-company-row");
+    if (!label || !input || !companyRow) return;
+    if (isPj) {
+        label.textContent = "CNPJ";
+        input.placeholder = "00.000.000/0000-00";
+        input.maxLength = 18;
+        companyRow.classList.remove("hidden");
+    } else {
+        label.textContent = "CPF";
+        input.placeholder = "000.000.000-00";
+        input.maxLength = 14;
+        companyRow.classList.add("hidden");
     }
 }
 
 async function saveProfile() {
     const msg = document.getElementById("profile-save-msg");
     msg.classList.add("hidden");
+    const isPj = document.getElementById("prof-ptype-pj").checked;
     const payload = {
         name: document.getElementById("prof-name").value.trim(),
         phone: document.getElementById("prof-phone").value.trim(),
@@ -2062,6 +2106,10 @@ async function saveProfile() {
         neighborhood: document.getElementById("prof-neighborhood").value.trim(),
         city: document.getElementById("prof-city").value.trim(),
         state: document.getElementById("prof-state").value.trim().toUpperCase().slice(0, 2),
+        // v4.1.20: dados fiscais
+        person_type: isPj ? "pj" : "pf",
+        tax_id: document.getElementById("prof-tax-id").value.replace(/\D/g, ""),
+        company_name: isPj ? document.getElementById("prof-company").value.trim() : "",
     };
     try {
         const r = await api("/api/profile/", { method: "PUT", body: payload });
@@ -2135,6 +2183,109 @@ function _pwdMsg(text, color) {
     msg.textContent = text;
     msg.style.color = color;
     msg.classList.remove("hidden");
+}
+
+// =====================================================================
+// LGPD (v4.1.20) — exportar meus dados + deletar conta
+// =====================================================================
+
+async function exportMyData() {
+    try {
+        // Usa fetch direto pra tratar o blob (api() espera JSON)
+        const res = await fetch("/api/profile/export", {
+            headers: token ? { "Authorization": `Bearer ${token}` } : {}
+        });
+        if (!res.ok) throw new Error("Falha ao exportar: " + res.status);
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `cultivee-dados-${new Date().toISOString().slice(0, 10)}.json`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+    } catch (e) {
+        alert("Erro: " + e.message);
+    }
+}
+
+function showDeleteAccountModal() {
+    document.getElementById("delete-pass").value = "";
+    document.getElementById("delete-msg").classList.add("hidden");
+    document.getElementById("delete-account-modal").classList.remove("hidden");
+}
+
+function closeDeleteAccountModal() {
+    document.getElementById("delete-account-modal").classList.add("hidden");
+}
+
+async function deleteMyAccount() {
+    const pwd = document.getElementById("delete-pass").value;
+    const msg = document.getElementById("delete-msg");
+    msg.classList.add("hidden");
+    if (!pwd) {
+        msg.textContent = "Senha obrigatoria";
+        msg.classList.remove("hidden");
+        return;
+    }
+    try {
+        await api("/api/profile/", { method: "DELETE", body: { password: pwd } });
+        // Sucesso — limpa tudo e volta pra tela de login
+        alert("Conta excluida. Ate mais!");
+        localStorage.clear();
+        location.href = "/";
+    } catch (e) {
+        msg.textContent = e.message;
+        msg.classList.remove("hidden");
+    }
+}
+
+// =====================================================================
+// Email verification (v4.1.20) — banner + reenvio + consumir token do URL
+// =====================================================================
+
+function renderEmailVerificationBanner() {
+    const banner = document.getElementById("email-verification-banner");
+    if (!banner) return;
+    // Banner so aparece pra usuario logado + email nao verificado + nao impersonando
+    if (user && user.email_verified === false && !isImpersonating()) {
+        banner.classList.remove("hidden");
+    } else {
+        banner.classList.add("hidden");
+    }
+}
+
+async function resendVerification() {
+    try {
+        const r = await api("/api/auth/resend-verification", { method: "POST" });
+        alert(r.message || "Email de verificacao reenviado.");
+    } catch (e) {
+        alert("Erro: " + e.message);
+    }
+}
+
+// Detecta ?verify=TOKEN na URL (link do email) e consome
+async function _checkVerifyLink() {
+    try {
+        const params = new URLSearchParams(window.location.search);
+        const t = params.get("verify");
+        if (!t || t.length < 10) return false;
+        try {
+            await api("/api/auth/verify-email?token=" + encodeURIComponent(t));
+            alert("Email confirmado com sucesso! Faca login pra continuar.");
+            // Atualiza user object se estiver logado
+            if (user) {
+                user.email_verified = true;
+                localStorage.setItem(`${STORAGE_PREFIX}_user`, JSON.stringify(user));
+            }
+        } catch (e) {
+            alert("Nao foi possivel confirmar o email: " + e.message);
+        }
+        // Limpa URL independente de sucesso/erro
+        try { history.replaceState(null, "", window.location.pathname); } catch (e) {}
+        return true;
+    } catch (e) { return false; }
 }
 
 async function loadAdminStats() {

@@ -543,6 +543,17 @@ def dashboard():
     return render_template("index.html", config=pwa_cfg)
 
 
+# v4.1.20: paginas estaticas de compliance (termos + privacidade LGPD)
+@app.route("/termos")
+def terms_page():
+    return render_template("terms.html", config=pwa_cfg)
+
+
+@app.route("/privacidade")
+def privacy_page():
+    return render_template("privacy.html", config=pwa_cfg)
+
+
 @app.route("/manifest.json")
 def manifest():
     data = json.dumps({
