@@ -104,6 +104,11 @@
 
     <!-- App Principal -->
     <div id="app-screen" class="screen hidden">
+        <!-- v4.1.14: Banner de impersonation — fixo no topo enquanto admin estiver acessando como outro user -->
+        <div id="impersonation-banner" class="hidden" style="background:#e67e22;color:#fff;padding:8px 14px;display:flex;justify-content:space-between;align-items:center;font-size:0.85rem;font-weight:600;position:sticky;top:0;z-index:1000;box-shadow:0 2px 8px rgba(0,0,0,0.4)">
+            <span>👤 <span id="impersonation-label">Acessando como...</span></span>
+            <button onclick="stopImpersonating()" style="background:rgba(255,255,255,0.2);color:#fff;border:1px solid rgba(255,255,255,0.4);padding:6px 12px;border-radius:6px;cursor:pointer;font-weight:700;font-size:0.8rem">&larr; Voltar pra admin</button>
+        </div>
         <!-- Navbar -->
         <nav class="navbar">
             <div class="navbar-inner">
@@ -117,24 +122,232 @@
                     </div>
                 </div>
                 <div class="nav-status">
-                    <span id="nav-user" style="color:#8b9bb4;font-size:0.75rem"></span>
-                    <div class="status-divider"></div>
-                    <span style="color:#8b9bb4;font-size:0.75rem;cursor:pointer" onclick="doLogout()">Sair</span>
+                    <!-- v4.1.16: menu dropdown do usuario (padrao SaaS — nome + avatar + chevron) -->
+                    <div id="user-menu" style="position:relative">
+                        <button id="user-menu-trigger" onclick="toggleUserMenu(event)" style="display:flex;align-items:center;gap:8px;background:transparent;border:1px solid transparent;color:#e0e0e0;padding:6px 10px;border-radius:8px;cursor:pointer;font-size:0.8rem;transition:all 0.15s">
+                            <span id="user-avatar" style="width:26px;height:26px;border-radius:50%;background:#27ae60;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:0.75rem;flex-shrink:0">?</span>
+                            <span id="nav-user" style="font-weight:600"></span>
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="opacity:0.6"><polyline points="6 9 12 15 18 9"/></svg>
+                        </button>
+
+                        <div id="user-menu-dropdown" class="hidden" style="position:absolute;right:0;top:calc(100% + 6px);background:#22252d;border:1px solid #2a2d35;border-radius:10px;min-width:240px;box-shadow:0 8px 24px rgba(0,0,0,0.5);padding:6px;z-index:1500">
+                            <!-- Header com nome + email -->
+                            <div style="padding:10px 12px 8px;border-bottom:1px solid #2a2d35;margin-bottom:6px">
+                                <div id="user-menu-name" style="font-weight:700;font-size:0.85rem;color:#e0e0e0"></div>
+                                <div id="user-menu-email" style="font-size:0.7rem;color:#888;margin-top:2px"></div>
+                                <div id="user-menu-role" style="margin-top:6px"></div>
+                            </div>
+
+                            <!-- Meu perfil -->
+                            <button onclick="showProfilePanel(); closeUserMenu()" style="display:flex;align-items:center;gap:10px;width:100%;padding:9px 12px;background:transparent;border:none;color:#e0e0e0;cursor:pointer;border-radius:6px;font-size:0.85rem;text-align:left;transition:background 0.1s" onmouseover="this.style.background='#2a2d35'" onmouseout="this.style.background='transparent'">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:#888"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                                <span>Meu perfil</span>
+                            </button>
+
+                            <!-- Admin (so pra role=admin) -->
+                            <button id="nav-admin-link" class="hidden" onclick="showAdminPanel(); closeUserMenu()" style="display:flex;align-items:center;gap:10px;width:100%;padding:9px 12px;background:transparent;border:none;color:#27ae60;cursor:pointer;border-radius:6px;font-size:0.85rem;text-align:left;font-weight:600;transition:background 0.1s" onmouseover="this.style.background='#2a2d35'" onmouseout="this.style.background='transparent'">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                                <span>Painel Admin</span>
+                            </button>
+
+                            <div style="border-top:1px solid #2a2d35;margin:6px 0"></div>
+
+                            <!-- Sair -->
+                            <button onclick="doLogout()" style="display:flex;align-items:center;gap:10px;width:100%;padding:9px 12px;background:transparent;border:none;color:#e74c3c;cursor:pointer;border-radius:6px;font-size:0.85rem;text-align:left;transition:background 0.1s" onmouseover="this.style.background='#2a2d35'" onmouseout="this.style.background='transparent'">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+                                <span>Sair</span>
+                            </button>
+                        </div>
+                    </div>
                 </div>
             </div>
         </nav>
 
         <main>
-            <!-- Barra do modulo -->
-            <section class="module-bar" id="module-bar">
-                <div id="modules-list" class="modules-list">
-                    <div class="empty-state"><p>Carregando...</p></div>
-                </div>
-            </section>
+            <!-- Visao normal (modulos do usuario) -->
+            <div id="module-view">
+                <!-- Barra do modulo -->
+                <section class="module-bar" id="module-bar">
+                    <div id="modules-list" class="modules-list">
+                        <div class="empty-state"><p>Carregando...</p></div>
+                    </div>
+                </section>
 
-            <!-- Conteudo dos modulos selecionados (renderizado por registry) -->
-            <section id="module-content"></section>
+                <!-- Conteudo dos modulos selecionados (renderizado por registry) -->
+                <section id="module-content"></section>
+            </div>
+
+            <!-- Visao Perfil (v4.1.16) — qualquer usuario logado -->
+            <div id="profile-view" class="hidden" style="padding:10px">
+                <div class="card" style="margin:10px">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+                        <h2 style="margin:0;font-size:1.1rem;color:var(--primary)">Meu perfil</h2>
+                        <button onclick="hideProfilePanel()" style="background:transparent;border:1px solid var(--border);color:var(--text-muted);padding:6px 12px;border-radius:8px;cursor:pointer;font-size:0.8rem">&larr; Voltar</button>
+                    </div>
+                    <p style="color:var(--text-dim);font-size:0.8rem;margin:0 0 4px">
+                        <span id="profile-email" style="color:var(--text)"></span> &middot; <span id="profile-role"></span>
+                    </p>
+                    <p style="color:var(--text-dim);font-size:0.7rem;margin:0 0 10px">
+                        Conta criada em <span id="profile-created"></span>
+                    </p>
+                </div>
+
+                <!-- Dados pessoais -->
+                <div class="card" style="margin:10px">
+                    <h3 style="margin:0 0 10px;font-size:0.95rem">Dados pessoais</h3>
+                    <div style="display:grid;gap:10px">
+                        <div>
+                            <label style="font-size:0.7rem;color:var(--text-dim)">Nome</label>
+                            <input type="text" id="prof-name" placeholder="Seu nome completo" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg-card);color:var(--text);font-size:0.9rem">
+                        </div>
+                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+                            <div>
+                                <label style="font-size:0.7rem;color:var(--text-dim)">Telefone</label>
+                                <input type="tel" id="prof-phone" placeholder="(11) 98765-4321" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg-card);color:var(--text);font-size:0.9rem">
+                            </div>
+                            <div>
+                                <label style="font-size:0.7rem;color:var(--text-dim)">Data de nascimento</label>
+                                <input type="date" id="prof-birth" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg-card);color:var(--text);font-size:0.9rem">
+                            </div>
+                        </div>
+                        <div>
+                            <label style="font-size:0.7rem;color:var(--text-dim)">Email de notificacoes (para alertas)</label>
+                            <input type="email" id="prof-notif-email" placeholder="Deixe vazio pra usar o email de login" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg-card);color:var(--text);font-size:0.9rem">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Endereco -->
+                <div class="card" style="margin:10px">
+                    <h3 style="margin:0 0 10px;font-size:0.95rem">Endereco</h3>
+                    <div style="display:grid;gap:10px">
+                        <div style="display:grid;grid-template-columns:140px 1fr;gap:10px">
+                            <div>
+                                <label style="font-size:0.7rem;color:var(--text-dim)">CEP</label>
+                                <input type="text" id="prof-cep" placeholder="00000-000" maxlength="9" onblur="fetchCep()" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg-card);color:var(--text);font-size:0.9rem;font-family:monospace">
+                            </div>
+                            <div>
+                                <label style="font-size:0.7rem;color:var(--text-dim)" id="prof-cep-status">Digite o CEP pra auto-preencher</label>
+                            </div>
+                        </div>
+                        <div style="display:grid;grid-template-columns:1fr 120px;gap:10px">
+                            <div>
+                                <label style="font-size:0.7rem;color:var(--text-dim)">Rua / Logradouro</label>
+                                <input type="text" id="prof-street" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg-card);color:var(--text);font-size:0.9rem">
+                            </div>
+                            <div>
+                                <label style="font-size:0.7rem;color:var(--text-dim)">Numero</label>
+                                <input type="text" id="prof-number" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg-card);color:var(--text);font-size:0.9rem">
+                            </div>
+                        </div>
+                        <div>
+                            <label style="font-size:0.7rem;color:var(--text-dim)">Complemento</label>
+                            <input type="text" id="prof-complement" placeholder="Apto, bloco, referencia (opcional)" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg-card);color:var(--text);font-size:0.9rem">
+                        </div>
+                        <div style="display:grid;grid-template-columns:1fr 1fr 80px;gap:10px">
+                            <div>
+                                <label style="font-size:0.7rem;color:var(--text-dim)">Bairro</label>
+                                <input type="text" id="prof-neighborhood" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg-card);color:var(--text);font-size:0.9rem">
+                            </div>
+                            <div>
+                                <label style="font-size:0.7rem;color:var(--text-dim)">Cidade</label>
+                                <input type="text" id="prof-city" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg-card);color:var(--text);font-size:0.9rem">
+                            </div>
+                            <div>
+                                <label style="font-size:0.7rem;color:var(--text-dim)">UF</label>
+                                <input type="text" id="prof-state" maxlength="2" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg-card);color:var(--text);font-size:0.9rem;text-transform:uppercase">
+                            </div>
+                        </div>
+                    </div>
+                    <button onclick="saveProfile()" style="width:100%;padding:12px;background:var(--primary);color:#fff;border:none;border-radius:8px;font-weight:700;cursor:pointer;font-size:0.95rem;margin-top:14px">Salvar dados</button>
+                    <p id="profile-save-msg" class="hidden" style="text-align:center;font-size:0.8rem;margin-top:8px"></p>
+                </div>
+
+                <!-- Alterar senha -->
+                <div class="card" style="margin:10px">
+                    <h3 style="margin:0 0 10px;font-size:0.95rem">Alterar senha</h3>
+                    <div style="display:grid;gap:10px">
+                        <div>
+                            <label style="font-size:0.7rem;color:var(--text-dim)">Senha atual</label>
+                            <input type="password" id="prof-pwd-current" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg-card);color:var(--text);font-size:0.9rem">
+                        </div>
+                        <div>
+                            <label style="font-size:0.7rem;color:var(--text-dim)">Nova senha (minimo 6 caracteres)</label>
+                            <input type="password" id="prof-pwd-new" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg-card);color:var(--text);font-size:0.9rem">
+                        </div>
+                        <div>
+                            <label style="font-size:0.7rem;color:var(--text-dim)">Confirmar nova senha</label>
+                            <input type="password" id="prof-pwd-confirm" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg-card);color:var(--text);font-size:0.9rem">
+                        </div>
+                    </div>
+                    <p style="color:var(--text-dim);font-size:0.7rem;margin:10px 0 0">
+                        &#x1F512; Ao alterar a senha, outros dispositivos serao automaticamente deslogados.
+                    </p>
+                    <button onclick="changePasswordProfile()" style="width:100%;padding:12px;background:var(--primary);color:#fff;border:none;border-radius:8px;font-weight:700;cursor:pointer;font-size:0.95rem;margin-top:12px">Alterar senha</button>
+                    <p id="profile-pwd-msg" class="hidden" style="text-align:center;font-size:0.8rem;margin-top:8px"></p>
+                </div>
+            </div>
+
+            <!-- Visao Admin (v4.1.13) — so aparece quando user.role === 'admin' clica em Admin -->
+            <div id="admin-view" class="hidden" style="padding:10px">
+                <div class="card" style="margin:10px">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+                        <h2 style="margin:0;font-size:1.1rem;color:var(--primary)">Painel de Administracao</h2>
+                        <button onclick="hideAdminPanel()" style="background:transparent;border:1px solid var(--border);color:var(--text-muted);padding:6px 12px;border-radius:8px;cursor:pointer;font-size:0.8rem">&larr; Voltar</button>
+                    </div>
+                    <div id="admin-stats" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px">
+                        <div class="empty-state"><p>Carregando...</p></div>
+                    </div>
+                </div>
+
+                <div class="card" style="margin:10px">
+                    <h3 style="margin:0 0 10px;font-size:0.95rem">Usuarios</h3>
+                    <div id="admin-users"><div class="empty-state"><p>Carregando...</p></div></div>
+                </div>
+
+                <div class="card" style="margin:10px">
+                    <h3 style="margin:0 0 10px;font-size:0.95rem">Todos os Modulos</h3>
+                    <div id="admin-modules"><div class="empty-state"><p>Carregando...</p></div></div>
+                </div>
+
+                <!-- v4.1.15: Audit Log -->
+                <div class="card" style="margin:10px">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+                        <h3 style="margin:0;font-size:0.95rem">Audit Log (acoes administrativas)</h3>
+                        <button onclick="loadAdminAudit()" style="background:transparent;border:1px solid var(--border);color:var(--text-muted);padding:4px 10px;border-radius:6px;cursor:pointer;font-size:0.75rem">↻ Atualizar</button>
+                    </div>
+                    <div id="admin-audit"><div class="empty-state"><p>Carregando...</p></div></div>
+                </div>
+            </div>
         </main>
+
+        <!-- v4.1.15: Modal de Impersonation (escolhe minutes + view_only) -->
+        <div id="impersonate-modal" class="modal hidden" onclick="if(event.target===this)closeImpersonateModal()">
+            <div class="modal-content" style="max-width:420px">
+                <button class="modal-close" onclick="closeImpersonateModal()">&times;</button>
+                <h3 style="margin:0 0 10px">Acessar como outro usuario</h3>
+                <p style="color:var(--text-dim);font-size:0.85rem;margin-bottom:14px">
+                    Voce entrara como <b id="imp-target-name" style="color:var(--text)"></b>. Toda acao ficara registrada no Audit Log.
+                </p>
+                <label style="display:block;font-size:0.8rem;color:var(--text-dim);margin-bottom:4px">Duracao da sessao</label>
+                <select id="imp-minutes" style="width:100%;padding:10px;border-radius:8px;border:1px solid var(--border);background:var(--bg-card);color:var(--text);margin-bottom:12px;font-size:0.9rem">
+                    <option value="5">5 minutos (recomendado pra suporte rapido)</option>
+                    <option value="15">15 minutos</option>
+                    <option value="30" selected>30 minutos (padrao)</option>
+                    <option value="60">1 hora</option>
+                    <option value="120">2 horas</option>
+                    <option value="240">4 horas (maximo)</option>
+                </select>
+                <label style="display:flex;align-items:center;gap:10px;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px 12px;cursor:pointer;margin-bottom:14px">
+                    <input type="checkbox" id="imp-view-only" style="width:18px;height:18px;accent-color:var(--primary);flex-shrink:0">
+                    <div>
+                        <div style="font-size:0.85rem;font-weight:600">Somente leitura (recomendado)</div>
+                        <div style="font-size:0.7rem;color:var(--text-dim)">Bloqueia qualquer acao de mutacao. Util pra auditar sem risco.</div>
+                    </div>
+                </label>
+                <button onclick="doImpersonate()" style="width:100%;padding:12px;background:var(--primary);color:#fff;border:none;border-radius:8px;font-weight:700;cursor:pointer;font-size:0.95rem">Acessar agora</button>
+            </div>
+        </div>
 
         <footer class="footer">
             <p id="app-footer">{{ config.title }} v{{ config.version }}</p>

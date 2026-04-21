@@ -51,6 +51,33 @@ def is_valid_email(email):
 _rate_store = {}  # {"endpoint:ip": [t1, t2, ...]}
 
 
+# =====================================================================
+# Decorator de admin (v4.1.13)
+# =====================================================================
+
+def require_admin(func):
+    """
+    Garante que a rota so execute se o usuario autenticado tiver role='admin'.
+    Retorna 401 se nao autenticado, 403 se autenticado mas nao admin.
+    """
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        from app import require_auth_func
+        user = require_auth_func()
+        if not user:
+            return jsonify({"error": "Nao autenticado"}), 401
+        role = None
+        try:
+            role = user["role"]
+        except (KeyError, IndexError, TypeError):
+            pass
+        if role != "admin":
+            return jsonify({"error": "Acesso negado — requer permissao de admin"}), 403
+        request.user = user
+        return func(*args, **kwargs)
+    return wrapper
+
+
 def _get_client_ip():
     """Extrai IP do cliente (respeita X-Forwarded-For do Traefik)."""
     xff = request.headers.get("X-Forwarded-For", "")
@@ -110,9 +137,10 @@ def register():
         return jsonify({"error": "Email ja cadastrado"}), 409
 
     token = models.create_token(user_id)
+    # Novo usuario sempre entra como 'user' (role default da tabela)
     return jsonify({
         "token": token,
-        "user": {"id": user_id, "email": email, "name": name}
+        "user": {"id": user_id, "email": email, "name": name, "role": "user"}
     })
 
 
@@ -131,9 +159,18 @@ def login():
         return jsonify({"error": "Email ou senha invalidos"}), 401
 
     token = models.create_token(user["id"])
+    # v4.1.13: inclui role na resposta (PWA usa pra mostrar/esconder aba Admin)
+    role = "user"
+    try: role = user["role"] or "user"
+    except (KeyError, IndexError, TypeError): pass
     return jsonify({
         "token": token,
-        "user": {"id": user["id"], "email": user["email"], "name": user["name"]}
+        "user": {
+            "id": user["id"],
+            "email": user["email"],
+            "name": user["name"],
+            "role": role,
+        }
     })
 
 
@@ -143,10 +180,14 @@ def me():
     user = require_auth_func()
     if not user:
         return jsonify({"error": "Nao autenticado"}), 401
+    role = "user"
+    try: role = user["role"] or "user"
+    except (KeyError, IndexError, TypeError): pass
     return jsonify({
         "id": user["id"],
         "email": user["email"],
-        "name": user["name"]
+        "name": user["name"],
+        "role": role,
     })
 
 

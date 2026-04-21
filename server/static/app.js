@@ -349,7 +349,10 @@ function doLogout() {
 async function enterApp() {
     document.getElementById("auth-screen").classList.add("hidden");
     document.getElementById("app-screen").classList.remove("hidden");
-    document.getElementById("nav-user").textContent = user.name;
+    // v4.1.16: dropdown do usuario na navbar (nome + avatar + chevron)
+    _renderUserMenu();
+    // v4.1.14: banner de impersonation (se estiver ativo)
+    renderImpersonationBanner();
     // v4.1.10: carrega prefs do servidor ANTES do loadModules pra evitar
     // flash visual de "ordem errada" -> "ordem certa"
     await fetchModulePrefs();
@@ -1899,6 +1902,450 @@ window.addEventListener("online", () => {
 });
 
 initApp();
+
+// =====================================================================
+// Admin Panel (v4.1.13) — so funciona se user.role === 'admin'
+// Rotas /api/admin/* retornam 403 pra nao-admins, entao mesmo que alguem
+// force o HTML a aparecer no dev-tools, os dados nao vem.
+// =====================================================================
+
+function showAdminPanel() {
+    if (!user || user.role !== "admin") return;  // guard no cliente tambem
+    _hideAllMainViews();
+    document.getElementById("admin-view").classList.remove("hidden");
+    loadAdminStats();
+    loadAdminUsers();
+    loadAdminModules();
+    loadAdminAudit();  // v4.1.15
+}
+
+function hideAdminPanel() {
+    document.getElementById("admin-view").classList.add("hidden");
+    document.getElementById("module-view").classList.remove("hidden");
+}
+
+// v4.1.16: helper compartilhado — esconde todas as views de "main" pra ativar uma
+function _hideAllMainViews() {
+    const ids = ["module-view", "admin-view", "profile-view"];
+    for (const id of ids) {
+        const el = document.getElementById(id);
+        if (el) el.classList.add("hidden");
+    }
+}
+
+// =====================================================================
+// User menu dropdown (v4.1.16) — nome + avatar + dropdown com Perfil/Admin/Sair
+// Padrao SaaS: click no nome abre dropdown; click fora ou em item fecha.
+// =====================================================================
+
+function _renderUserMenu() {
+    if (!user) return;
+    // Nome + email no trigger e no header do dropdown
+    document.getElementById("nav-user").textContent = user.name || user.email || "Usuario";
+    document.getElementById("user-menu-name").textContent = user.name || "Usuario";
+    document.getElementById("user-menu-email").textContent = user.email || "";
+    // Avatar = primeira letra do nome (maiuscula)
+    const avatar = document.getElementById("user-avatar");
+    if (avatar) {
+        const letter = ((user.name || user.email || "?").trim()[0] || "?").toUpperCase();
+        avatar.textContent = letter;
+    }
+    // Badge de role no header do dropdown
+    const roleEl = document.getElementById("user-menu-role");
+    if (roleEl) {
+        const roleColor = user.role === "admin" ? "#e67e22" : (user.role === "support" ? "#3498db" : "#888");
+        const roleLabel = user.role === "admin" ? "Admin" : (user.role === "support" ? "Support" : "Usuario");
+        roleEl.innerHTML = `<span style="background:${roleColor}22;color:${roleColor};padding:2px 8px;border-radius:10px;font-size:0.65rem;font-weight:700;text-transform:uppercase;letter-spacing:0.5px">${roleLabel}</span>`;
+    }
+    // Mostra item "Admin" no dropdown so se role === 'admin'
+    const adminItem = document.getElementById("nav-admin-link");
+    if (adminItem) {
+        if (user.role === "admin") adminItem.classList.remove("hidden");
+        else adminItem.classList.add("hidden");
+    }
+}
+
+function toggleUserMenu(event) {
+    if (event) event.stopPropagation();
+    const dd = document.getElementById("user-menu-dropdown");
+    if (!dd) return;
+    dd.classList.toggle("hidden");
+}
+
+function closeUserMenu() {
+    const dd = document.getElementById("user-menu-dropdown");
+    if (dd) dd.classList.add("hidden");
+}
+
+// Click fora fecha o dropdown
+document.addEventListener("click", function(e) {
+    const menu = document.getElementById("user-menu");
+    const dd = document.getElementById("user-menu-dropdown");
+    if (!menu || !dd || dd.classList.contains("hidden")) return;
+    if (!menu.contains(e.target)) closeUserMenu();
+});
+
+// ESC fecha
+document.addEventListener("keydown", function(e) {
+    if (e.key === "Escape") closeUserMenu();
+});
+
+// =====================================================================
+// Profile Panel (v4.1.16) — "Meu perfil" na navbar
+// =====================================================================
+
+function showProfilePanel() {
+    if (!user) return;
+    _hideAllMainViews();
+    document.getElementById("profile-view").classList.remove("hidden");
+    loadProfile();
+}
+
+function hideProfilePanel() {
+    document.getElementById("profile-view").classList.add("hidden");
+    document.getElementById("module-view").classList.remove("hidden");
+}
+
+async function loadProfile() {
+    try {
+        const p = await api("/api/profile/");
+        // Header info (read-only)
+        document.getElementById("profile-email").textContent = p.email || "";
+        const roleBadge = p.role === "admin" ? "Admin" : (p.role === "support" ? "Support" : "Usuario");
+        const roleColor = p.role === "admin" ? "#e67e22" : (p.role === "support" ? "#3498db" : "#888");
+        document.getElementById("profile-role").innerHTML =
+            `<span style="background:${roleColor}22;color:${roleColor};padding:2px 6px;border-radius:4px;font-size:0.7rem;font-weight:600">${roleBadge}</span>`;
+        document.getElementById("profile-created").textContent = p.created_at || "—";
+
+        // Editable fields
+        document.getElementById("prof-name").value = p.name || "";
+        document.getElementById("prof-phone").value = p.phone || "";
+        document.getElementById("prof-birth").value = p.birth_date || "";
+        document.getElementById("prof-notif-email").value = p.notification_email || "";
+        document.getElementById("prof-cep").value = p.cep || "";
+        document.getElementById("prof-street").value = p.street || "";
+        document.getElementById("prof-number").value = p.number || "";
+        document.getElementById("prof-complement").value = p.complement || "";
+        document.getElementById("prof-neighborhood").value = p.neighborhood || "";
+        document.getElementById("prof-city").value = p.city || "";
+        document.getElementById("prof-state").value = p.state || "";
+    } catch (e) {
+        alert("Erro ao carregar perfil: " + e.message);
+    }
+}
+
+async function saveProfile() {
+    const msg = document.getElementById("profile-save-msg");
+    msg.classList.add("hidden");
+    const payload = {
+        name: document.getElementById("prof-name").value.trim(),
+        phone: document.getElementById("prof-phone").value.trim(),
+        birth_date: document.getElementById("prof-birth").value,
+        notification_email: document.getElementById("prof-notif-email").value.trim().toLowerCase(),
+        cep: document.getElementById("prof-cep").value.replace(/\D/g, ""),
+        street: document.getElementById("prof-street").value.trim(),
+        number: document.getElementById("prof-number").value.trim(),
+        complement: document.getElementById("prof-complement").value.trim(),
+        neighborhood: document.getElementById("prof-neighborhood").value.trim(),
+        city: document.getElementById("prof-city").value.trim(),
+        state: document.getElementById("prof-state").value.trim().toUpperCase().slice(0, 2),
+    };
+    try {
+        const r = await api("/api/profile/", { method: "PUT", body: payload });
+        msg.textContent = "Dados salvos com sucesso.";
+        msg.style.color = "var(--primary)";
+        msg.classList.remove("hidden");
+        // Atualiza user object + navbar (se nome mudou)
+        if (payload.name && user) {
+            user.name = payload.name;
+            localStorage.setItem(`${STORAGE_PREFIX}_user`, JSON.stringify(user));
+            _renderUserMenu();  // re-renderiza avatar + nome + header do dropdown
+        }
+        setTimeout(() => msg.classList.add("hidden"), 3500);
+    } catch (e) {
+        msg.textContent = "Erro: " + e.message;
+        msg.style.color = "#e74c3c";
+        msg.classList.remove("hidden");
+    }
+}
+
+async function fetchCep() {
+    const raw = document.getElementById("prof-cep").value.replace(/\D/g, "");
+    const status = document.getElementById("prof-cep-status");
+    if (raw.length !== 8) {
+        status.textContent = "Digite o CEP pra auto-preencher";
+        return;
+    }
+    status.textContent = "Buscando CEP...";
+    try {
+        const r = await api(`/api/profile/cep/${raw}`);
+        document.getElementById("prof-street").value = r.street || document.getElementById("prof-street").value;
+        document.getElementById("prof-neighborhood").value = r.neighborhood || document.getElementById("prof-neighborhood").value;
+        document.getElementById("prof-city").value = r.city || document.getElementById("prof-city").value;
+        document.getElementById("prof-state").value = r.state || document.getElementById("prof-state").value;
+        status.textContent = `${r.city}/${r.state} ✓`;
+        status.style.color = "var(--primary)";
+        setTimeout(() => document.getElementById("prof-number").focus(), 100);
+    } catch (e) {
+        status.textContent = "CEP nao encontrado";
+        status.style.color = "#e74c3c";
+    }
+}
+
+async function changePasswordProfile() {
+    const cur = document.getElementById("prof-pwd-current").value;
+    const n1 = document.getElementById("prof-pwd-new").value;
+    const n2 = document.getElementById("prof-pwd-confirm").value;
+    const msg = document.getElementById("profile-pwd-msg");
+    msg.classList.add("hidden");
+
+    if (!cur || !n1) { _pwdMsg("Preencha todos os campos", "#e74c3c"); return; }
+    if (n1.length < 6) { _pwdMsg("Nova senha deve ter pelo menos 6 caracteres", "#e74c3c"); return; }
+    if (n1 !== n2) { _pwdMsg("As senhas nao conferem", "#e74c3c"); return; }
+
+    try {
+        const r = await api("/api/profile/password", {
+            method: "POST",
+            body: { current_password: cur, new_password: n1 },
+        });
+        _pwdMsg(r.message || "Senha alterada com sucesso.", "var(--primary)");
+        document.getElementById("prof-pwd-current").value = "";
+        document.getElementById("prof-pwd-new").value = "";
+        document.getElementById("prof-pwd-confirm").value = "";
+    } catch (e) {
+        _pwdMsg("Erro: " + e.message, "#e74c3c");
+    }
+}
+
+function _pwdMsg(text, color) {
+    const msg = document.getElementById("profile-pwd-msg");
+    msg.textContent = text;
+    msg.style.color = color;
+    msg.classList.remove("hidden");
+}
+
+async function loadAdminStats() {
+    const el = document.getElementById("admin-stats");
+    try {
+        const s = await api("/api/admin/stats");
+        const byType = Object.entries(s.modules.by_type || {})
+            .map(([t, c]) => `${t}:${c}`).join(" · ") || "-";
+        el.innerHTML = `
+            <div class="stat-card"><div class="label">Usuarios</div><div class="value">${s.users.total}</div><div class="label" style="margin-top:4px;font-size:0.6rem">${s.users.admins} admin(s)</div></div>
+            <div class="stat-card"><div class="label">Modulos</div><div class="value">${s.modules.total}</div><div class="label" style="margin-top:4px;font-size:0.6rem">${s.modules.paired} pareados</div></div>
+            <div class="stat-card"><div class="label">Online agora</div><div class="value" style="color:${s.modules.online_now>0?'#27ae60':'#888'}">${s.modules.online_now}</div><div class="label" style="margin-top:4px;font-size:0.6rem">${byType}</div></div>
+            <div class="stat-card"><div class="label">Alertas 24h</div><div class="value">${s.alerts_24h}</div><div class="label" style="margin-top:4px;font-size:0.6rem">${s.push_subscriptions} push subs</div></div>
+        `;
+    } catch (e) {
+        el.innerHTML = `<p style="color:#e74c3c;font-size:0.8rem">Erro: ${e.message}</p>`;
+    }
+}
+
+async function loadAdminUsers() {
+    const el = document.getElementById("admin-users");
+    try {
+        const data = await api("/api/admin/users");
+        if (!data.users || !data.users.length) {
+            el.innerHTML = '<p class="empty-state">Nenhum usuario.</p>';
+            return;
+        }
+        const myId = user && user.id;
+        const rows = data.users.map(u => {
+            const roleColor = u.role === 'admin' ? '#e67e22' : (u.role === 'support' ? '#3498db' : '#888');
+            const roleBadge = `<span style="background:${roleColor}22;color:${roleColor};padding:2px 6px;border-radius:4px;font-size:0.65rem;font-weight:600;text-transform:uppercase">${u.role||'user'}</span>`;
+            // v4.1.14: botao "Acessar como" — so pra non-admin e non-self
+            const canImpersonate = u.role !== 'admin' && u.id !== myId;
+            const actionBtn = canImpersonate
+                ? `<button onclick="impersonateUser(${u.id}, '${(u.name||u.email).replace(/'/g,"&#39;")}')" style="background:transparent;border:1px solid var(--border);color:var(--primary);padding:3px 8px;border-radius:6px;cursor:pointer;font-size:0.7rem;font-weight:600">Acessar como</button>`
+                : '<span style="color:var(--text-dim);font-size:0.7rem">—</span>';
+            return `<tr>
+                <td style="padding:6px 4px;font-family:monospace;font-size:0.75rem">#${u.id}</td>
+                <td style="padding:6px 4px">${u.name||'—'}</td>
+                <td style="padding:6px 4px;font-size:0.75rem;color:var(--text-dim)">${u.email}</td>
+                <td style="padding:6px 4px;text-align:center">${roleBadge}</td>
+                <td style="padding:6px 4px;text-align:center;font-size:0.75rem">${u.module_count}</td>
+                <td style="padding:6px 4px;text-align:center">${actionBtn}</td>
+            </tr>`;
+        }).join("");
+        el.innerHTML = `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:0.8rem">
+            <thead><tr style="border-bottom:1px solid var(--border);color:var(--text-dim);text-align:left">
+                <th style="padding:6px 4px">ID</th>
+                <th style="padding:6px 4px">Nome</th>
+                <th style="padding:6px 4px">Email</th>
+                <th style="padding:6px 4px;text-align:center">Role</th>
+                <th style="padding:6px 4px;text-align:center">Mods</th>
+                <th style="padding:6px 4px;text-align:center">Acao</th>
+            </tr></thead>
+            <tbody>${rows}</tbody>
+        </table></div>`;
+    } catch (e) {
+        el.innerHTML = `<p style="color:#e74c3c;font-size:0.8rem">Erro: ${e.message}</p>`;
+    }
+}
+
+// =====================================================================
+// Impersonation (v4.1.14) — admin entra como outro user
+// Guarda token+user do admin em localStorage separado, troca pelo do target.
+// Banner no topo permite voltar. Token do target expira em 30min.
+// =====================================================================
+
+function isImpersonating() {
+    return !!localStorage.getItem(`${STORAGE_PREFIX}_imp_token`);
+}
+
+function renderImpersonationBanner() {
+    const banner = document.getElementById("impersonation-banner");
+    if (!banner) return;
+    if (isImpersonating() && user) {
+        const label = document.getElementById("impersonation-label");
+        const scope = localStorage.getItem(`${STORAGE_PREFIX}_imp_scope`) || "full";
+        const readonly = scope === "readonly";
+        if (label) {
+            label.textContent = `Acessando como ${user.name} (${user.email})`
+                              + (readonly ? " · SOMENTE LEITURA" : "");
+        }
+        // Banner vermelho pra readonly (alerta), laranja pra full (alerta ameno)
+        banner.style.background = readonly ? "#c0392b" : "#e67e22";
+        banner.classList.remove("hidden");
+    } else {
+        banner.classList.add("hidden");
+    }
+}
+
+// v4.1.15: abre modal pra escolher opcoes (minutes + view_only) antes de impersonar
+let _impTargetId = null;
+let _impTargetName = null;
+function impersonateUser(targetId, targetName) {
+    _impTargetId = targetId;
+    _impTargetName = targetName;
+    document.getElementById("imp-target-name").textContent = targetName;
+    document.getElementById("imp-minutes").value = "30";
+    document.getElementById("imp-view-only").checked = false;
+    document.getElementById("impersonate-modal").classList.remove("hidden");
+}
+
+function closeImpersonateModal() {
+    document.getElementById("impersonate-modal").classList.add("hidden");
+    _impTargetId = null;
+}
+
+async function doImpersonate() {
+    if (!_impTargetId) return;
+    const minutes = parseInt(document.getElementById("imp-minutes").value, 10) || 30;
+    const viewOnly = document.getElementById("imp-view-only").checked;
+    try {
+        const data = await api(`/api/admin/users/${_impTargetId}/impersonate`, {
+            method: "POST",
+            body: { minutes, view_only: viewOnly },
+        });
+        // Salva sessao admin pra restaurar depois
+        localStorage.setItem(`${STORAGE_PREFIX}_imp_token`, token);
+        localStorage.setItem(`${STORAGE_PREFIX}_imp_user`, JSON.stringify(user));
+        localStorage.setItem(`${STORAGE_PREFIX}_imp_scope`, data.scope || "full");
+        // Troca pra sessao do target
+        token = data.token;
+        user = data.user;
+        localStorage.setItem(`${STORAGE_PREFIX}_token`, token);
+        localStorage.setItem(`${STORAGE_PREFIX}_user`, JSON.stringify(user));
+        location.reload();
+    } catch (e) {
+        alert("Erro ao impersonar: " + e.message);
+    }
+}
+
+function stopImpersonating() {
+    const impToken = localStorage.getItem(`${STORAGE_PREFIX}_imp_token`);
+    const impUser = localStorage.getItem(`${STORAGE_PREFIX}_imp_user`);
+    if (!impToken || !impUser) {
+        location.reload();
+        return;
+    }
+    localStorage.setItem(`${STORAGE_PREFIX}_token`, impToken);
+    localStorage.setItem(`${STORAGE_PREFIX}_user`, impUser);
+    localStorage.removeItem(`${STORAGE_PREFIX}_imp_token`);
+    localStorage.removeItem(`${STORAGE_PREFIX}_imp_user`);
+    localStorage.removeItem(`${STORAGE_PREFIX}_imp_scope`);
+    location.reload();
+}
+
+// v4.1.15: Audit Log panel
+async function loadAdminAudit() {
+    const el = document.getElementById("admin-audit");
+    if (!el) return;
+    try {
+        const data = await api("/api/admin/audit?limit=50");
+        if (!data.entries || !data.entries.length) {
+            el.innerHTML = '<p class="empty-state">Nenhuma acao administrativa registrada.</p>';
+            return;
+        }
+        const rows = data.entries.map(e => {
+            const ts = e.created_at || '—';
+            const admin = e.admin_email || `id=${e.admin_id}`;
+            const target = e.target_label ? `${e.target_type||''} ${e.target_label}` : (e.target_id || '—');
+            const dtx = e.details && Object.keys(e.details).length ? JSON.stringify(e.details) : '';
+            const actColor = e.action === 'impersonate' ? '#e67e22' : 'var(--primary)';
+            return `<tr>
+                <td style="padding:6px 4px;font-family:monospace;font-size:0.7rem;color:var(--text-dim);white-space:nowrap">${ts}</td>
+                <td style="padding:6px 4px;font-size:0.75rem">${admin}</td>
+                <td style="padding:6px 4px"><span style="background:${actColor}22;color:${actColor};padding:2px 6px;border-radius:4px;font-size:0.7rem;font-weight:600">${e.action}</span></td>
+                <td style="padding:6px 4px;font-size:0.75rem">${target}</td>
+                <td style="padding:6px 4px;font-size:0.7rem;color:var(--text-dim);font-family:monospace;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${dtx.replace(/"/g,'&quot;')}">${dtx}</td>
+                <td style="padding:6px 4px;font-size:0.7rem;color:var(--text-dim);font-family:monospace">${e.ip||'—'}</td>
+            </tr>`;
+        }).join("");
+        el.innerHTML = `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:0.8rem">
+            <thead><tr style="border-bottom:1px solid var(--border);color:var(--text-dim);text-align:left">
+                <th style="padding:6px 4px">Quando</th>
+                <th style="padding:6px 4px">Admin</th>
+                <th style="padding:6px 4px">Acao</th>
+                <th style="padding:6px 4px">Alvo</th>
+                <th style="padding:6px 4px">Detalhes</th>
+                <th style="padding:6px 4px">IP</th>
+            </tr></thead>
+            <tbody>${rows}</tbody>
+        </table></div>`;
+    } catch (e) {
+        el.innerHTML = `<p style="color:#e74c3c;font-size:0.8rem">Erro: ${e.message}</p>`;
+    }
+}
+
+async function loadAdminModules() {
+    const el = document.getElementById("admin-modules");
+    try {
+        const data = await api("/api/admin/modules");
+        if (!data.modules || !data.modules.length) {
+            el.innerHTML = '<p class="empty-state">Nenhum modulo cadastrado.</p>';
+            return;
+        }
+        const rows = data.modules.map(m => {
+            const onlineDot = m.online
+                ? '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#27ae60"></span>'
+                : '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#555"></span>';
+            const owner = m.user_email ? `${m.user_name||'—'} <span style="color:var(--text-dim);font-size:0.7rem">${m.user_email}</span>` : '<span style="color:var(--text-dim)">nao pareado</span>';
+            return `<tr>
+                <td style="padding:6px 4px;text-align:center">${onlineDot}</td>
+                <td style="padding:6px 4px;font-family:monospace;font-size:0.7rem">${m.chip_id}</td>
+                <td style="padding:6px 4px">${m.type}</td>
+                <td style="padding:6px 4px">${m.name||'—'}</td>
+                <td style="padding:6px 4px">${owner}</td>
+                <td style="padding:6px 4px;font-size:0.7rem;color:var(--text-dim)">${m.ip||'—'}</td>
+            </tr>`;
+        }).join("");
+        el.innerHTML = `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:0.8rem">
+            <thead><tr style="border-bottom:1px solid var(--border);color:var(--text-dim);text-align:left">
+                <th style="padding:6px 4px;text-align:center">•</th>
+                <th style="padding:6px 4px">Chip ID</th>
+                <th style="padding:6px 4px">Tipo</th>
+                <th style="padding:6px 4px">Nome</th>
+                <th style="padding:6px 4px">Dono</th>
+                <th style="padding:6px 4px">IP</th>
+            </tr></thead>
+            <tbody>${rows}</tbody>
+        </table></div>`;
+    } catch (e) {
+        el.innerHTML = `<p style="color:#e74c3c;font-size:0.8rem">Erro: ${e.message}</p>`;
+    }
+}
 
 // Polling
 setInterval(() => { if (token) loadModules(); }, 5000);

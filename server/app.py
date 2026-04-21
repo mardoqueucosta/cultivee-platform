@@ -40,19 +40,86 @@ log.info(f"Banco de dados inicializado ({PRODUCT_NAME})")
 # Auth helpers (exportados para blueprints)
 # =====================================================================
 
-def require_auth_func():
-    """Retorna usuario autenticado ou None. Usado pelos blueprints."""
+def _extract_token():
+    """Extrai token do header Authorization: Bearer ou da query string ?token."""
     auth = request.headers.get("Authorization", "")
     if auth.startswith("Bearer "):
-        token = auth[7:]
-    else:
-        token = request.args.get("token", "")
-    if not token:
+        return auth[7:]
+    return request.args.get("token", "")
+
+
+def require_auth_func():
+    """Retorna usuario autenticado ou None. Usado pelos blueprints."""
+    tok = _extract_token()
+    if not tok:
         return None
-    user_id = models.validate_token(token)
+    user_id = models.validate_token(tok)
     if not user_id:
         return None
     return models.get_user_by_id(user_id)
+
+
+# v4.1.15: middleware de escopo readonly
+# Bloqueia mutacoes em rotas /api/* quando o token em uso tem scope='readonly'.
+# Usado pelo modo "Ver como" do admin — permite inspecionar mas nao alterar nada.
+#
+# Mutacoes detectadas de duas formas:
+#  1. Metodo HTTP: POST/PUT/DELETE/PATCH sempre sao mutacoes
+#  2. Path com segmento tipico de acao: /relay, /capture, etc. (herdado do legado
+#     onde controlamos reles via GET — simples de chamar no ESP32 mas nao RESTful).
+#     Nao eh ideal, mas ampliar a lista abaixo funciona ate refatoracao RESTful.
+_READONLY_EXEMPT_PATHS = {
+    "/api/auth/logout",         # user precisa poder finalizar a sessao
+    "/api/modules/register",    # ESP32 nao usa token de user
+    "/api/modules/poll",        # ESP32 nao usa token
+}
+
+# Endpoints GET que MUTAM estado (convencao legada de controle)
+_GET_MUTATION_SEGMENTS = (
+    "/relay",          # aciona rele
+    "/save-config",
+    "/add-phase",
+    "/remove-phase",
+    "/reset-phases",
+    "/reset-wifi",
+    "/capture",
+    "/start-live",
+    "/stop-live",
+    "/sensor-config",
+)
+
+
+def _is_mutation_request():
+    if request.method in ("POST", "PUT", "DELETE", "PATCH"):
+        return True
+    if request.method == "GET":
+        p = request.path
+        for seg in _GET_MUTATION_SEGMENTS:
+            if p.endswith(seg) or seg + "?" in p:
+                return True
+    return False
+
+
+@app.before_request
+def _readonly_scope_guard():
+    if not request.path.startswith("/api/"):
+        return
+    if request.path in _READONLY_EXEMPT_PATHS:
+        return
+    if not _is_mutation_request():
+        return  # leitura pura — sempre permitida
+    tok = _extract_token()
+    if not tok:
+        return  # deixa o route handler cuidar da autenticacao
+    info = models.validate_token_full(tok)
+    if not info:
+        return  # token invalido — deixa o route handler retornar 401
+    _, scope = info
+    if scope == "readonly":
+        log.info(f"[readonly] bloqueado {request.method} {request.path}")
+        return jsonify({
+            "error": "Sessao somente leitura — mutacoes nao permitidas neste modo"
+        }), 403
 
 
 def require_auth(f):
@@ -392,14 +459,24 @@ def list_modules():
 # =====================================================================
 
 from bp_auth import auth_bp
+from bp_profile import profile_bp
+from bp_admin import admin_bp
 from bp_hidro import hidro_bp
 from bp_hidrofarm import hidrofarm_bp
 from bp_cam import cam_bp
 from bp_gallery import gallery_bp
 
-# Auth (registro, login, logout, recuperacao de senha) — separado pra MVP comercial
+# --- Camada de USUARIO ---
+# Auth (registro, login, logout, recuperacao de senha)
 app.register_blueprint(auth_bp, url_prefix="/api/auth", name="auth")
+# Perfil do usuario logado (dados pessoais + endereco + troca de senha)
+app.register_blueprint(profile_bp, url_prefix="/api/profile", name="profile")
 
+# --- Camada de ADMIN ---
+# Rotas protegidas por role='admin' (stats, users, audit, impersonation)
+app.register_blueprint(admin_bp, url_prefix="/api/admin", name="admin")
+
+# --- Camada de HARDWARE ---
 # Cada tipo de firmware encontra suas rotas pelo prefixo
 app.register_blueprint(hidro_bp, url_prefix="/api/ctrl", name="hidro_ctrl")
 app.register_blueprint(hidrofarm_bp, url_prefix="/api/hidro-farm", name="hidrofarm")
@@ -407,6 +484,8 @@ app.register_blueprint(cam_bp, url_prefix="/api/cam", name="cam_standalone")
 app.register_blueprint(gallery_bp, url_prefix="/api/gallery", name="gallery")
 
 log.info("  [+] auth_bp registrado em /api/auth")
+log.info("  [+] profile_bp registrado em /api/profile")
+log.info("  [+] admin_bp registrado em /api/admin")
 log.info("  [+] hidro_bp registrado em /api/ctrl")
 log.info("  [+] hidrofarm_bp registrado em /api/hidro-farm")
 log.info("  [+] cam_bp registrado em /api/cam")
