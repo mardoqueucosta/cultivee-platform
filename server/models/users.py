@@ -193,6 +193,108 @@ def mark_terms_accepted(user_id):
     conn.close()
 
 
+# --- 2FA TOTP (v4.1.22) ---
+
+def set_totp_secret(user_id, secret):
+    """Armazena o secret TOTP (ainda nao habilitado ate o user confirmar o 1o codigo)."""
+    conn = get_db()
+    conn.execute(
+        "UPDATE users SET totp_secret = ?, totp_enabled = 0 WHERE id = ?",
+        (secret, user_id)
+    )
+    conn.commit()
+    conn.close()
+
+
+def enable_totp(user_id):
+    """Confirma 2FA (depois do 1o codigo OK)."""
+    conn = get_db()
+    conn.execute("UPDATE users SET totp_enabled = 1 WHERE id = ?", (user_id,))
+    conn.commit()
+    conn.close()
+
+
+def disable_totp(user_id):
+    """Remove 2FA e apaga o secret."""
+    conn = get_db()
+    conn.execute(
+        "UPDATE users SET totp_secret = NULL, totp_enabled = 0 WHERE id = ?",
+        (user_id,)
+    )
+    conn.commit()
+    conn.close()
+
+
+# --- Sessions / Tokens com metadata (v4.1.22) ---
+
+def create_token_with_metadata(user_id, days=30, user_agent="", ip=""):
+    """
+    Versao extendida de create_token que captura metadata pra session management.
+    create_token() original continua funcionando (backward compat).
+    """
+    token = secrets.token_urlsafe(32)
+    expires = (datetime.now() + timedelta(days=days)).isoformat()
+    conn = get_db()
+    conn.execute(
+        "INSERT INTO tokens (user_id, token, expires_at, user_agent, ip) VALUES (?, ?, ?, ?, ?)",
+        (user_id, token, expires, user_agent[:500] if user_agent else "", ip[:100] if ip else "")
+    )
+    conn.commit()
+    conn.close()
+    return token
+
+
+def touch_token(token):
+    """Atualiza last_used_at na ultima vez que o token foi usado (pra UI)."""
+    if not token:
+        return
+    conn = get_db()
+    conn.execute(
+        "UPDATE tokens SET last_used_at = ? WHERE token = ?",
+        (datetime.now().isoformat(), token)
+    )
+    conn.commit()
+    conn.close()
+
+
+def list_user_sessions(user_id):
+    """Lista tokens ativos do user com metadata. Usado em 'Meus dispositivos'."""
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT id, substr(token, 1, 8) as token_prefix, expires_at, created_at,
+               last_used_at, user_agent, ip, COALESCE(scope, 'full') as scope
+        FROM tokens
+        WHERE user_id = ? AND datetime(expires_at) > datetime('now')
+        ORDER BY COALESCE(last_used_at, created_at) DESC
+    """, (user_id,)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def revoke_token_by_id(token_id, user_id):
+    """Revoga um token especifico (valida que pertence ao user pra nao vazar)."""
+    conn = get_db()
+    result = conn.execute(
+        "DELETE FROM tokens WHERE id = ? AND user_id = ?",
+        (token_id, user_id)
+    )
+    conn.commit()
+    revoked = result.rowcount > 0
+    conn.close()
+    return revoked
+
+
+def revoke_all_other_tokens(user_id, current_token):
+    """Revoga todos os tokens do user EXCETO o atual."""
+    conn = get_db()
+    conn.execute(
+        "DELETE FROM tokens WHERE user_id = ? AND token != ?",
+        (user_id, current_token)
+    )
+    conn.commit()
+    conn.close()
+
+
 # =====================================================================
 # User profile (v4.1.16) — dados editaveis via /api/profile
 # =====================================================================

@@ -261,16 +261,34 @@ function showAuthSuccess(msg) {
 }
 
 async function doLogin() {
+    const body = {
+        email: document.getElementById("login-email").value,
+        password: document.getElementById("login-pass").value,
+    };
+    // v4.1.22: se campo TOTP estiver visivel, inclui
+    const totpCode = document.getElementById("login-totp")?.value.trim();
+    if (totpCode) body.totp_code = totpCode;
+
     try {
-        const data = await api("/api/auth/login", {
-            method: "POST",
-            body: { email: document.getElementById("login-email").value, password: document.getElementById("login-pass").value }
-        });
+        const data = await api("/api/auth/login", { method: "POST", body });
         token = data.token; user = data.user;
         localStorage.setItem(`${STORAGE_PREFIX}_token`, token);
         localStorage.setItem(`${STORAGE_PREFIX}_user`, JSON.stringify(user));
         enterApp();
-    } catch (e) { showAuthError(e.message); }
+    } catch (e) {
+        // v4.1.22: se erro indica que precisa de TOTP, mostra campo e pede
+        // A mensagem do servidor nao carrega o JSON direto — checamos via mensagem
+        if (e.message && /2FA|totp/i.test(e.message)) {
+            const row = document.getElementById("login-totp-row");
+            if (row && row.classList.contains("hidden")) {
+                row.classList.remove("hidden");
+                showAuthError("Digite o codigo do seu app autenticador");
+                document.getElementById("login-totp")?.focus();
+                return;
+            }
+        }
+        showAuthError(e.message);
+    }
 }
 
 async function doRegister() {
@@ -280,6 +298,16 @@ async function doRegister() {
         showAuthError("Voce precisa aceitar os Termos de Uso e a Politica de Privacidade");
         return;
     }
+    // v4.1.22: le token do Turnstile (se widget estiver presente)
+    let captchaToken = "";
+    const turnstileEl = document.querySelector(".cf-turnstile");
+    if (turnstileEl) {
+        captchaToken = turnstileEl.querySelector('input[name="cf-turnstile-response"]')?.value || "";
+        if (!captchaToken) {
+            showAuthError("Complete a verificacao anti-bot");
+            return;
+        }
+    }
     try {
         const data = await api("/api/auth/register", {
             method: "POST",
@@ -288,6 +316,7 @@ async function doRegister() {
                 email: document.getElementById("reg-email").value,
                 password: document.getElementById("reg-pass").value,
                 accepted_terms: true,
+                captcha_token: captchaToken,
             }
         });
         token = data.token; user = data.user;
@@ -2036,6 +2065,8 @@ function hideProfilePanel() {
 }
 
 async function loadProfile() {
+    // v4.1.22: carrega em paralelo — perfil + sessoes
+    loadProfileSessions();
     try {
         const p = await api("/api/profile/");
         // Header info (read-only)
@@ -2065,8 +2096,184 @@ async function loadProfile() {
         document.getElementById("prof-tax-id").value = p.tax_id || "";
         document.getElementById("prof-company").value = p.company_name || "";
         onPersonTypeChange();  // ajusta label + visibilidade de razao social
+        // v4.1.22: status 2FA
+        const statusEl = document.getElementById("prof-2fa-status");
+        const btnEl = document.getElementById("prof-2fa-btn");
+        if (statusEl && btnEl) {
+            const enabled = !!p.totp_enabled;
+            _totpEnabled = enabled;
+            if (enabled) {
+                statusEl.innerHTML = '<span style="color:var(--primary)">&#10003; Ativo</span>';
+                btnEl.textContent = "Desativar";
+                btnEl.style.background = "transparent";
+                btnEl.style.color = "#e74c3c";
+                btnEl.style.border = "1px solid #e74c3c";
+            } else {
+                statusEl.textContent = "Inativo — recomendamos ativar pra maior seguranca";
+                btnEl.textContent = "Ativar";
+                btnEl.style.background = "var(--primary)";
+                btnEl.style.color = "#fff";
+                btnEl.style.border = "none";
+            }
+        }
     } catch (e) {
         alert("Erro ao carregar perfil: " + e.message);
+    }
+}
+
+// =====================================================================
+// 2FA TOTP (v4.1.22)
+// =====================================================================
+
+let _totpEnabled = false;
+
+function toggle2FA() {
+    if (_totpEnabled) {
+        // Abre modal de desativar
+        document.getElementById("totp-disable-pass").value = "";
+        document.getElementById("totp-disable-code").value = "";
+        document.getElementById("totp-disable-msg").classList.add("hidden");
+        document.getElementById("totp-disable-modal").classList.remove("hidden");
+    } else {
+        // Inicia setup
+        setup2FA();
+    }
+}
+
+async function setup2FA() {
+    try {
+        const r = await api("/api/profile/2fa/setup", { method: "POST" });
+        // Mostra QR (via API externa gratuita) + secret + input
+        const qrUrl = "https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=" + encodeURIComponent(r.uri);
+        document.getElementById("totp-qr-container").innerHTML = `<img src="${qrUrl}" width="220" height="220" alt="QR Code 2FA" style="display:block">`;
+        document.getElementById("totp-secret-text").textContent = r.secret;
+        document.getElementById("totp-code-input").value = "";
+        document.getElementById("totp-msg").classList.add("hidden");
+        document.getElementById("totp-modal").classList.remove("hidden");
+        setTimeout(() => document.getElementById("totp-code-input")?.focus(), 200);
+    } catch (e) {
+        alert("Erro: " + e.message);
+    }
+}
+
+function close2FAModal() {
+    document.getElementById("totp-modal").classList.add("hidden");
+}
+
+async function confirmEnable2FA() {
+    const code = document.getElementById("totp-code-input").value.trim();
+    const msg = document.getElementById("totp-msg");
+    msg.classList.add("hidden");
+    if (!code || code.length !== 6) {
+        msg.textContent = "Codigo deve ter 6 digitos";
+        msg.classList.remove("hidden");
+        return;
+    }
+    try {
+        await api("/api/profile/2fa/enable", { method: "POST", body: { code } });
+        alert("2FA ativado com sucesso. Proximos logins vao exigir o codigo do app.");
+        close2FAModal();
+        loadProfile();
+    } catch (e) {
+        msg.textContent = e.message;
+        msg.classList.remove("hidden");
+    }
+}
+
+function close2FADisableModal() {
+    document.getElementById("totp-disable-modal").classList.add("hidden");
+}
+
+async function confirmDisable2FA() {
+    const password = document.getElementById("totp-disable-pass").value;
+    const code = document.getElementById("totp-disable-code").value.trim();
+    const msg = document.getElementById("totp-disable-msg");
+    msg.classList.add("hidden");
+    if (!password || !code) {
+        msg.textContent = "Senha e codigo obrigatorios";
+        msg.classList.remove("hidden");
+        return;
+    }
+    try {
+        await api("/api/profile/2fa/disable", { method: "POST", body: { password, code } });
+        alert("2FA desativado");
+        close2FADisableModal();
+        loadProfile();
+    } catch (e) {
+        msg.textContent = e.message;
+        msg.classList.remove("hidden");
+    }
+}
+
+// =====================================================================
+// Session management (v4.1.22) — Meus dispositivos
+// =====================================================================
+
+async function loadProfileSessions() {
+    const el = document.getElementById("prof-sessions");
+    if (!el) return;
+    try {
+        const data = await api("/api/profile/sessions");
+        if (!data.sessions || !data.sessions.length) {
+            el.innerHTML = '<p class="empty-state" style="padding:10px">Nenhuma sessao ativa.</p>';
+            return;
+        }
+        const rows = data.sessions.map(s => {
+            // Detecta tipo de device do user-agent
+            const ua = s.user_agent || "";
+            let deviceIcon = "&#128241;"; // mobile default
+            let deviceName = "Dispositivo";
+            if (/Windows/i.test(ua)) { deviceIcon = "&#128187;"; deviceName = "Windows"; }
+            else if (/Macintosh|Mac OS/i.test(ua)) { deviceIcon = "&#128187;"; deviceName = "Mac"; }
+            else if (/Linux/i.test(ua) && !/Android/i.test(ua)) { deviceIcon = "&#128187;"; deviceName = "Linux"; }
+            else if (/iPad/i.test(ua)) { deviceName = "iPad"; }
+            else if (/iPhone/i.test(ua)) { deviceName = "iPhone"; }
+            else if (/Android/i.test(ua)) { deviceName = "Android"; }
+            let browser = "";
+            if (/Chrome/i.test(ua) && !/Edg/i.test(ua)) browser = "Chrome";
+            else if (/Firefox/i.test(ua)) browser = "Firefox";
+            else if (/Safari/i.test(ua) && !/Chrome/i.test(ua)) browser = "Safari";
+            else if (/Edg/i.test(ua)) browser = "Edge";
+
+            const lastUsed = s.last_used_at || s.created_at || "";
+            const current = s.is_current
+                ? '<span style="background:rgba(39,174,96,0.15);color:var(--primary);padding:2px 6px;border-radius:4px;font-size:0.65rem;font-weight:600;margin-left:6px">ATUAL</span>'
+                : '';
+            const revokeBtn = s.is_current
+                ? ''
+                : `<button onclick="revokeSession(${s.id})" style="background:transparent;border:1px solid #e74c3c;color:#e74c3c;padding:3px 8px;border-radius:6px;cursor:pointer;font-size:0.7rem">Revogar</button>`;
+            return `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px">
+                <div>
+                    <div style="font-size:0.85rem;font-weight:600">${deviceIcon} ${deviceName}${browser ? ' \u00b7 ' + browser : ''}${current}</div>
+                    <div style="font-size:0.7rem;color:var(--text-dim);margin-top:2px">IP ${s.ip || '—'} \u00b7 Ultimo uso: ${lastUsed}</div>
+                </div>
+                ${revokeBtn}
+            </div>`;
+        }).join("");
+        el.innerHTML = rows;
+    } catch (e) {
+        el.innerHTML = `<p style="color:#e74c3c;padding:10px;font-size:0.8rem">Erro: ${e.message}</p>`;
+    }
+}
+
+async function revokeSession(sessionId) {
+    if (!confirm("Revogar essa sessao? O outro dispositivo sera deslogado.")) return;
+    try {
+        await api(`/api/profile/sessions/${sessionId}`, { method: "DELETE" });
+        loadProfileSessions();
+    } catch (e) {
+        alert("Erro: " + e.message);
+    }
+}
+
+async function revokeOtherSessions() {
+    if (!confirm("Deslogar de TODOS os outros dispositivos? Essa sessao continua ativa.")) return;
+    try {
+        await api("/api/profile/sessions/revoke-others", { method: "POST" });
+        alert("Outras sessoes foram revogadas");
+        loadProfileSessions();
+    } catch (e) {
+        alert("Erro: " + e.message);
     }
 }
 

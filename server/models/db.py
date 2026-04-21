@@ -239,5 +239,29 @@ def init_db():
         WHERE email_verified_at IS NULL OR terms_accepted_at IS NULL
     """)
 
+    # Migracao v4.1.22: 2FA TOTP (opcional por usuario)
+    # totp_secret armazena o seed base32 (RFC 6238); totp_enabled indica se o user
+    # confirmou o primeiro codigo (so ai o segundo fator entra no fluxo de login).
+    for col, ddl in [
+        ("totp_secret", "ALTER TABLE users ADD COLUMN totp_secret TEXT"),
+        ("totp_enabled", "ALTER TABLE users ADD COLUMN totp_enabled INTEGER DEFAULT 0"),
+    ]:
+        try:
+            conn.execute(f"SELECT {col} FROM users LIMIT 0")
+        except Exception:
+            conn.execute(ddl)
+
+    # Migracao v4.1.22: metadata de sessao (tokens) — pra session management
+    # user_agent + ip + last_used_at dao contexto pro user ver "de onde logou"
+    for col, ddl in [
+        ("user_agent", "ALTER TABLE tokens ADD COLUMN user_agent TEXT DEFAULT ''"),
+        ("ip", "ALTER TABLE tokens ADD COLUMN ip TEXT DEFAULT ''"),
+        ("last_used_at", "ALTER TABLE tokens ADD COLUMN last_used_at TEXT"),
+    ]:
+        try:
+            conn.execute(f"SELECT {col} FROM tokens LIMIT 0")
+        except Exception:
+            conn.execute(ddl)
+
     conn.commit()
     conn.close()

@@ -531,6 +531,8 @@ pwa_cfg = {
     "cache_prefix": "cultivee",
     "version": APP_VERSION,
     "vapid_public_key": os.environ.get("VAPID_PUBLIC_KEY", ""),
+    # v4.1.22: CAPTCHA — se site key nao esta setada, widget nao aparece no frontend
+    "turnstile_site_key": os.environ.get("TURNSTILE_SITE_KEY", ""),
 }
 
 

@@ -206,6 +206,140 @@ def export_my_data():
 
 
 # =====================================================================
+# 2FA TOTP (v4.1.22) — Google Authenticator, Authy, 1Password, etc.
+# Fluxo:
+#   1. User chama POST /2fa/setup -> recebe secret + provisioning URI (QR)
+#   2. User abre app authenticator, escaneia QR
+#   3. User digita o 1o codigo em POST /2fa/enable -> ativa 2FA
+#   4. A partir dai, login exige senha + codigo TOTP
+#   5. POST /2fa/disable com senha + codigo remove 2FA
+# =====================================================================
+
+@profile_bp.route("/2fa/setup", methods=["POST"])
+@_require_auth
+def totp_setup():
+    """Gera secret TOTP + retorna provisioning URI pra QR code."""
+    user = request.user
+    try:
+        import pyotp
+    except ImportError:
+        return jsonify({"error": "pyotp nao instalado no servidor"}), 500
+
+    secret = pyotp.random_base32()
+    models.set_totp_secret(user["id"], secret)
+
+    uri = pyotp.totp.TOTP(secret).provisioning_uri(
+        name=user["email"],
+        issuer_name="Cultivee"
+    )
+    return jsonify({
+        "secret": secret,       # mostrar pro user como fallback manual
+        "uri": uri,             # gerar QR no cliente
+    })
+
+
+@profile_bp.route("/2fa/enable", methods=["POST"])
+@_require_auth
+def totp_enable():
+    """Confirma o 1o codigo TOTP e ativa 2FA. Body: {code: 'XXXXXX'}"""
+    user = request.user
+    try:
+        import pyotp
+    except ImportError:
+        return jsonify({"error": "pyotp nao instalado"}), 500
+
+    data = request.get_json(silent=True, force=True) or {}
+    code = (data.get("code") or "").strip()
+    if not code or len(code) != 6:
+        return jsonify({"error": "Codigo deve ter 6 digitos"}), 400
+
+    try:
+        secret = user["totp_secret"]
+    except (KeyError, IndexError, TypeError):
+        secret = None
+    if not secret:
+        return jsonify({"error": "Secret nao configurado. Chame /2fa/setup primeiro"}), 400
+
+    totp = pyotp.TOTP(secret)
+    if not totp.verify(code, valid_window=1):  # tolera +/-30s de drift
+        return jsonify({"error": "Codigo invalido"}), 401
+
+    models.enable_totp(user["id"])
+    log.info(f"[2fa] ativado pra user {user['email']}")
+    return jsonify({"status": "ok", "message": "2FA ativado com sucesso"})
+
+
+@profile_bp.route("/2fa/disable", methods=["POST"])
+@_require_auth
+def totp_disable():
+    """Remove 2FA. Exige senha atual + codigo TOTP. Body: {password, code}"""
+    user = request.user
+    try:
+        import pyotp
+    except ImportError:
+        return jsonify({"error": "pyotp nao instalado"}), 500
+
+    data = request.get_json(silent=True, force=True) or {}
+    password = data.get("password", "")
+    code = (data.get("code") or "").strip()
+
+    if not password:
+        return jsonify({"error": "Senha atual obrigatoria"}), 400
+    if not models.check_password(password, user["password_hash"]):
+        return jsonify({"error": "Senha incorreta"}), 401
+
+    try:
+        secret = user["totp_secret"]
+    except (KeyError, IndexError, TypeError):
+        secret = None
+    if secret:
+        if not code or not pyotp.TOTP(secret).verify(code, valid_window=1):
+            return jsonify({"error": "Codigo TOTP invalido"}), 401
+
+    models.disable_totp(user["id"])
+    log.info(f"[2fa] desativado pra user {user['email']}")
+    return jsonify({"status": "ok", "message": "2FA desativado"})
+
+
+# =====================================================================
+# Session management (v4.1.22) — "Meus dispositivos"
+# =====================================================================
+
+@profile_bp.route("/sessions", methods=["GET"])
+@_require_auth
+def list_sessions():
+    """Lista tokens ativos do user com info de device/ip/ultimo uso."""
+    user = request.user
+    sessions = models.list_user_sessions(user["id"])
+    # Marca qual eh a sessao atual
+    current = request.headers.get("Authorization", "").replace("Bearer ", "").strip()
+    current_prefix = current[:8] if current else ""
+    for s in sessions:
+        s["is_current"] = (s.get("token_prefix") == current_prefix)
+    return jsonify({"sessions": sessions, "count": len(sessions)})
+
+
+@profile_bp.route("/sessions/<int:token_id>", methods=["DELETE"])
+@_require_auth
+def revoke_session(token_id):
+    """Revoga uma sessao especifica (outro device)."""
+    user = request.user
+    if models.revoke_token_by_id(token_id, user["id"]):
+        return jsonify({"status": "ok", "message": "Sessao revogada"})
+    return jsonify({"error": "Sessao nao encontrada"}), 404
+
+
+@profile_bp.route("/sessions/revoke-others", methods=["POST"])
+@_require_auth
+def revoke_other_sessions():
+    """Revoga todas as sessoes EXCETO a atual."""
+    user = request.user
+    current = request.headers.get("Authorization", "").replace("Bearer ", "").strip()
+    models.revoke_all_other_tokens(user["id"], current)
+    return jsonify({"status": "ok", "message": "Outras sessoes foram revogadas"})
+
+
+# =====================================================================
 # ViaCEP proxy — auto-preenchimento de endereco pelo CEP
 # =====================================================================
 

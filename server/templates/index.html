@@ -14,6 +14,10 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/style.css">
+    <!-- v4.1.22: Cloudflare Turnstile (CAPTCHA) — so injeta script se site key estiver setada -->
+    {% if config.turnstile_site_key %}
+    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+    {% endif %}
 </head>
 <body>
 
@@ -57,6 +61,11 @@
                     <input type="password" id="login-pass" placeholder="Senha">
                     <span class="pass-toggle" onclick="togglePass('login-pass', this)">mostrar</span>
                 </div>
+                <!-- v4.1.22: Campo TOTP aparece dinamicamente quando servidor pede -->
+                <div id="login-totp-row" class="hidden" style="margin-top:10px">
+                    <label style="font-size:0.8rem;color:var(--text-dim)">Codigo 2FA (do seu app autenticador)</label>
+                    <input type="text" id="login-totp" placeholder="000000" maxlength="6" inputmode="numeric" pattern="[0-9]{6}" style="font-family:monospace;letter-spacing:4px;text-align:center;font-size:1.1rem">
+                </div>
                 <button onclick="doLogin()">Entrar</button>
                 <p class="auth-switch" style="margin-top:0.75rem">
                     <a href="#" onclick="showForgot()" style="color:var(--text-dim);font-size:0.85rem">Esqueci minha senha</a>
@@ -75,6 +84,10 @@
                     <input type="checkbox" id="reg-accept-terms" style="width:18px;height:18px;accent-color:var(--primary);flex-shrink:0;margin-top:2px">
                     <span>Li e aceito os <a href="/termos" target="_blank" style="color:var(--primary)">Termos de Uso</a> e a <a href="/privacidade" target="_blank" style="color:var(--primary)">Politica de Privacidade</a></span>
                 </label>
+                <!-- v4.1.22: Turnstile widget — aparece so se config tem site key -->
+                {% if config.turnstile_site_key %}
+                <div class="cf-turnstile" data-sitekey="{{ config.turnstile_site_key }}" data-theme="dark" style="margin:12px 0"></div>
+                {% endif %}
                 <button onclick="doRegister()">Criar conta</button>
                 <p class="auth-switch">Ja tem conta? <a href="#" onclick="showLogin()">Entrar</a></p>
             </div>
@@ -324,6 +337,27 @@
                     <p id="profile-pwd-msg" class="hidden" style="text-align:center;font-size:0.8rem;margin-top:8px"></p>
                 </div>
 
+                <!-- v4.1.22: Seguranca (2FA + sessoes) -->
+                <div class="card" style="margin:10px">
+                    <h3 style="margin:0 0 10px;font-size:0.95rem">Seguranca</h3>
+                    <div style="display:flex;justify-content:space-between;align-items:center;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg)">
+                        <div>
+                            <div style="font-size:0.85rem;font-weight:600">Autenticacao em 2 fatores (2FA)</div>
+                            <div id="prof-2fa-status" style="font-size:0.75rem;color:var(--text-dim);margin-top:2px">Inativo</div>
+                        </div>
+                        <button id="prof-2fa-btn" onclick="toggle2FA()" style="padding:8px 14px;background:var(--primary);color:#fff;border:none;border-radius:6px;font-size:0.8rem;font-weight:600;cursor:pointer">Ativar</button>
+                    </div>
+                </div>
+
+                <!-- v4.1.22: Meus dispositivos -->
+                <div class="card" style="margin:10px">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+                        <h3 style="margin:0;font-size:0.95rem">Meus dispositivos</h3>
+                        <button onclick="revokeOtherSessions()" style="background:transparent;border:1px solid #e74c3c;color:#e74c3c;padding:4px 10px;border-radius:6px;cursor:pointer;font-size:0.75rem">Deslogar outros</button>
+                    </div>
+                    <div id="prof-sessions"><div class="empty-state" style="padding:10px"><p>Carregando...</p></div></div>
+                </div>
+
                 <!-- v4.1.20: LGPD — exportar dados + deletar conta -->
                 <div class="card" style="margin:10px">
                     <h3 style="margin:0 0 10px;font-size:0.95rem">Meus dados (LGPD)</h3>
@@ -344,6 +378,41 @@
                     <button onclick="showDeleteAccountModal()" style="width:100%;padding:10px;background:transparent;color:#e74c3c;border:1px solid #e74c3c;border-radius:8px;cursor:pointer;font-size:0.9rem;font-weight:600">
                         Excluir minha conta
                     </button>
+                </div>
+            </div>
+
+            <!-- v4.1.22: Modal de setup de 2FA (QR + confirmacao) -->
+            <div id="totp-modal" class="modal hidden" onclick="if(event.target===this)close2FAModal()">
+                <div class="modal-content" style="max-width:420px;text-align:center">
+                    <button class="modal-close" onclick="close2FAModal()">&times;</button>
+                    <h3 id="totp-modal-title" style="margin:0 0 10px">Ativar 2FA</h3>
+                    <p id="totp-modal-desc" style="color:var(--text-dim);font-size:0.85rem;margin-bottom:14px">
+                        Escaneie o QR Code com Google Authenticator, Authy ou 1Password:
+                    </p>
+                    <div id="totp-qr-container" style="background:#fff;padding:12px;border-radius:8px;display:inline-block;margin-bottom:12px"></div>
+                    <div style="font-size:0.7rem;color:var(--text-dim);margin-bottom:10px">
+                        Secret manual (se nao puder escanear):
+                    </div>
+                    <div id="totp-secret-text" style="font-family:monospace;background:var(--bg);padding:8px;border-radius:6px;font-size:0.85rem;letter-spacing:1px;margin-bottom:14px;word-break:break-all"></div>
+                    <label style="display:block;font-size:0.8rem;color:var(--text-dim);margin-bottom:4px;text-align:left">Digite o codigo de 6 digitos do app:</label>
+                    <input type="text" id="totp-code-input" placeholder="000000" maxlength="6" inputmode="numeric" style="width:100%;padding:12px;border:1px solid var(--border);border-radius:8px;background:var(--bg-card);color:var(--text);font-size:1.2rem;text-align:center;letter-spacing:6px;font-family:monospace;margin-bottom:12px">
+                    <button onclick="confirmEnable2FA()" style="width:100%;padding:12px;background:var(--primary);color:#fff;border:none;border-radius:8px;font-weight:700;cursor:pointer">Confirmar ativacao</button>
+                    <p id="totp-msg" class="hidden" style="font-size:0.8rem;margin-top:10px;color:#e74c3c"></p>
+                </div>
+            </div>
+
+            <!-- v4.1.22: Modal pra desativar 2FA (senha + codigo) -->
+            <div id="totp-disable-modal" class="modal hidden" onclick="if(event.target===this)close2FADisableModal()">
+                <div class="modal-content" style="max-width:380px">
+                    <button class="modal-close" onclick="close2FADisableModal()">&times;</button>
+                    <h3 style="margin:0 0 10px">Desativar 2FA</h3>
+                    <p style="color:var(--text-dim);font-size:0.85rem;margin-bottom:12px">
+                        Para desativar, digite sua senha atual e o codigo do app autenticador:
+                    </p>
+                    <input type="password" id="totp-disable-pass" placeholder="Senha atual" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg-card);color:var(--text);margin-bottom:10px">
+                    <input type="text" id="totp-disable-code" placeholder="000000" maxlength="6" inputmode="numeric" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg-card);color:var(--text);text-align:center;letter-spacing:4px;font-family:monospace;margin-bottom:12px">
+                    <button onclick="confirmDisable2FA()" style="width:100%;padding:12px;background:#e74c3c;color:#fff;border:none;border-radius:8px;font-weight:700;cursor:pointer">Desativar 2FA</button>
+                    <p id="totp-disable-msg" class="hidden" style="font-size:0.8rem;margin-top:10px;color:#e74c3c;text-align:center"></p>
                 </div>
             </div>
 

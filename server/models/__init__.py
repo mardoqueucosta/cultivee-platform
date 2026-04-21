@@ -42,6 +42,16 @@ from .users import (
     generate_email_verification_token,
     verify_email_with_token,
     mark_terms_accepted,
+    # 2FA TOTP (v4.1.22)
+    set_totp_secret,
+    enable_totp,
+    disable_totp,
+    # Session management (v4.1.22)
+    create_token_with_metadata,
+    touch_token,
+    list_user_sessions,
+    revoke_token_by_id,
+    revoke_all_other_tokens,
     # tokens
     create_token,
     create_impersonation_token,
