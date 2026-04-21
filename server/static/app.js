@@ -2569,19 +2569,42 @@ let _adminUsersCache = [];
 // R2 admin actions (v4.1.21) — alterar role + forcar reset + transferir modulo
 // =====================================================================
 
+// v4.1.25: showRoleModal agora abre modal custom com dropdown
+// (antes era prompt() do navegador — feio e permitia digitacao livre)
+let _roleTargetId = null;
+let _roleTargetName = null;
+let _roleCurrent = null;
+
 function showRoleModal(userId, userLabel, currentRole) {
-    const newRole = prompt(
-        `Alterar nivel de "${userLabel}"\n\nNivel atual: ${currentRole}\nDigite: user, support ou admin`,
-        currentRole
-    );
-    if (!newRole) return;
-    const clean = newRole.trim().toLowerCase();
-    if (!["user", "support", "admin"].includes(clean)) {
-        alert("Nivel invalido. Use: user, support ou admin");
+    _roleTargetId = userId;
+    _roleTargetName = userLabel;
+    _roleCurrent = (currentRole || "user").toLowerCase();
+    document.getElementById("role-target-name").textContent = userLabel;
+    const currentLabel = _roleCurrent === "admin" ? "Admin" : (_roleCurrent === "support" ? "Suporte" : "Usuario");
+    document.getElementById("role-current").textContent = currentLabel;
+    document.getElementById("role-new").value = _roleCurrent;
+    document.getElementById("role-modal").classList.remove("hidden");
+}
+
+function closeRoleModal() {
+    document.getElementById("role-modal").classList.add("hidden");
+    _roleTargetId = null;
+}
+
+function doChangeRole() {
+    if (!_roleTargetId) return;
+    const newRole = document.getElementById("role-new").value;
+    if (!["user", "support", "admin"].includes(newRole)) {
+        alert("Nivel invalido");
         return;
     }
-    if (clean === currentRole) return;
-    _setUserRole(userId, clean);
+    if (newRole === _roleCurrent) {
+        closeRoleModal();
+        return;
+    }
+    const targetId = _roleTargetId;
+    closeRoleModal();
+    _setUserRole(targetId, newRole);
 }
 
 async function _setUserRole(userId, role) {

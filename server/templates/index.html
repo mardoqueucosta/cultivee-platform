@@ -521,6 +521,30 @@
             </div>
         </div>
 
+        <!-- v4.1.25: Modal de alterar nivel (antes era prompt() do navegador) -->
+        <div id="role-modal" class="modal hidden" onclick="if(event.target===this)closeRoleModal()">
+            <div class="modal-content" style="max-width:420px">
+                <button class="modal-close" onclick="closeRoleModal()">&times;</button>
+                <h3 style="margin:0 0 10px">Alterar nivel de acesso</h3>
+                <p style="color:var(--text-dim);font-size:0.85rem;margin-bottom:14px">
+                    Escolha o novo nivel para <b id="role-target-name" style="color:var(--text)"></b>.
+                </p>
+                <label style="display:block;font-size:0.8rem;color:var(--text-dim);margin-bottom:4px">Nivel</label>
+                <select id="role-new" style="width:100%;padding:10px;border-radius:8px;border:1px solid var(--border);background:var(--bg-card);color:var(--text);margin-bottom:14px;font-size:0.9rem">
+                    <option value="user">Usuario — cliente comum (ve so os proprios modulos)</option>
+                    <option value="support">Suporte — atendimento tecnico</option>
+                    <option value="admin">Admin — acesso total ao sistema</option>
+                </select>
+                <p style="color:var(--text-dim);font-size:0.75rem;margin-bottom:14px">
+                    Nivel atual: <b id="role-current" style="color:var(--text)"></b>
+                </p>
+                <div style="display:flex;gap:8px">
+                    <button onclick="closeRoleModal()" style="flex:1;padding:12px;background:transparent;border:1px solid var(--border);color:var(--text);border-radius:8px;font-weight:600;cursor:pointer;font-size:0.9rem">Cancelar</button>
+                    <button onclick="doChangeRole()" style="flex:2;padding:12px;background:var(--primary);color:#fff;border:none;border-radius:8px;font-weight:700;cursor:pointer;font-size:0.95rem">Alterar nivel</button>
+                </div>
+            </div>
+        </div>
+
         <footer class="footer">
             <p id="app-footer">{{ config.title }} v{{ config.version }}</p>
         </footer>

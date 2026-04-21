@@ -20,4 +20,4 @@ PRODUCT_NAME = "Cultivee"
 
 # Versao unica — usada pelo sw.js (cache), app.js (UI) e footer
 # Incrementar quando mudar app.js, style.css ou index.html
-APP_VERSION = "4.1.24"
+APP_VERSION = "4.1.25"
