@@ -458,13 +458,15 @@ def list_modules():
 # Registro de blueprints — todos os prefixos (servidor unico)
 # =====================================================================
 
-from bp_auth import auth_bp
-from bp_profile import profile_bp
-from bp_admin import admin_bp
-from bp_hidro import hidro_bp
-from bp_hidrofarm import hidrofarm_bp
-from bp_cam import cam_bp
-from bp_gallery import gallery_bp
+# v4.1.17: blueprints organizados em pastas por camada (hardware/usuario/admin)
+# Mesma convencao do models/ — materializa as 3 camadas no filesystem.
+from usuario.auth import auth_bp
+from usuario.profile import profile_bp
+from admin.admin import admin_bp
+from hardware.hidro import hidro_bp
+from hardware.hidrofarm import hidrofarm_bp
+from hardware.cam import cam_bp
+from hardware.gallery import gallery_bp
 
 # --- Camada de USUARIO ---
 # Auth (registro, login, logout, recuperacao de senha)

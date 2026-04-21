@@ -1,12 +1,10 @@
 """
 Teste automatizado de todas as rotas do servidor Cultivee.
-Roda contra o servidor local (ctrl na porta 5002, hidro-cam na 5003).
+Roda contra o servidor local (ctrl na porta 5002).
 
 Uso:
-  python test_routes.py              # testa ctrl local (porta 5002)
-  python test_routes.py hidro-cam    # testa hidro-cam local (porta 5003)
-  python test_routes.py ctrl vps     # testa ctrl na VPS (hidro.cultivee.com.br)
-  python test_routes.py hidro-cam vps # testa hidro-cam na VPS
+  python test_routes.py          # testa ctrl local (porta 5002)
+  python test_routes.py ctrl vps # testa ctrl na VPS (app.cultivee.com.br)
 """
 
 import sys
@@ -27,16 +25,10 @@ PRODUCTS = {
         "prefix": "/api/ctrl",
         "chip_id": "TEST_CTRL_99", "short_id": "TC99", "caps": ["hidro"],
     },
-    "hidro-cam": {
-        "local": "http://localhost:5003",
-        "vps": "https://app.cultivee.com.br",
-        "prefix": "/api/hidro-cam",
-        "chip_id": "TEST_HCAM_99", "short_id": "TH99", "caps": ["hidro", "cam"],
-    },
 }
 
 if product not in PRODUCTS:
-    print(f"Produto invalido: {product}. Use: ctrl ou hidro-cam")
+    print(f"Produto invalido: {product}. Use: ctrl")
     sys.exit(1)
 if env not in ("local", "vps"):
     print(f"Ambiente invalido: {env}. Use: local ou vps")
@@ -312,7 +304,7 @@ if resp:
     cmd_names = [c.get("cmd") for c in cmds]
     print(f"    -> Comandos pendentes consumidos: {cmd_names}")
 
-# --- 7. Camera Routes (only for hidro-cam) ---
+# --- 7. Camera Routes (pulado: ctrl nao tem camera) ---
 if "cam" in cfg["caps"]:
     print("\n[CAMERA]")
     test("GET capture", "GET", f"{PREFIX}/{CHIP}/capture",

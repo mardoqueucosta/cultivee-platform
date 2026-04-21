@@ -20,7 +20,7 @@ import logging
 from flask import Blueprint, request, jsonify
 
 import models
-from bp_auth import require_admin
+from usuario.auth import require_admin
 
 
 log = logging.getLogger(__name__)

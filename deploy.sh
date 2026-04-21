@@ -24,6 +24,8 @@ echo "-> Enviando docker-compose.yml..."
 $SCP_CMD "$PROJECT_DIR/docker-compose.yml" "$VPS_USER@$VPS_HOST:$REMOTE_DIR/docker-compose.yml"
 
 # Empacotar server/ (excluindo dados e cache)
+# v4.1.17: estrutura em camadas — pacotes models/ + hardware/ + usuario/ + admin/
+# substituem os antigos models.py e bp_*.py flat.
 echo "-> Empacotando server/..."
 cd "$PROJECT_DIR"
 tar czf /tmp/cultivee-platform.tar.gz \
@@ -31,8 +33,9 @@ tar czf /tmp/cultivee-platform.tar.gz \
     --exclude='data/' \
     --exclude='__pycache__/' \
     --exclude='.env' \
-    server/app.py server/models.py server/config.py server/notifications.py \
-    server/bp_hidro.py server/bp_hidrofarm.py server/bp_cam.py server/bp_gallery.py \
+    server/app.py server/config.py server/notifications.py \
+    server/models/ \
+    server/hardware/ server/usuario/ server/admin/ \
     server/requirements.txt server/Dockerfile \
     server/static/ server/templates/ 2>/dev/null
 

@@ -1,7 +1,7 @@
 """
 Cultivee — Blueprint Hidroponia
 Rotas de controle: status, reles, fases, config.
-Registrado com url_prefix dinamico (ex: /api/ctrl ou /api/hidro-cam).
+Registrado em /api/ctrl (valida capability "hidro").
 """
 
 import json

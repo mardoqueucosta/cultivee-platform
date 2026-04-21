@@ -61,15 +61,36 @@ cultivee-platform/
 │   ├── hidro-farm.h          # MOD_HIDROFARM — ESP32-WROOM, 6 reles (GPIO 4/5/16/17/18/19), min_spiffs
 │   └── cam.h                 # MOD_CAM — ESP32-WROVER, OV2640 standalone, min_spiffs (OTA habilitado v4.1.8+)
 │
-├── server/                   # UM servidor Flask unificado
-│   ├── app.py                # Core: auth, modules, PWA, blueprints, migracao fotos
-│   ├── models.py             # SQLite (users, modules, commands, tokens, groups, push_subscriptions, alert_log)
-│   ├── notifications.py      # AlertManager: monitora condições (nível baixo), envia push PWA + email SMTP
+├── server/                   # UM servidor Flask unificado — organizado em 3 camadas (v4.1.17)
+│   ├── app.py                # Core: setup, middleware readonly, registra blueprints
 │   ├── config.py             # PORT, DB_PATH, PRODUCT_NAME, APP_VERSION (fonte unica)
-│   ├── bp_hidro.py           # Blueprint: status, relay, phases (valida capability "hidro")
-│   ├── bp_hidrofarm.py       # Blueprint: idem do hidro mas valida capability "hidro-farm"
-│   ├── bp_cam.py             # Blueprint: capture, upload, live, sensor config
-│   ├── bp_gallery.py         # Blueprint: galeria com pastas, selecao, exclusao
+│   ├── notifications.py      # AlertManager + send_email() generico (usado por alertas e auth)
+│   │
+│   ├── models/               # Camada de dados — pacote por dominio (v4.1.16 refactor)
+│   │   ├── __init__.py       # re-exporta tudo pra backward compat (import models continua)
+│   │   ├── db.py             # get_db(), init_db(), todas as migracoes idempotentes
+│   │   ├── users.py          # usuarios + auth + tokens + password reset + roles + prefs + profile
+│   │   ├── modules.py        # modulos do hardware + grupos + captura de camera
+│   │   ├── push.py           # push subscriptions + alert_log
+│   │   └── audit.py          # audit_log (acoes administrativas)
+│   │
+│   ├── usuario/              # Camada USUARIO — cliente comum (v4.1.17)
+│   │   ├── __init__.py
+│   │   ├── auth.py           # Blueprint auth_bp: register, login, logout, forgot/reset password
+│   │   │                     # + decorators require_auth, require_admin
+│   │   └── profile.py        # Blueprint profile_bp: GET/PUT perfil, troca senha, ViaCEP proxy
+│   │
+│   ├── admin/                # Camada ADMIN — so role='admin' (v4.1.17)
+│   │   ├── __init__.py
+│   │   └── admin.py          # Blueprint admin_bp: users/modules/stats/audit/impersonate
+│   │
+│   ├── hardware/             # Camada HARDWARE — ESP32 (v4.1.17)
+│   │   ├── __init__.py
+│   │   ├── hidro.py          # Blueprint hidro_bp: status, relay, phases (capability "hidro")
+│   │   ├── hidrofarm.py      # Blueprint hidrofarm_bp: idem hidro + boias + DHT11 (capability "hidro-farm")
+│   │   ├── cam.py            # Blueprint cam_bp: capture, upload, live, sensor config
+│   │   └── gallery.py        # Blueprint gallery_bp: galeria com pastas, selecao, exclusao
+│   │
 │   ├── templates/index.html  # PWA template (config injetada)
 │   ├── static/app.js         # PWA — registry pattern, hidro + hidro-farm + cam UI
 │   ├── static/gallery.js     # Galeria modal: pastas, grid, selecao, exclusao
@@ -186,7 +207,7 @@ O ESP32 NAO tem token de autenticacao — e identificado pelo `chip_id`. O `ctrl
 ```
 Exemplo: usuario clica "toggle luz" no app
   1. PWA: POST /api/ctrl/<chip_id>/relay?device=light&action=toggle
-  2. Servidor (bp_hidro.py):
+  2. Servidor (hardware/hidro.py):
      a) Tenta PROXY DIRETO: HTTP GET http://<ip_esp32>/relay?device=light&action=toggle (timeout 2s)
      b) Se proxy OK: retorna resposta do ESP32 direto pra PWA
      c) Se proxy falha: ENFILEIRA pending_command no banco + retorna "queued"
@@ -423,7 +444,7 @@ A camera tem **tres estados de resolucao/qualidade** que sao facil de confundir.
 **Captura agendada — sweet spot qualidade/tamanho:**
 - Globals em `firmware.ino`: `captureFrameSize = FRAMESIZE_SVGA` (800x600), `captureQuality = 5`
 - O firmware sobe para SVGA q5 **sob demanda** (comando `capture` recebido via `/api/modules/poll` ou `/register`), tira a foto, retorna framebuffer e volta para VGA q12
-- **Configuravel por modulo:** o PWA pode sobrescrever `cam_resolution` e `cam_quality` via `/api/cam/<chip_id>/sensor-config`; defaults no DB sao `UXGA` / `10` (ver migracao em [`server/models.py:103-109`](./server/models.py))
+- **Configuravel por modulo:** o PWA pode sobrescrever `cam_resolution` e `cam_quality` via `/api/cam/<chip_id>/sensor-config`; defaults no DB sao `UXGA` / `10` (ver migracao em [`server/models/db.py`](./server/models/db.py))
 - O servidor envia `cam_resolution` e `cam_quality` na resposta de `/api/modules/register` a cada poll — o firmware aplica antes da proxima captura
 
 **Regras absolutas:**
@@ -565,7 +586,7 @@ O `POST /api/modules/register` inclui campo `firmware_url` na resposta quando ha
 
 ### Hidro (prefixo: `/api/ctrl`)
 
-Implementado em [`server/bp_hidro.py`](./server/bp_hidro.py). Todas as rotas exigem `Authorization` e validam que o modulo pertence ao usuario autenticado **e** tem `"hidro"` em `capabilities`.
+Implementado em [`server/hardware/hidro.py`](./server/hardware/hidro.py). Todas as rotas exigem `Authorization` e validam que o modulo pertence ao usuario autenticado **e** tem `"hidro"` em `capabilities`.
 
 | Rota | Metodo | Descricao |
 |------|--------|-----------|
@@ -580,7 +601,7 @@ Implementado em [`server/bp_hidro.py`](./server/bp_hidro.py). Todas as rotas exi
 
 ### Hidro-Farm (prefixo: `/api/hidro-farm`)
 
-Implementado em [`server/bp_hidrofarm.py`](./server/bp_hidrofarm.py). Clone funcional de `bp_hidro.py` — mesmas rotas, mesma semantica, mas valida capability `"hidro-farm"`. Aceita os mesmos `device` do `/relay` (`light`, `pump`, `ventilation`, `aeration`, `mode`) **mais os dois novos**: `valve_entrada` e `bomba_homo`. O endpoint `/relay` e generico — ele so faz proxy/enfileiramento para o ESP32 sem validacao por `device`.
+Implementado em [`server/hardware/hidrofarm.py`](./server/hardware/hidrofarm.py). Clone funcional de `hardware/hidro.py` — mesmas rotas, mesma semantica, mas valida capability `"hidro-farm"`. Aceita os mesmos `device` do `/relay` (`light`, `pump`, `ventilation`, `aeration`, `mode`) **mais os dois novos**: `valve_entrada` e `bomba_homo`. O endpoint `/relay` e generico — ele so faz proxy/enfileiramento para o ESP32 sem validacao por `device`.
 
 | Rota | Metodo | Descricao |
 |------|--------|-----------|
@@ -592,7 +613,7 @@ Implementado em [`server/bp_hidrofarm.py`](./server/bp_hidrofarm.py). Clone func
 
 ### Camera (prefixo: `/api/cam`)
 
-Implementado em [`server/bp_cam.py`](./server/bp_cam.py). Validacao analoga para capability `"cam"`. `upload-capture` e `live-frame POST` sao endpoints sem auth (o ESP32 nao carrega token) — validacao e feita via capability + chip_id.
+Implementado em [`server/hardware/cam.py`](./server/hardware/cam.py). Validacao analoga para capability `"cam"`. `upload-capture` e `live-frame POST` sao endpoints sem auth (o ESP32 nao carrega token) — validacao e feita via capability + chip_id.
 
 | Rota | Metodo | Descricao |
 |------|--------|-----------|
@@ -606,7 +627,7 @@ Implementado em [`server/bp_cam.py`](./server/bp_cam.py). Validacao analoga para
 
 ### Gallery (prefixo: `/api/gallery`)
 
-Implementado em [`server/bp_gallery.py`](./server/bp_gallery.py). Gerencia a organizacao em pastas das imagens capturadas — listar pastas, listar imagens por pasta, mover entre pastas, deletar em lote. Usado pelo `gallery.js` do PWA. Todas as rotas exigem auth.
+Implementado em [`server/hardware/gallery.py`](./server/hardware/gallery.py). Gerencia a organizacao em pastas das imagens capturadas — listar pastas, listar imagens por pasta, mover entre pastas, deletar em lote. Usado pelo `gallery.js` do PWA. Todas as rotas exigem auth.
 
 ---
 
@@ -644,7 +665,7 @@ moduleRenderers.sensor = {
 - `pendingCommands` usa keys compostas `${chipId}:${device}`
 - `lastToggleTimes` e um Map `{}` per-chipId (era `lastToggleTime` global). Polling loop checa cooldown per-chip com `continue` em vez de `return` (v4.0.12).
 
-**Merge de server_keys (v4.0.13):** `register_module()` em `models.py` protegia `phases`, `num_phases`, `start_date` como "server_keys" — o ESP32 mandava dados mas o servidor mantinha valores antigos do banco. Causava dessincronizacao entre `start_date` do banco e `cycle_day` calculado pelo ESP32. Fix: esses 3 campos foram removidos de `server_keys`. ESP32 e fonte de verdade para fases/config.
+**Merge de server_keys (v4.0.13):** `register_module()` em `models/modules.py` protegia `phases`, `num_phases`, `start_date` como "server_keys" — o ESP32 mandava dados mas o servidor mantinha valores antigos do banco. Causava dessincronizacao entre `start_date` do banco e `cycle_day` calculado pelo ESP32. Fix: esses 3 campos foram removidos de `server_keys`. ESP32 e fonte de verdade para fases/config.
 
 **Recalculo de cycle_day no cliente (v4.0.14):** O PWA agora recalcula `cycle_day` e `phase` no navegador usando `Date()` do browser (mais confiavel que o relogio do ESP32 que pode ter NTP desincronizado). Implementado em `loadCtrlStatus()` antes de `renderDashboard()`.
 
@@ -711,7 +732,7 @@ Duas formas de disparar:
     cd "D:/01-projetos-claude/00-Sites/site-cultivee.com.br/cultivee-platform"
     bash deploy.sh
     ```
-    Empacota apenas `app.py`, `models.py`, `config.py`, `notifications.py`, `bp_hidro.py`, `bp_hidrofarm.py`, `bp_cam.py`, `bp_gallery.py`, `requirements.txt`, `Dockerfile`, `static/`, `templates/` + `docker-compose.yml`, envia via `scp`, para containers antigos e rebuilda. Nao envia firmware nem arquivos de dados. Tudo numa unica sessao SSH (respeita a regra de `fail2ban`).
+    Empacota `app.py`, `config.py`, `notifications.py`, os pacotes `models/`, `hardware/`, `usuario/`, `admin/`, `requirements.txt`, `Dockerfile`, `static/`, `templates/` + `docker-compose.yml`, envia via `scp`, para containers antigos e rebuilda. Nao envia firmware nem arquivos de dados. Tudo numa unica sessao SSH (respeita a regra de `fail2ban`).
 
 3. **OTA Remoto** (firmware, v4.0.15+) — envia .bin compilado localmente ao servidor, ESP32 baixa no proximo poll:
     ```bash
