@@ -31,9 +31,16 @@ Plataforma IoT para cultivo inteligente. Arquitetura modular:
 Hardware especializado: cada ESP32 faz uma coisa so.
 Composicao por software: o app mostra os modulos que o usuario adicionar.
 
-Versao ativa: **v4.1.7** — definida como fonte unica em [`server/config.py:24`](./server/config.py) (`APP_VERSION`) e replicada manualmente em [`products/hidro.h:11`](./products/hidro.h), [`products/hidro-farm.h:16`](./products/hidro-farm.h) e [`products/cam.h:11`](./products/cam.h) (`FIRMWARE_VERSION`).
+Versao ativa: **v4.1.22** (backend/PWA) — definida como fonte unica em [`server/config.py:24`](./server/config.py) (`APP_VERSION`).
 
-Tres produtos ativos: **HIDRO** (4 reles, automacao por fase), **HIDRO-FARM** (Premium — 6 reles, 4 automatizados + 2 manuais puros), **CAM** (camera standalone).
+Firmware: **v4.1.8** (Hidro-Farm, Hidro) e **v4.1.10** (Cam) — replicado manualmente em [`products/hidro.h:11`](./products/hidro.h), [`products/hidro-farm.h:16`](./products/hidro-farm.h) e [`products/cam.h:11`](./products/cam.h) (`FIRMWARE_VERSION`).
+
+Tres produtos ativos: **HIDRO** (4 reles, automacao por fase), **HIDRO-FARM** (Premium — 6 reles, 4 automatizados + 2 manuais puros), **CAM** (camera standalone com OTA desde v4.1.8).
+
+**Arquitetura em 3 camadas** (v4.1.17+) — o backend esta organizado em pastas que espelham o modelo mental:
+- `server/hardware/` — blueprints que falam com ESP32 (hidro, hidrofarm, cam, gallery)
+- `server/usuario/` — auth, perfil, troca de senha, 2FA, LGPD
+- `server/admin/` — painel administrativo, impersonation, audit, gerenciamento de users/modulos
 
 ## Repositorios
 
@@ -141,30 +148,47 @@ Cada modulo implementa: `*_setup()`, `*_loop()`, `*_register_routes()`, `*_proce
 
 **Codigo compartilhado em `core_*.h`:** recursos de hardware compartilhados entre produtos (ex: RTC DS3231 em [`core_wifi.h:75-146`](./firmware/core_wifi.h)) usam guards `#if defined(MOD_HIDRO) || defined(MOD_HIDROFARM)` — NAO `#ifdef MOD_HIDRO` sozinho. Ver "Adicionar Novo Modulo" abaixo.
 
-### Servidor: Blueprints
+### Servidor: Blueprints (v4.1.17+ — organizados em camadas)
 
 ```python
-# 1 servidor, 4 blueprints + rotas push, 1 prefixo por blueprint
-from bp_hidro import hidro_bp
-from bp_hidrofarm import hidrofarm_bp
-from bp_cam import cam_bp
-from bp_gallery import gallery_bp
+# 3 camadas, 7 blueprints — filesystem espelha o mental model
+from usuario.auth     import auth_bp      # /api/auth/*
+from usuario.profile  import profile_bp   # /api/profile/*
+from admin.admin      import admin_bp     # /api/admin/*
+from hardware.hidro     import hidro_bp      # /api/ctrl/*
+from hardware.hidrofarm import hidrofarm_bp  # /api/hidro-farm/*
+from hardware.cam       import cam_bp        # /api/cam/*
+from hardware.gallery   import gallery_bp    # /api/gallery/*
 
-app.register_blueprint(hidro_bp, url_prefix="/api/ctrl", name="hidro_ctrl")
+app.register_blueprint(auth_bp,      url_prefix="/api/auth",       name="auth")
+app.register_blueprint(profile_bp,   url_prefix="/api/profile",    name="profile")
+app.register_blueprint(admin_bp,     url_prefix="/api/admin",      name="admin")
+app.register_blueprint(hidro_bp,     url_prefix="/api/ctrl",       name="hidro_ctrl")
 app.register_blueprint(hidrofarm_bp, url_prefix="/api/hidro-farm", name="hidrofarm")
-app.register_blueprint(cam_bp, url_prefix="/api/cam", name="cam_standalone")
-app.register_blueprint(gallery_bp, url_prefix="/api/gallery", name="gallery")
+app.register_blueprint(cam_bp,       url_prefix="/api/cam",        name="cam_standalone")
+app.register_blueprint(gallery_bp,   url_prefix="/api/gallery",    name="gallery")
 
-# Rotas push (diretas em app.py, sem blueprint separado)
-# POST /api/push/subscribe   — registra subscription do navegador (endpoint, p256dh, auth)
-# POST /api/push/unsubscribe — remove subscription do usuario
-# GET  /api/push/status       — retorna se usuario tem subscription ativa
+# Rotas diretas em app.py (nao em blueprint):
+# POST /api/push/subscribe       — registra subscription do navegador
+# POST /api/push/unsubscribe     — remove subscription
+# GET  /api/push/status          — retorna se usuario tem subscription
+# GET  /api/user/prefs           — ordem + selecao de modulos (v4.1.10)
+# PUT  /api/user/prefs           — salva prefs
+# GET  /termos, /privacidade     — paginas estaticas LGPD (v4.1.20)
+# POST /api/modules/<id>/firmware — OTA upload (admin)
+# GET  /api/modules/<id>/firmware — OTA download pelo ESP32 (sem auth)
 ```
 
-Validacao por capability (cada blueprint checa seu proprio campo em `capabilities`):
-- `bp_hidro._get_module_or_404()` exige `"hidro"`
-- `bp_hidrofarm._get_module_or_404()` exige `"hidro-farm"`
-- `bp_cam._get_cam_module_or_404()` exige `"cam"`
+Validacao por capability nos blueprints de hardware:
+- `hardware/hidro.py` exige `"hidro"` nas capabilities
+- `hardware/hidrofarm.py` exige `"hidro-farm"`
+- `hardware/cam.py` exige `"cam"`
+
+**Middleware global de escopo readonly** (v4.1.15, em `app.py` — `@before_request`):
+- Tokens de impersonation podem ser criados com `scope='readonly'`
+- Quando scope=readonly, qualquer `POST/PUT/DELETE/PATCH` em `/api/*` retorna 403
+- GET-mutations legados (`/relay`, `/capture`, `/save-config`, `/start-live`, `/reset-wifi`, etc.) tambem bloqueados
+- Permite "Ver como" do admin inspecionar sem alterar estado
 
 As capabilities sao reportadas pelo ESP32 em cada `POST /api/modules/register` e armazenadas como JSON array no DB.
 
@@ -545,13 +569,23 @@ Flag `localStreamActive` suspende `registerOnServer()` e `pollCommands()` durant
 
 ## Servidor: API
 
-### Autenticacao
+### Autenticacao (atualizado v4.1.22)
 | Rota | Metodo | Descricao |
 |------|--------|-----------|
-| `/api/auth/register` | POST | Criar conta {name, email, password} |
-| `/api/auth/login` | POST | Login {email, password} → {token, user} |
-| `/api/auth/me` | GET | Info do usuario (requer token) |
-| `/api/auth/logout` | POST | Invalidar token |
+| `/api/auth/register` | POST | Cadastro `{name, email, password, accepted_terms: true, captcha_token?}`. Dispara email de verificacao |
+| `/api/auth/login` | POST | Login `{email, password, totp_code?}`. Se `totp_enabled`, retorna 401 com `{totp_required: true}` na 1a tentativa |
+| `/api/auth/me` | GET | Info do user logado (inclui `role`, `email_verified`) |
+| `/api/auth/logout` | POST | Invalida token atual |
+| `/api/auth/forgot-password` | POST | `{email}` → envia link de reset (anti-enumeration) |
+| `/api/auth/reset-password` | POST | `{token, password}` — valida + troca senha |
+| `/api/auth/verify-email` | GET/POST | Consome token de verificacao de email |
+| `/api/auth/resend-verification` | POST | Reenvia email de verificacao pro user logado |
+
+### Perfil (v4.1.16 + v4.1.20 + v4.1.22)
+Documentacao completa em "Camada de USUARIO" mais acima. Prefixo: `/api/profile/*`.
+
+### Admin (v4.1.13+)
+Documentacao completa em "Camada de ADMIN" mais acima. Prefixo: `/api/admin/*`.
 
 ### Modulos
 | Rota | Metodo | Descricao |
@@ -688,10 +722,159 @@ moduleRenderers.sensor = {
 **notification_email (v4.1.0):** email de alertas separado do email de login — nova coluna `notification_email` na tabela `users`.
 
 ### Versionamento
-- **Fonte unica:** `APP_VERSION` em [`server/config.py:24`](./server/config.py) (atualmente `"4.1.7"`)
+- **Fonte unica:** `APP_VERSION` em [`server/config.py:24`](./server/config.py) (atualmente `"4.1.22"`)
 - O `sw.js` e o `manifest.json` sao **gerados dinamicamente** em [`server/app.py:372-436`](./server/app.py) — nao sao arquivos estaticos. O Service Worker usa `CACHE_NAME = cultivee-v + APP_VERSION`, entao bater o numero invalida o cache automaticamente.
 - `FIRMWARE_VERSION` nos 3 produtos ([`products/hidro.h:11`](./products/hidro.h), [`products/hidro-farm.h:16`](./products/hidro-farm.h), [`products/cam.h:11`](./products/cam.h)) deve ser mantido sincronizado com `APP_VERSION` **manualmente** — nao ha script que faca isso.
 - **Incrementar versao** ao fazer deploy com mudancas visuais (CSS/JS/template). Sem isso, o SW entrega cache antigo ate invalidar sozinho (pode levar horas/dias).
+
+---
+
+## Camada de USUARIO (v4.1.12-4.1.22)
+
+Feature enorme adicionada em rodadas: autenticacao completa, perfil, LGPD, 2FA.
+Implementada em `server/usuario/` como blueprints separados.
+
+### Autenticacao (`server/usuario/auth.py` — prefixo `/api/auth`)
+
+| Rota | Metodo | Descricao |
+|---|---|---|
+| `/register` | POST | Cadastro. Exige `accepted_terms=true` + valida formato de email + senha >= 6 chars. Dispara email de verificacao automaticamente. Rate-limit 5/5min por IP |
+| `/login` | POST | `{email, password}` → token (30 dias). Se usuario tem 2FA ativo, primeiro retorna `401 {totp_required: true}`; repetir com `totp_code`. Rate-limit 10/1min |
+| `/me` | GET | Dados do usuario logado (inclui `role`, `email_verified`) |
+| `/logout` | POST | Invalida o token atual |
+| `/forgot-password` | POST | Envia email com link de reset (valido 1h). Anti-enumeration: sempre retorna 200 mesmo pra email inexistente. Rate-limit 3/15min |
+| `/reset-password` | POST | `{token, password}` — valida token + atualiza senha. One-shot (token marcado como usado) |
+| `/verify-email` | GET/POST | Consome token de verificacao (via link no email ou chamada do PWA) |
+| `/resend-verification` | POST | Reenviar email de verificacao pro user logado. Rate-limit 3/10min |
+
+**Rate limiting:** in-memory por IP+endpoint (`_rate_store` dict). Nao escala multi-worker, mas serve pro MVP. Migrar pra Redis quando for preciso.
+
+**Password hashing:** SHA-256 + salt aleatorio de 16 bytes (`salt:hash` format em `password_hash`). Considerar migrar pra bcrypt/argon2 no futuro.
+
+### Perfil do usuario (`server/usuario/profile.py` — prefixo `/api/profile`)
+
+Todas as rotas exigem auth e operam **apenas na propria conta** do usuario.
+
+| Rota | Metodo | Descricao |
+|---|---|---|
+| `/` | GET | Retorna perfil completo (sem `password_hash`). Inclui `email_verified`, `totp_enabled`, `role` |
+| `/` | PUT | Atualiza campos (whitelist em `PROFILE_EDITABLE_FIELDS`): `name`, `phone`, `birth_date`, `notification_email`, endereco (CEP, street, number, complement, neighborhood, city, state), dados fiscais (`person_type='pf'/'pj'`, `tax_id`, `company_name`). Tentativas de alterar `role`, `email` ou `password_hash` sao silenciosamente ignoradas |
+| `/` | DELETE | Deleta a conta. Exige senha atual. Protege ultimo admin. Cascade: remove tokens/subs/reset tokens, despareia modulos, preserva audit_log/alert_log |
+| `/password` | POST | Troca de senha. `{current_password, new_password}`. Ao concluir, invalida TODOS os outros tokens do user (sessao atual mantida) |
+| `/cep/<cep>` | GET | Proxy pra ViaCEP. Evita CORS e permite cache futuro. Retorna campos normalizados (street, neighborhood, city, state) |
+| `/export` | GET | Baixa JSON com todos os dados do user (LGPD — portabilidade). Filename `cultivee-dados-YYYYMMDD.json` |
+| `/2fa/setup` | POST | Gera secret TOTP (base32) + URI pro QR code. Nao ativa ainda |
+| `/2fa/enable` | POST | `{code}` — confirma primeiro codigo, ativa 2FA. Tolera +/-30s drift |
+| `/2fa/disable` | POST | `{password, code}` — desativa exigindo senha + codigo valido |
+| `/sessions` | GET | Lista tokens ativos com `user_agent`, `ip`, `last_used_at`, `created_at`, `scope`. Marca `is_current=true` no atual |
+| `/sessions/<id>` | DELETE | Revoga uma sessao especifica (valida ownership) |
+| `/sessions/revoke-others` | POST | Revoga tudo exceto a atual |
+
+**2FA TOTP** (v4.1.22): usa `pyotp` (Google Authenticator, Authy, 1Password compativel). UI mostra QR code via API externa `api.qrserver.com` (free, sem auth).
+
+### Roles e permissoes
+
+| Role | Descricao |
+|---|---|
+| `user` | Default. Cliente comum — ve/controla so os proprios modulos |
+| `support` | (Reservado) — atendente futuro |
+| `admin` | Acesso total a `/api/admin/*` + gerencia outros users |
+
+**Bootstrap:** na migracao `v4.1.13`, se nao houver admin no sistema, user `id=1` e promovido automaticamente. `count_admins()` garante que nao da pra rebaixar o ultimo admin.
+
+---
+
+## Camada de ADMIN (v4.1.13-4.1.22)
+
+`server/admin/admin.py` com prefixo `/api/admin`. Todas as rotas protegidas por `@require_admin` (401 sem auth, 403 sem role=admin).
+
+### Gerenciamento
+
+| Rota | Metodo | Descricao |
+|---|---|---|
+| `/stats` | GET | Contadores agregados: total/online de modulos, users/admins, alertas 24h, push subs |
+| `/users` | GET | Lista todos os usuarios com contagem de modulos + `last_token_at` estimado |
+| `/users/<id>` | GET | Detalhes de um user + modulos pareados |
+| `/users/<id>/role` | POST | `{role: 'user'/'support'/'admin'}`. Protege ultimo admin |
+| `/users/<id>/force-password-reset` | POST | Gera reset token (1h) + envia email pro user + revoga TODOS os tokens ativos |
+| `/users/<id>/impersonate` | POST | `{minutes: 5-240, view_only: bool}` — gera token curto pro user alvo. Bloqueia: impersonar a si mesmo, impersonar outro admin, user inexistente. Notifica outros admins por email |
+| `/modules` | GET | Lista todos os modulos do sistema com dono (JOIN user_email) |
+| `/modules/<chip_id>/transfer` | POST | `{new_user_id, new_name?}` — muda dono do modulo entre users |
+| `/audit` | GET | Audit log paginado com filtros: `action`, `admin_id`, `from` (date), `to` (date), `limit`, `offset` |
+
+### Audit log
+
+Tabela `audit_log` registra todas as acoes administrativas. Campos: `admin_id`, `admin_email`, `action`, `target_type`, `target_id`, `target_label`, `details` (JSON), `ip`, `user_agent`, `created_at`.
+
+Acoes registradas atualmente:
+- `impersonate` — quando admin usa "Acessar como"
+- `user.role_change` — mudanca de role
+- `user.force_password_reset` — reset forcado
+- `module.transfer` — transferencia entre users
+
+**Retencao:** audit_log e alert_log sao PRESERVADOS mesmo quando user e deletado (compliance + historico legal). Outros dados do user sao cascade-removidos.
+
+### Impersonation (Fase 2 admin)
+
+Fluxo pra admin ver a aplicacao como outro user veria:
+```
+admin clica "Acessar como" (escolhe minutes + view_only)
+  → POST /api/admin/users/<id>/impersonate
+  → backend gera token de 30min (ou customizado 5-240), scope 'full' ou 'readonly'
+  → PWA guarda token do admin em localStorage (keys `_imp_token`, `_imp_user`)
+  → troca token ativo pelo do alvo + reload
+  → Banner laranja/vermelho no topo: "Acessando como X ...Voltar pra admin"
+  → Clicar Voltar: restaura token do admin, reload
+```
+
+**scope=readonly** (view_only=true): middleware em `app.py::_readonly_scope_guard` bloqueia qualquer mutacao — inclusive GETs legados como `/relay`, `/capture`, `/save-config`.
+
+---
+
+## Compliance LGPD (v4.1.20)
+
+O Cultivee atende aos requisitos basicos da LGPD (Lei 13.709/2018):
+
+**Consentimento:**
+- Cadastro exige checkbox "Aceito Termos de Uso e Politica de Privacidade"
+- Timestamp de aceite armazenado em `users.terms_accepted_at`
+- Paginas publicas: `/termos` e `/privacidade` (templates em `server/templates/terms.html`, `privacy.html`)
+
+**Direitos do titular (Art. 18):**
+- **Confirmacao e acesso:** `GET /api/profile/` retorna tudo (sem hash)
+- **Correcao:** `PUT /api/profile/` com whitelist
+- **Portabilidade:** `GET /api/profile/export` → JSON com dados pessoais + modulos pareados + alertas recebidos
+- **Exclusao:** `DELETE /api/profile/` → cascade (remove user, tokens, subs; despareia modulos; preserva historico anonimizado em audit_log/alert_log)
+- **Revogacao:** user pode remover consentimento deletando a conta
+- **Oposicao ao tratamento:** desativar notificacoes no profile (`notification_email=""`)
+
+**Verificacao de email** (v4.1.20):
+- Novos cadastros recebem email com link `/?verify=TOKEN`
+- Coluna `users.email_verified_at` marca quando confirmou
+- Banner azul na UI pede pra confirmar (com botao "Reenviar")
+- Users antigos (pre-v4.1.20) foram marcados como verificados no bootstrap da migracao
+
+---
+
+## Seguranca (v4.1.12-4.1.22)
+
+**Rate limiting** (in-memory por IP+endpoint em `usuario/auth.py`):
+- `/register` — 5 req / 5 min
+- `/login` — 10 req / 1 min (anti brute-force)
+- `/forgot-password` — 3 req / 15 min
+- `/reset-password` — 5 req / 5 min
+- `/resend-verification` — 3 req / 10 min
+- `impersonate`, `role change`, admin actions — sem rate limit (assume trust)
+
+**2FA TOTP** (v4.1.22) — opt-in por user. Quando ativo, login exige `totp_code` no segundo request.
+
+**Session management** (v4.1.22) — user ve todos os seus tokens (`user_agent`, `ip`, `last_used_at`) em "Meus dispositivos" e pode revogar individualmente ou em massa.
+
+**CAPTCHA Turnstile** (v4.1.22 scaffolding) — implementacao completa que se auto-desativa se `TURNSTILE_SITE_KEY` / `TURNSTILE_SECRET` nao estiverem no env. Admin ativa quando quiser — sem necessidade de mudanca de codigo.
+
+**Anti-enumeration:** `/forgot-password` sempre retorna 200 pra emails invalidos ou inexistentes. Evita que atacante descubra quais emails estao cadastrados.
+
+**Impersonation audit:** toda impersonation gera entrada no `audit_log` + email pra outros admins (transparencia multi-admin).
 
 ---
 
@@ -870,3 +1053,59 @@ Se a capability tiver prefixo comum a outra ja existente (ex: `"hidro-sensor"` v
 - **Git:** Mardoqueu Costa (mardo.abc@gmail.com)
 - **Arduino CLI:** `C:/Users/user/arduino-cli/arduino-cli.exe`
 - **WiFi teste:** Mardo-Dri / mardodri1609
+
+---
+
+## Changelog
+
+Historico de versoes significativas. Formato: **`vX.Y.Z`** — `feat`/`fix`/`refactor`: descricao.
+
+### v4.1.x — Commercial-grade (2026-04)
+
+- **v4.1.22** — `feat`: 2FA TOTP (Google Auth/Authy) + session management ("Meus dispositivos") + CAPTCHA scaffolding (Turnstile, auto-desativado sem env keys). Novas colunas: `users.totp_secret/totp_enabled`, `tokens.user_agent/ip/last_used_at`. Depends `pyotp`.
+- **v4.1.21** — `feat`: admin operacional — promover/rebaixar role (`POST /api/admin/users/<id>/role`), forcar reset de senha (`/force-password-reset`), transferir modulo (`/modules/<chip>/transfer`), audit log com filtros (action, admin_id, from, to).
+- **v4.1.20** — `feat`: compliance LGPD + NF-e + verificacao de email + termos. Campos fiscais (PF/PJ, CPF/CNPJ, razao social). Endpoints `DELETE /api/profile/` e `GET /api/profile/export`. Paginas publicas `/termos` e `/privacidade`. Aceite obrigatorio no cadastro.
+- **v4.1.19** — `feat`: admin entra direto no painel de admin apos login (padrao SaaS).
+- **v4.1.18** — `fix`: `loadModules` travava em "Carregando..." pra users com 0 modulos (`_lastModulesKey=''` colidia com chave vazia).
+- **v4.1.17** — `refactor`: split blueprints por camada (`hardware/`, `usuario/`, `admin/`). Zero breaking change — git mv preserva historico.
+- **v4.1.16** — `feat`: area de perfil completa (nome, telefone, endereco BR com ViaCEP, dados fiscais) + troca de senha com verificacao de senha atual + menu dropdown na navbar. Refactor `models.py` -> pacote `models/` (db, users, modules, push, audit).
+- **v4.1.15** — `feat`: admin Fase 3 — audit_log persistido no banco, modo readonly com middleware `@before_request`, duracao configuravel de impersonation (5-240min), notificacao email pra outros admins.
+- **v4.1.14** — `feat`: admin Fase 2 — impersonation completa com banner fixo no topo, restauracao de sessao original.
+- **v4.1.13** — `feat`: admin Fase 1 — painel de admin (stats, users, modules, audit). Coluna `users.role` + bootstrap automatico do user id=1 como admin.
+- **v4.1.12** — `feat`: modulo de autenticacao separado (`bp_auth.py`) + recuperacao de senha completa (forgot-password + reset-password com email) + rate limiting + validacao de email.
+- **v4.1.11** — `fix`: PUT `/api/user/prefs` salvava `{}` em vez do payload (body era string ja-stringificada mas o helper `api()` so setava Content-Type quando body era objeto).
+- **v4.1.10** — `feat`: persistencia de ordem+selecao de modulos no servidor (antes era so localStorage). Coluna `users.module_prefs`. Migracao automatica.
+- **v4.1.9** — `feat`: persistencia do botao "Ao Vivo" da camera apos reload do browser (`cam_live_mode` em ctrl_data + sync servidor).
+
+### v4.1.8 — WiFi telemetry + OTA no Cam
+
+- **v4.1.10 (Cam)** — `feat`: LIVE_MAX_DURATION aumentado de 2min pra 10min.
+- **v4.1.9** — `fix` + sync de `cam_live_mode` no register do ESP32.
+- **v4.1.8** — `feat`: telemetria WiFi (`wifi_last_error`, `wifi_last_connected_ms`, `wifi_disconnect_count`) + callback `WiFi.onEvent()` + `setAutoReconnect(true)`. Cam migrado de `no_ota` pra `min_spiffs` (agora suporta OTA remoto). Fix: server auto-deleta `.bin` apos download pra evitar loop infinito de OTA.
+
+### v4.1.0-4.1.7 — Alertas push + email
+
+- **v4.1.7** — `fix`: threshold configuravel de alerta (1-120 min), timer persistido em `ctrl_data.low_since`, email SMTP via HostGator.
+- **v4.1.0** — `feat`: sistema de alertas completo. Push notifications (VAPID + pywebpush), email SMTP (Message-ID + Date RFC 5322), AlertManager integrado ao register do ESP32.
+
+### v4.0.x — Refactor PWA + OTA Remoto
+
+- **v4.0.16-v4.0.23** — `refactor`: `localStates` Map per-chipId (elimina vazamento de estado entre modulos), `renderSelectedContent` so recria DOM quando selecao muda, headers de modulo (Controle Hidro / Farm / Cam).
+- **v4.0.14-v4.0.15** — `feat`: OTA remoto via servidor (ESP32 baixa `.bin` no proximo poll). Flag `otaRemoteAttempted` pra evitar loop.
+- **v4.0.11-v4.0.13** — `fix`: estado per-chipId (antes vazava entre modulos no cooldown de 35s), merge de server_keys no register (phases/start_date saem da protecao — ESP32 e fonte de verdade).
+
+---
+
+## Quando editar este arquivo?
+
+Sempre que adicionar ou modificar:
+- Novo produto (novo `MOD_*` + `products/*.h`)
+- Novo blueprint ou camada (adicionar em "Servidor: Blueprints")
+- Novos endpoints importantes (adicionar em "Servidor: API")
+- Mudanca de schema do banco (migracao + comentario da versao)
+- Fluxo critico novo (push, OTA, impersonation, etc.)
+
+**Nao editar pra:**
+- Bug fixes pequenos/pontuais (vai no commit message)
+- Refactors internos que nao mudam interface publica
+- Ajustes de UX que nao mudam contrato da API
