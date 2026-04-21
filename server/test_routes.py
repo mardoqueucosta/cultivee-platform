@@ -18,12 +18,19 @@ import urllib.error
 product = sys.argv[1] if len(sys.argv) > 1 else "ctrl"
 env = sys.argv[2] if len(sys.argv) > 2 else "local"
 
+# chip_id + short_id unicos por run — evita colisao entre execucoes paralelas
+# e deixa rastro rastreavel se um modulo orfao sobrar (nome contem timestamp).
+# Cleanup do user ao final (via DELETE /api/profile/) desvincula o modulo, mas o
+# registro do chip fica no banco ate ser reparado ou removido manualmente.
+_RUN_TS = int(time.time())
+_RUN_SHORT = f"T{(_RUN_TS % 900 + 100):03d}"[:4]  # 4 chars: T100..T999
+
 PRODUCTS = {
     "ctrl": {
         "local": "http://localhost:5002",
         "vps": "https://app.cultivee.com.br",
         "prefix": "/api/ctrl",
-        "chip_id": "TEST_CTRL_99", "short_id": "TC99", "caps": ["hidro"],
+        "chip_id": f"TEST_CTRL_{_RUN_TS}", "short_id": _RUN_SHORT, "caps": ["hidro"],
     },
 }
 
@@ -397,6 +404,29 @@ test("POST /api/auth/logout", "POST", "/api/auth/logout", headers=auth,
 
 test("GET /api/auth/me (apos logout)", "GET", "/api/auth/me", headers=auth,
      expect_status=401)
+
+# --- 10. Cleanup (v4.1.28) ---
+# Loga de novo, deleta a conta via LGPD endpoint (tokens, subs, prefs em cascade).
+# O modulo TEST_CTRL_* fica no banco (nao pertence mais a ninguem apos unpair).
+# Ha duas razoes pra deixar o modulo: (1) simula mesmo fluxo do ESP32 real
+# (nunca se auto-remove) e (2) com chip_id unico por run, acumulo e pequeno.
+# Admin pode purgar orfaos antigos periodicamente via painel.
+print("\n[CLEANUP]")
+relogin, _ = test("POST /api/auth/login (cleanup)", "POST", "/api/auth/login",
+                  body={"email": email, "password": "test123"},
+                  expect_key="token")
+cleanup_token = relogin["token"] if relogin else None
+if cleanup_token:
+    cauth = {"Authorization": f"Bearer {cleanup_token}"}
+    test("DELETE /api/profile/ (remove conta de teste)",
+         "DELETE", "/api/profile/",
+         body={"password": "test123"}, headers=cauth,
+         expect_json={"status": "ok"})
+    test("POST /api/auth/login (verifica conta removida)", "POST", "/api/auth/login",
+         body={"email": email, "password": "test123"},
+         expect_status=401)
+else:
+    print("  SKIP cleanup (relogin falhou)")
 
 # --- Resumo ---
 total = passed + failed
