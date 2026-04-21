@@ -4,3 +4,4 @@ gunicorn==23.*
 pillow==11.*
 pywebpush==2.*
 pyotp==2.*
+bcrypt==4.*

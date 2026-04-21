@@ -17,6 +17,10 @@
 #include <time.h>
 #include <Wire.h>
 #include <Update.h>
+#include "esp_system.h"       // v4.1.26: brownout detector (esp_brownout_*)
+#include "esp_ota_ops.h"      // v4.1.26: rollback manual A/B (esp_ota_set_boot_partition)
+#include "soc/rtc_cntl_reg.h" // v4.1.26: RTC_CNTL_BROWN_OUT_REG
+#include "soc/soc.h"
 #include "config.h"
 
 #ifdef MOD_CAM
@@ -77,6 +81,36 @@ unsigned long lastWiFiRetry = 0;
 unsigned long currentPollInterval = REGISTER_INTERVAL;
 unsigned long lastPollCheck = 0;
 #define POLL_FAST_INTERVAL 1000
+
+// v4.1.26: timeout de provisionamento — depois de 30min em MODE_SETUP sem
+// configurar WiFi, cai pra MODE_OFFLINE. Evita AP aberto indefinidamente
+// (consumo + risco de outro cliente achar). Reset vira o botao BOOT (3s).
+unsigned long setupStartMs = 0;
+#define SETUP_MODE_TIMEOUT_MS (30UL * 60UL * 1000UL)  // 30 minutos
+
+// v4.1.26: telemetria + protecao de heap.
+// `min_free_heap` = menor heap ja observado desde o boot (detecta fragmentacao).
+// Se o heap cair abaixo de HEAP_MIN_BYTES, reinicia preventivamente — melhor
+// downtime curto e controlado do que crash aleatorio com NVS corrompido.
+size_t minFreeHeap = 0xFFFFFFFF;
+#define HEAP_MIN_BYTES 5000
+unsigned long lastHeapCheck = 0;
+#define HEAP_CHECK_INTERVAL 10000  // 10s entre checagens
+
+// v4.1.26: OTA A/B rollback manual (sem precisar rebuildar o bootloader).
+// Estrategia:
+//   - NVS guarda "last_good_ver" (versao que ja passou no self-test) e
+//     "boot_attempts" (boots consecutivos SEM chegar a self-test).
+//   - Self-test = 1 register bem-sucedido no servidor (WiFi OK + HTTP 200).
+//   - Se FIRMWARE_VERSION != last_good_ver: incrementa boot_attempts.
+//     Apos self-test OK: last_good_ver=FIRMWARE_VERSION, boot_attempts=0.
+//   - Se boot_attempts >= MAX_BOOT_ATTEMPTS no inicio do setup(), troca pra
+//     outra particao OTA via esp_ota_set_boot_partition() + restart.
+//   Fail safe sem dependencia do bootloader.
+bool otaSelfTestPassed = false;
+int  otaBootAttempts   = 0;
+String otaLastGoodVersion = "";
+#define OTA_MAX_BOOT_ATTEMPTS 3
 
 // ===== VARIAVEIS GLOBAIS HIDRO / HIDRO-FARM =====
 // Compartilhadas — so um dos dois modulos esta ativo por vez (exclusao mutua acima)
@@ -279,6 +313,56 @@ void setup() {
   Serial.begin(115200);
   delay(1000);
 
+  // v4.1.26: A/B rollback check — ANTES de qualquer outra coisa, decide
+  // se a imagem atual e confiavel. Se nao e, troca de particao e reinicia.
+  {
+    prefs.begin("ota_guard", false);
+    otaLastGoodVersion = prefs.getString("last_good", "");
+    otaBootAttempts    = prefs.getInt("attempts", 0);
+    String current     = String(FIRMWARE_VERSION);
+    if (current == otaLastGoodVersion) {
+      // Firmware atual ja foi confirmado antes — trata como valido, zera contador
+      otaBootAttempts = 0;
+      otaSelfTestPassed = true;
+      prefs.putInt("attempts", 0);
+    } else {
+      // Imagem nova (ou ainda nao validada) — conta esta tentativa.
+      otaBootAttempts += 1;
+      prefs.putInt("attempts", otaBootAttempts);
+      Serial.printf("OTA guard: boot #%d da versao %s (last_good=%s)\n",
+        otaBootAttempts, current.c_str(), otaLastGoodVersion.c_str());
+      if (otaBootAttempts > OTA_MAX_BOOT_ATTEMPTS) {
+        const esp_partition_t *cur  = esp_ota_get_running_partition();
+        const esp_partition_t *next = esp_ota_get_next_update_partition(NULL);
+        // "next" aqui eh a OUTRA particao OTA (a anterior, quando rodando na nova)
+        if (next && next != cur) {
+          Serial.printf("OTA guard: %d boots sem self-test — ROLLBACK pra %s\n",
+            otaBootAttempts, next->label);
+          prefs.putInt("attempts", 0);  // zera antes de rebootar na outra
+          prefs.end();
+          esp_ota_set_boot_partition(next);
+          delay(500);
+          ESP.restart();
+        } else {
+          Serial.println("OTA guard: sem particao alternativa (single-slot) — seguindo em modo degradado");
+        }
+      }
+    }
+    prefs.end();
+  }
+
+  // v4.1.26: brownout detector — reset forcado se VDD cair abaixo do limiar.
+  // Sem isso, oscilacoes de rede eletrica (comum no BR) podem corromper NVS
+  // durante escrita. O detector vem habilitado por default no SDK, mas setamos
+  // explicitamente o nivel pra garantir (0=2.43V default, 4=2.70V agressivo).
+  // Nivel 4 evita escrita com tensao marginal — escolha recomendada pra campo.
+  WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG,
+    (1 << 31)        // RTC_CNTL_BROWN_OUT_ENA — habilita
+    | (1 << 30)      // RTC_CNTL_BROWN_OUT_RST_ENA — reset no trigger
+    | (4 << 22)      // RTC_CNTL_DBROWN_OUT_THRES — nivel 4 (~2.70V)
+    | (0x3FF << 8)   // RTC_CNTL_BROWN_OUT_RST_WAIT — espera antes do reset
+  );
+
   // Hardware comum
   pinMode(RESET_BTN, INPUT_PULLUP);
   pinMode(LED_ONBOARD, OUTPUT);
@@ -359,8 +443,37 @@ void setup() {
 
 // ===== LOOP =====
 
+// v4.1.26: vigilancia de heap — atualiza minFreeHeap e reinicia se cair
+// abaixo do threshold. Evita travas silenciosas de uptime alto (~30d+) por
+// fragmentacao acumulada nas construcoes de JSON via `String +=`.
+void checkHeapHealth() {
+  if (millis() - lastHeapCheck < HEAP_CHECK_INTERVAL) return;
+  lastHeapCheck = millis();
+  size_t free = ESP.getFreeHeap();
+  if (free < minFreeHeap) minFreeHeap = free;
+  if (free < HEAP_MIN_BYTES) {
+    Serial.printf("!!! Heap critico (%u bytes). Reiniciando para recuperar !!!\n", (unsigned)free);
+    delay(500);
+    ESP.restart();
+  }
+}
+
+// v4.1.26: se ficamos 30min em MODE_SETUP sem configurar WiFi, cai pra OFFLINE.
+// AP continua ativo (permite controle local), mas encerra o captive portal
+// agressivo. Reset via botao BOOT (3s) volta pro SETUP quando o usuario quiser.
+void checkSetupTimeout() {
+  if (currentMode != MODE_SETUP) { setupStartMs = 0; return; }
+  if (setupStartMs == 0) { setupStartMs = millis(); return; }
+  if (millis() - setupStartMs < SETUP_MODE_TIMEOUT_MS) return;
+  Serial.println("SETUP timeout 30min — caindo pra MODE_OFFLINE (AP ativo, controle local)");
+  currentMode = MODE_OFFLINE;
+  setupStartMs = 0;
+}
+
 void loop() {
   checkResetButton();
+  checkHeapHealth();
+  checkSetupTimeout();
 
   handleSerialCommands();
   dnsServer.processNextRequest();

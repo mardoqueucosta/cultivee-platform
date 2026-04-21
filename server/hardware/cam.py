@@ -25,6 +25,22 @@ THUMB_DIR = pathlib.Path(os.environ.get("DATA_DIR", "data")) / "thumbs"
 LIVE_DIR = pathlib.Path(os.environ.get("DATA_DIR", "data")) / "live"
 THUMB_SIZE = (200, 150)
 
+# Limite de upload de imagens do ESP32 (bytes). Fotos UXGA q4 raramente passam de 400KB;
+# 5MB cobre com folga e evita ESP32 comprometido encher o disco.
+MAX_UPLOAD_BYTES = 5 * 1024 * 1024
+
+
+def _safe_join(base: pathlib.Path, *parts: str) -> pathlib.Path | None:
+    """Junta partes validando que o resultado esta dentro de base (previne path traversal).
+    Retorna o Path resolvido ou None se houver tentativa de escape."""
+    try:
+        target = (base.joinpath(*parts)).resolve()
+        base_resolved = base.resolve()
+        target.relative_to(base_resolved)
+        return target
+    except (ValueError, OSError):
+        return None
+
 
 def generate_thumbnail(chip_id, filename, img_data, folder=""):
     """Gera thumbnail 200x150 a partir dos bytes JPEG."""
@@ -97,11 +113,16 @@ def upload_capture(chip_id):
     img_data = request.get_data()
     if not img_data or len(img_data) < 100:
         return jsonify({"error": "Imagem vazia"}), 400
+    if len(img_data) > MAX_UPLOAD_BYTES:
+        log.warning(f"Upload rejeitado [{chip_id[:4]}]: {len(img_data)} bytes > {MAX_UPLOAD_BYTES}")
+        return jsonify({"error": "Imagem muito grande"}), 413
 
     # Salva na pasta ativa (capture_folder) ou _sem-pasta
     capture_cfg = models.get_capture_config(chip_id)
     folder = capture_cfg.get("capture_folder", "") or "_sem-pasta"
-    save_dir = CAPTURE_DIR / chip_id / folder
+    save_dir = _safe_join(CAPTURE_DIR, chip_id, folder)
+    if save_dir is None:
+        return jsonify({"error": "Caminho invalido"}), 400
     save_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"{timestamp}.jpg"
@@ -126,7 +147,9 @@ def image(chip_id, filename):
     if not module:
         return jsonify({"error": "Nao autorizado"}), 403
 
-    filepath = CAPTURE_DIR / chip_id / filename
+    filepath = _safe_join(CAPTURE_DIR, chip_id, filename)
+    if filepath is None:
+        return jsonify({"error": "Caminho invalido"}), 400
     if not filepath.exists() or not filepath.is_file():
         return jsonify({"error": "Imagem nao encontrada"}), 404
 
@@ -151,13 +174,17 @@ def thumb(chip_id, filename):
         return jsonify({"error": "Nao autorizado"}), 403
 
     # Tenta thumb, fallback pra imagem original
-    thumb_path = THUMB_DIR / chip_id / filename
-    if thumb_path.exists():
+    thumb_path = _safe_join(THUMB_DIR, chip_id, filename)
+    if thumb_path is None:
+        return jsonify({"error": "Caminho invalido"}), 400
+    if thumb_path.exists() and thumb_path.is_file():
         return Response(thumb_path.read_bytes(), mimetype="image/jpeg",
                         headers={"Cache-Control": "public, max-age=86400"})
 
-    filepath = CAPTURE_DIR / chip_id / filename
-    if not filepath.exists():
+    filepath = _safe_join(CAPTURE_DIR, chip_id, filename)
+    if filepath is None:
+        return jsonify({"error": "Caminho invalido"}), 400
+    if not filepath.exists() or not filepath.is_file():
         return jsonify({"error": "Imagem nao encontrada"}), 404
     return Response(filepath.read_bytes(), mimetype="image/jpeg",
                     headers={"Cache-Control": "public, max-age=86400"})
@@ -227,6 +254,8 @@ def live_frame(chip_id):
         img_data = request.get_data()
         if not img_data or len(img_data) < 100:
             return jsonify({"error": "Frame vazio"}), 400
+        if len(img_data) > MAX_UPLOAD_BYTES:
+            return jsonify({"error": "Frame muito grande"}), 413
 
         with _live_lock:
             _live_frames[chip_id] = {"data": img_data, "ts": time.time()}

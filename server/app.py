@@ -33,6 +33,12 @@ log = logging.getLogger(__name__)
 
 app = Flask(__name__, static_folder="static", static_url_path="/static")
 
+# v4.1.26: Limite global de request body (6MB). ESP32 envia fotos UXGA que raramente
+# passam de 400KB; upload de firmware .bin fica ~1.3MB. 6MB cobre ambos com folga e
+# evita que um cliente comprometido encha RAM/disco com uploads gigantes.
+# Blueprints individuais (cam.py) podem ter limites mais apertados.
+app.config["MAX_CONTENT_LENGTH"] = 6 * 1024 * 1024
+
 # v4.1.23: ProxyFix — honra X-Forwarded-* do Traefik (scheme, host, IP real)
 # Sem isso, request.scheme sempre volta "http" (mesmo atras de HTTPS),
 # request.remote_addr volta o IP do proxy e nao do cliente, e request.host
@@ -250,14 +256,22 @@ def register_module():
             log.info(f"Captura agendada: {chip_id} (intervalo={interval}s)")
 
     # OTA remoto: se existe firmware pendente pra esse chip, inclui URL de download
+    # + SHA-256 pre-calculado (v4.1.26). ESP32 valida antes de aplicar.
     import pathlib
     _fw_dir = pathlib.Path(os.environ.get("DATA_DIR", "data")) / "firmware"
     _fw_path = _fw_dir / f"{chip_id}.bin"
+    _sha_path = _fw_dir / f"{chip_id}.sha256"
     firmware_url = None
+    firmware_sha256 = None
     if _fw_path.exists():
         # Usa HTTP (nao HTTPS) porque o ESP32 nao faz TLS
         firmware_url = f"http://{request.host}/api/modules/{chip_id}/firmware"
-        log.info(f"OTA remoto: firmware pendente pra {chip_id} ({_fw_path.stat().st_size} bytes)")
+        if _sha_path.exists():
+            try:
+                firmware_sha256 = _sha_path.read_text(encoding="utf-8").strip()
+            except OSError:
+                firmware_sha256 = None
+        log.info(f"OTA remoto: firmware pendente pra {chip_id} ({_fw_path.stat().st_size} bytes, sha={firmware_sha256 or 'ausente'})")
 
     log.info(f"Modulo registrado: {module_type} {chip_id} ({short_id}) IP={ip} poll={poll_interval}ms")
     return jsonify({
@@ -269,6 +283,7 @@ def register_module():
         "cam_resolution": capture_cfg["cam_resolution"],
         "cam_quality": capture_cfg["cam_quality"],
         "firmware_url": firmware_url,
+        "firmware_sha256": firmware_sha256,
     })
 
 
@@ -278,7 +293,8 @@ def register_module():
 
 @app.route("/api/modules/<chip_id>/firmware", methods=["POST"])
 def firmware_upload(chip_id):
-    """Upload de firmware .bin para OTA remoto. Requer auth + modulo pertence ao usuario."""
+    """Upload de firmware .bin para OTA remoto. Requer auth + modulo pertence ao usuario.
+    v4.1.26: calcula SHA-256 e armazena em <chip_id>.sha256 para o ESP32 validar."""
     user = require_auth_func()
     if not user:
         return jsonify({"error": "Nao autenticado"}), 401
@@ -290,15 +306,27 @@ def firmware_upload(chip_id):
     if not file:
         return jsonify({"error": "Campo 'firmware' obrigatorio (multipart form)"}), 400
 
+    import hashlib
     import pathlib
     fw_dir = pathlib.Path(os.environ.get("DATA_DIR", "data")) / "firmware"
     fw_dir.mkdir(parents=True, exist_ok=True)
     fw_path = fw_dir / f"{chip_id}.bin"
-    file.save(str(fw_path))
+    sha_path = fw_dir / f"{chip_id}.sha256"
+
+    # Le o arquivo uma vez: salva + hasheia. Arquivo .bin cabe em RAM (~1.3MB).
+    blob = file.read()
+    fw_path.write_bytes(blob)
+    digest = hashlib.sha256(blob).hexdigest()
+    sha_path.write_text(digest, encoding="utf-8")
 
     size = fw_path.stat().st_size
-    log.info(f"OTA remoto: firmware recebido pra {chip_id} ({size} bytes)")
-    return jsonify({"status": "ok", "size": size, "message": f"Firmware salvo. ESP32 vai baixar no proximo register (~10s)."})
+    log.info(f"OTA remoto: firmware recebido pra {chip_id} ({size} bytes, sha256={digest})")
+    return jsonify({
+        "status": "ok",
+        "size": size,
+        "sha256": digest,
+        "message": f"Firmware salvo. ESP32 vai baixar no proximo register (~10s).",
+    })
 
 
 @app.route("/api/modules/<chip_id>/firmware", methods=["GET"])
@@ -312,7 +340,9 @@ def firmware_download(chip_id):
     Se o download falhar no ESP32, o usuario precisa fazer upload novamente.
     """
     import pathlib
-    fw_path = pathlib.Path(os.environ.get("DATA_DIR", "data")) / "firmware" / f"{chip_id}.bin"
+    _fw_dir = pathlib.Path(os.environ.get("DATA_DIR", "data")) / "firmware"
+    fw_path = _fw_dir / f"{chip_id}.bin"
+    sha_path = _fw_dir / f"{chip_id}.sha256"
     if not fw_path.exists():
         return jsonify({"error": "Sem firmware pendente"}), 404
 
@@ -321,10 +351,13 @@ def firmware_download(chip_id):
 
     @after_this_request
     def remove_after_download(response):
+        # v4.1.26: remove .bin + .sha256 juntos (sidecar do hash)
         try:
             if fw_path.exists():
                 fw_path.unlink()
                 log.info(f"OTA remoto: {chip_id}.bin removido apos download ({size} bytes) — loop prevenido")
+            if sha_path.exists():
+                sha_path.unlink()
         except Exception as e:
             log.error(f"OTA remoto: falha ao remover {chip_id}.bin: {e}")
         return response
@@ -344,9 +377,16 @@ def firmware_delete(chip_id):
         return jsonify({"error": "Nao autenticado"}), 401
 
     import pathlib
-    fw_path = pathlib.Path(os.environ.get("DATA_DIR", "data")) / "firmware" / f"{chip_id}.bin"
+    _fw_dir = pathlib.Path(os.environ.get("DATA_DIR", "data")) / "firmware"
+    fw_path = _fw_dir / f"{chip_id}.bin"
+    sha_path = _fw_dir / f"{chip_id}.sha256"
+    removed = False
     if fw_path.exists():
         fw_path.unlink()
+        removed = True
+    if sha_path.exists():
+        sha_path.unlink()
+    if removed:
         log.info(f"OTA remoto: firmware removido pra {chip_id}")
         return jsonify({"status": "ok", "message": "Firmware pendente removido"})
     return jsonify({"status": "ok", "message": "Nenhum firmware pendente"})

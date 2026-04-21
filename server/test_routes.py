@@ -134,17 +134,21 @@ print("\n[AUTH]")
 email = f"test_{int(time.time())}@test.com"
 
 resp, _ = test("POST /api/auth/register", "POST", "/api/auth/register",
-               body={"email": email, "password": "test123", "name": "Teste Auto"},
+               body={"email": email, "password": "test123", "name": "Teste Auto", "accepted_terms": True},
                expect_key="token")
 token = resp["token"] if resp else None
 auth = {"Authorization": f"Bearer {token}"} if token else {}
 
 test("POST /api/auth/register (duplicado)", "POST", "/api/auth/register",
-     body={"email": email, "password": "test123", "name": "Teste"},
+     body={"email": email, "password": "test123", "name": "Teste", "accepted_terms": True},
      expect_status=409, expect_json={"error": "Email ja cadastrado"})
 
 test("POST /api/auth/register (sem dados)", "POST", "/api/auth/register",
      body={}, expect_status=400)
+
+test("POST /api/auth/register (sem aceitar termos)", "POST", "/api/auth/register",
+     body={"email": f"reject_{int(time.time())}@test.com", "password": "test123", "name": "Teste"},
+     expect_status=400)
 
 resp, _ = test("POST /api/auth/login", "POST", "/api/auth/login",
                body={"email": email, "password": "test123"},

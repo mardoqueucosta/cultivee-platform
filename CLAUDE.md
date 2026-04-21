@@ -31,9 +31,9 @@ Plataforma IoT para cultivo inteligente. Arquitetura modular:
 Hardware especializado: cada ESP32 faz uma coisa so.
 Composicao por software: o app mostra os modulos que o usuario adicionar.
 
-Versao ativa: **v4.1.25** (backend/PWA) — definida como fonte unica em [`server/config.py:24`](./server/config.py) (`APP_VERSION`).
+Versao ativa: **v4.1.26** (backend/PWA) — definida como fonte unica em [`server/config.py:24`](./server/config.py) (`APP_VERSION`).
 
-Firmware: **v4.1.8** (Hidro-Farm, Hidro) e **v4.1.10** (Cam) — replicado manualmente em [`products/hidro.h:11`](./products/hidro.h), [`products/hidro-farm.h:16`](./products/hidro-farm.h) e [`products/cam.h:11`](./products/cam.h) (`FIRMWARE_VERSION`).
+Firmware: **v4.1.26** em todos os produtos — sincronizado automaticamente via [`sync-version.sh`](./sync-version.sh) em [`products/hidro.h:11`](./products/hidro.h), [`products/hidro-farm.h:16`](./products/hidro-farm.h) e [`products/cam.h:11`](./products/cam.h) (`FIRMWARE_VERSION`). Rode `bash sync-version.sh --write` antes de recompilar.
 
 Tres produtos ativos: **HIDRO** (4 reles, automacao por fase), **HIDRO-FARM** (Premium — 6 reles, 4 automatizados + 2 manuais puros), **CAM** (camera standalone com OTA desde v4.1.8).
 
@@ -1074,6 +1074,7 @@ Historico de versoes significativas. Formato: **`vX.Y.Z`** — `feat`/`fix`/`ref
 
 ### v4.1.x — Commercial-grade (2026-04)
 
+- **v4.1.26** — `feat`+`fix`: rodada completa de hardening pre-comercial. **Segurança:** path traversal corrigido em `hardware/cam.py` (helper `_safe_join`), `MAX_CONTENT_LENGTH=6MB` global + `MAX_UPLOAD_BYTES=5MB` por request, senha migra para `bcrypt` (rounds=12) transparentemente no login (rehash automatico), escape HTML em todos os `innerHTML` de dados (lista de modulos, fases, admin users/modules). **LGPD:** `delete_user_cascade` agora purga `captures/`, `thumbs/`, `live/` e firmware pendente do usuario excluido. **Firmware:** brownout detector nivel 4 (~2.7V), telemetria + protecao de heap com `min_free_heap` (restart <5kB), timeout 30min em `MODE_SETUP`, validacao SHA-256 obrigatoria no OTA remoto (firmware aborta e preserva versao anterior se hash nao bater), rollback A/B manual por NVS + `esp_ota_set_boot_partition` se 3 boots consecutivos falharem self-test. **Ops:** `sync-version.sh` alinha `FIRMWARE_VERSION` ao `APP_VERSION`, `backup-vps.sh` com `.backup` online + manifest SHA-256 e fluxo `--restore`. **Docs:** [`docs/manual-usuario.md`](./docs/manual-usuario.md) consumidor final, [`docs/operacao.md`](./docs/operacao.md) Uptime Robot + incidente, [`docs/lgpd-aipd.md`](./docs/lgpd-aipd.md) AIPD draft, [`docs/termos-uso.md`](./docs/termos-uso.md) minuta legal, [`docs/license-gate.md`](./docs/license-gate.md) modelo de monetizacao.
 - **v4.1.25** — `feat`(admin): modal custom com dropdown pra alterar nivel do user (antes era `prompt()` do navegador — feio, permitia digitacao livre, ruim em mobile). Segue o mesmo padrao visual do modal de impersonation (header + botao fechar + Cancelar + acao primaria). Cada opcao do select tem descricao curta do que o nivel faz.
 - **v4.1.24** — `i18n`(admin): traducao completa da area administrativa pra PT. Botoes ("Role"→"Nivel", "Reset pwd"→"Resetar senha"), colunas ("Mods"→"Modulos"), badges de nivel ("Support"→"Suporte"), Audit Log→"Registro de Acoes", mapper visual dos action types (`impersonate`→"Acesso como", `user.role_change`→"Mudanca de nivel", etc.). Valores internos da API continuam em ingles (chaves tecnicas, nao quebra filtros nem historico).
 - **v4.1.23** — `feat`(security): Rodada 1 de infra comercial. Adiciona security headers completos (HSTS, CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy) via `@app.after_request` — pulados em endpoints do ESP32 pra economizar banda. Aplica `ProxyFix` do Werkzeug pra honrar `X-Forwarded-*` do Traefik (necessario pra HSTS detectar HTTPS, e pra IP real em rate limit/audit).

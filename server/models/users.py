@@ -5,28 +5,109 @@ Tudo relacionado ao usuario em si (identidade, sessao, permissao).
 Nao inclui modulos do hardware — isso vive em models.modules.
 """
 
+import os
+import shutil
+import pathlib
 import sqlite3
 import hashlib
 import secrets
 import json
+import logging
 from datetime import datetime, timedelta
+
+try:
+    import bcrypt
+    _BCRYPT_AVAILABLE = True
+except ImportError:  # pragma: no cover - fallback defensivo
+    bcrypt = None
+    _BCRYPT_AVAILABLE = False
 
 from .db import get_db
 
+log = logging.getLogger(__name__)
+
 
 # =====================================================================
-# Password hashing
+# Password hashing (v4.1.26 — bcrypt com migracao transparente de SHA-256)
 # =====================================================================
+#
+# Formato:
+#   - Novos hashes: "bcrypt$<bcrypt_hash>" (bcrypt rounds=12 por padrao)
+#   - Legados SHA-256: "<salt_hex>:<sha256_hex>" (sem prefixo) — validos para login,
+#     migrados automaticamente para bcrypt no primeiro login bem-sucedido via
+#     check_password_and_upgrade().
+#
+# Objetivo: hashes legados continuam funcionando; novos usuarios e resets ja usam
+# bcrypt; senhas em uso migram sozinhas ao longo do tempo, sem exigir reset forcado.
+
+_BCRYPT_PREFIX = "bcrypt$"
+_BCRYPT_ROUNDS = 12
+
+
+def _hash_bcrypt(password: str) -> str:
+    if not _BCRYPT_AVAILABLE:
+        # Fallback extremo se bcrypt nao estiver instalado — mantem login funcionando
+        salt = secrets.token_hex(16)
+        h = hashlib.sha256((salt + password).encode()).hexdigest()
+        return f"{salt}:{h}"
+    digest = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt(rounds=_BCRYPT_ROUNDS))
+    return _BCRYPT_PREFIX + digest.decode("utf-8")
+
+
+def _check_bcrypt(password: str, stored: str) -> bool:
+    if not _BCRYPT_AVAILABLE:
+        return False
+    try:
+        return bcrypt.checkpw(password.encode("utf-8"), stored[len(_BCRYPT_PREFIX):].encode("utf-8"))
+    except (ValueError, TypeError):
+        return False
+
+
+def _check_sha256_legacy(password: str, stored: str) -> bool:
+    try:
+        salt, h = stored.split(":", 1)
+    except ValueError:
+        return False
+    return hashlib.sha256((salt + password).encode()).hexdigest() == h
+
 
 def hash_password(password):
-    salt = secrets.token_hex(16)
-    h = hashlib.sha256((salt + password).encode()).hexdigest()
-    return f"{salt}:{h}"
+    """Hash novo sempre em bcrypt (se disponivel). Legado SHA-256 so aparece
+    em hashes antigos no banco — nunca criado a partir daqui."""
+    return _hash_bcrypt(password)
 
 
 def check_password(password, password_hash):
-    salt, h = password_hash.split(":")
-    return hashlib.sha256((salt + password).encode()).hexdigest() == h
+    """Valida senha contra hash armazenado (bcrypt ou SHA-256 legado)."""
+    if not password_hash:
+        return False
+    if password_hash.startswith(_BCRYPT_PREFIX):
+        return _check_bcrypt(password, password_hash)
+    return _check_sha256_legacy(password, password_hash)
+
+
+def needs_rehash(password_hash):
+    """True se o hash atual nao esta no algoritmo preferido (bcrypt)."""
+    if not password_hash:
+        return False
+    return not password_hash.startswith(_BCRYPT_PREFIX)
+
+
+def check_password_and_upgrade(user_id, password, password_hash):
+    """
+    Verifica a senha e, se valida E o hash esta em formato legado, faz rehash
+    em bcrypt e persiste. Chamado pelo login para migracao transparente.
+    Retorna True se a senha bater, False caso contrario.
+    """
+    if not check_password(password, password_hash):
+        return False
+    if _BCRYPT_AVAILABLE and needs_rehash(password_hash):
+        try:
+            update_user_password(user_id, password)
+            log.info(f"Hash de senha migrado para bcrypt: user_id={user_id}")
+        except Exception as e:  # pragma: no cover
+            log.warning(f"Falha ao migrar hash bcrypt user_id={user_id}: {e}")
+    return True
 
 
 # =====================================================================
@@ -91,8 +172,18 @@ def delete_user_cascade(user_id):
       - Modulos pareados: user_id setado pra NULL (modulo fica "livre", pode ser repareado)
       - audit_log: MANTIDO (registros historicos — admin_email preservado)
       - alert_log: MANTIDO (historico)
+      - Arquivos fisicos (v4.1.26 — LGPD direito ao esquecimento):
+        captures/<chip_id>/, thumbs/<chip_id>/ dos modulos do usuario sao apagados.
+        Firmware pendente tambem. Modulo vira "livre" mas sem historico de imagens
+        do dono anterior.
     """
     conn = get_db()
+    # Captura chip_ids ANTES de despareciar, senao perdemos a ligacao
+    chip_rows = conn.execute(
+        "SELECT chip_id FROM modules WHERE user_id = ?", (user_id,)
+    ).fetchall()
+    chip_ids = [r["chip_id"] for r in chip_rows]
+
     conn.execute("DELETE FROM tokens WHERE user_id = ?", (user_id,))
     conn.execute("DELETE FROM password_reset_tokens WHERE user_id = ?", (user_id,))
     conn.execute("DELETE FROM push_subscriptions WHERE user_id = ?", (user_id,))
@@ -100,6 +191,37 @@ def delete_user_cascade(user_id):
     conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
     conn.commit()
     conn.close()
+
+    _purge_user_files(chip_ids)
+
+
+def _purge_user_files(chip_ids):
+    """Remove pastas de capturas, thumbs e firmware pendente dos chips informados.
+    Silencia erros individuais para nao bloquear o delete — loga para auditoria."""
+    if not chip_ids:
+        return
+    data_dir = pathlib.Path(os.environ.get("DATA_DIR", "data"))
+    targets = [
+        data_dir / "captures",
+        data_dir / "thumbs",
+        data_dir / "live",
+    ]
+    for chip_id in chip_ids:
+        for base in targets:
+            chip_folder = base / chip_id
+            if chip_folder.exists() and chip_folder.is_dir():
+                try:
+                    shutil.rmtree(chip_folder)
+                    log.info(f"LGPD purge: removido {chip_folder}")
+                except OSError as e:
+                    log.warning(f"LGPD purge: falha removendo {chip_folder}: {e}")
+        fw_file = data_dir / "firmware" / f"{chip_id}.bin"
+        if fw_file.exists():
+            try:
+                fw_file.unlink()
+                log.info(f"LGPD purge: removido firmware pendente {fw_file}")
+            except OSError as e:
+                log.warning(f"LGPD purge: falha removendo {fw_file}: {e}")
 
 
 def export_user_data(user_id):

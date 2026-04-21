@@ -285,7 +285,9 @@ def login():
         return jsonify({"error": "Email e senha obrigatorios"}), 400
 
     user = models.get_user_by_email(email)
-    if not user or not models.check_password(password, user["password_hash"]):
+    # v4.1.26: check_password_and_upgrade migra SHA-256 legado -> bcrypt no
+    # primeiro login bem-sucedido. Transparente pro usuario.
+    if not user or not models.check_password_and_upgrade(user["id"], password, user["password_hash"]):
         return jsonify({"error": "Email ou senha invalidos"}), 401
 
     # v4.1.22: checa 2FA se habilitado

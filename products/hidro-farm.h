@@ -13,7 +13,7 @@
 #define PRODUCT_HIDRO_FARM_H
 
 // ===== VERSAO =====
-#define FIRMWARE_VERSION   "4.1.8"
+#define FIRMWARE_VERSION   "4.1.26"
 
 // ===== MODULOS ATIVOS =====
 #define MOD_HIDROFARM

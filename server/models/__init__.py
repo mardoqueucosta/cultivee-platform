@@ -28,6 +28,8 @@ from .users import (
     # password
     hash_password,
     check_password,
+    check_password_and_upgrade,
+    needs_rehash,
     # CRUD
     create_user,
     get_user_by_email,

@@ -5,6 +5,9 @@
 #ifndef CORE_REGISTER_H
 #define CORE_REGISTER_H
 
+#include "mbedtls/sha256.h"  // v4.1.26: valida SHA-256 do firmware OTA
+#include "esp_ota_ops.h"     // v4.1.26: esp_ota_mark_app_valid_cancel_rollback
+
 // ===================== JSON HELPERS =====================
 
 String jsonVal(String json, String key) {
@@ -126,12 +129,30 @@ void pollCommands() {
 
 bool otaRemoteAttempted = false;  // Reseta no reboot (RAM, nao NVS)
 
-void performRemoteOTA(String url) {
+// v4.1.26: converte 32 bytes binarios pra hex lowercase (64 chars + \0)
+static void sha256BytesToHex(const unsigned char *bytes, char *out) {
+  static const char hex[] = "0123456789abcdef";
+  for (int i = 0; i < 32; i++) {
+    out[i * 2]     = hex[(bytes[i] >> 4) & 0xF];
+    out[i * 2 + 1] = hex[bytes[i] & 0xF];
+  }
+  out[64] = '\0';
+}
+
+// v4.1.26: OTA remoto com validacao de SHA-256 + abort sem gravar na particao ativa.
+// `expectedSha` em hex lowercase ou "" se o servidor nao enviou hash (legado).
+// Se o hash nao bater: Update.end(false) (nao aplica), firmware atual continua ativo.
+void performRemoteOTA(String url, String expectedSha) {
   if (otaRemoteAttempted) return;  // Ja tentou neste boot — espera proximo reboot
   otaRemoteAttempted = true;
 
   Serial.println("=== OTA REMOTO ===");
   Serial.println("Baixando: " + url);
+  if (expectedSha.length() == 64) {
+    Serial.println("Hash esperado: " + expectedSha);
+  } else {
+    Serial.println("AVISO: servidor nao enviou hash SHA-256 — validacao de integridade desabilitada");
+  }
 
   HTTPClient http;
   http.begin(url);
@@ -159,16 +180,72 @@ void performRemoteOTA(String url) {
     return;
   }
 
+  // v4.1.26: calcula SHA-256 incrementalmente durante o download.
+  // Buffer de 1024B: equilibrio entre overhead HTTP e alocacao RAM.
+  mbedtls_sha256_context shaCtx;
+  mbedtls_sha256_init(&shaCtx);
+  mbedtls_sha256_starts(&shaCtx, 0);  // 0 = SHA-256 (vs SHA-224)
+
   WiFiClient *stream = http.getStreamPtr();
-  size_t written = Update.writeStream(*stream);
+  uint8_t buf[1024];
+  size_t written = 0;
+  unsigned long lastData = millis();
+  const unsigned long STREAM_TIMEOUT = 15000;  // 15s sem bytes = abort
+
+  while (written < (size_t)contentLength) {
+    size_t avail = stream->available();
+    if (avail == 0) {
+      if (millis() - lastData > STREAM_TIMEOUT) {
+        Serial.println("OTA remoto: stream stalled — abortando");
+        Update.end(false);
+        mbedtls_sha256_free(&shaCtx);
+        http.end();
+        return;
+      }
+      delay(10);
+      continue;
+    }
+    size_t toRead = avail > sizeof(buf) ? sizeof(buf) : avail;
+    int n = stream->readBytes(buf, toRead);
+    if (n <= 0) { delay(10); continue; }
+    lastData = millis();
+    mbedtls_sha256_update(&shaCtx, buf, n);
+    size_t w = Update.write(buf, n);
+    if (w != (size_t)n) {
+      Serial.printf("OTA remoto: Update.write falhou (%u/%d): %s\n", (unsigned)w, n, Update.errorString());
+      Update.end(false);
+      mbedtls_sha256_free(&shaCtx);
+      http.end();
+      return;
+    }
+    written += n;
+  }
+
+  unsigned char digest[32];
+  mbedtls_sha256_finish(&shaCtx, digest);
+  mbedtls_sha256_free(&shaCtx);
+
+  char hexDigest[65];
+  sha256BytesToHex(digest, hexDigest);
+  Serial.printf("Hash calculado: %s\n", hexDigest);
+
+  // Se o servidor mandou hash, DEVE bater — senao, aborta sem marcar particao como valida.
+  if (expectedSha.length() == 64 && !expectedSha.equalsIgnoreCase(String(hexDigest))) {
+    Serial.println("OTA remoto: HASH MISMATCH — firmware nao aplicado (firmware atual preservado).");
+    Update.end(false);
+    http.end();
+    return;
+  }
 
   if (written == (size_t)contentLength && Update.end(true)) {
-    Serial.printf("OTA remoto: SUCESSO! %u bytes gravados. Reiniciando em 2s...\n", written);
+    Serial.printf("OTA remoto: SUCESSO! %u bytes gravados%s. Reiniciando em 2s...\n",
+      (unsigned)written,
+      (expectedSha.length() == 64) ? " (SHA-256 OK)" : "");
     http.end();
     delay(2000);
     ESP.restart();
   } else {
-    Serial.printf("OTA remoto: ERRO — escreveu %u/%d bytes: %s\n", written, contentLength, Update.errorString());
+    Serial.printf("OTA remoto: ERRO — escreveu %u/%d bytes: %s\n", (unsigned)written, contentLength, Update.errorString());
     Update.end(false);
   }
 
@@ -253,11 +330,33 @@ void registerOnServer() {
   json += ",\"wifi_last_connected_ms\":" + String(wifiLastConnectedMs);
   json += ",\"wifi_disconnect_count\":" + String(wifiDisconnectCount);
 
+  // v4.1.26: min_free_heap — menor heap observado desde o boot.
+  // Permite suporte detectar fragmentacao antes do crash (free_heap atual
+  // pode parecer OK mas o piso ja estar perto do limite).
+  extern size_t minFreeHeap;
+  json += ",\"min_free_heap\":" + String((unsigned long)minFreeHeap);
+
   json += "}}";
 
   int code = http.POST(json);
   if (code == 200) {
     String response = http.getString();
+
+    // v4.1.26: primeiro register bem-sucedido = self-test OTA passou.
+    // Marca a versao atual como "good" no NVS para que um rollback so
+    // aconteca se nem isto conseguir (WiFi + HTTP 200 do servidor real).
+    extern bool otaSelfTestPassed;
+    if (!otaSelfTestPassed) {
+      otaSelfTestPassed = true;
+      prefs.begin("ota_guard", false);
+      prefs.putString("last_good", String(FIRMWARE_VERSION));
+      prefs.putInt("attempts", 0);
+      prefs.end();
+      // API oficial do ESP-IDF — no-op se bootloader rollback nao esta ativado,
+      // mas nao custa nada: limpa flag ESP_OTA_IMG_PENDING_VERIFY quando presente
+      esp_ota_mark_app_valid_cancel_rollback();
+      Serial.printf("OTA guard: self-test OK — versao %s marcada como boa\n", FIRMWARE_VERSION);
+    }
 
     int piKey = response.indexOf("\"poll_interval\":");
     if (piKey >= 0) {
@@ -270,15 +369,17 @@ void registerOnServer() {
       }
     }
 
-    // OTA remoto: se o servidor retornou firmware_url, baixa e aplica
+    // OTA remoto: se o servidor retornou firmware_url, baixa e aplica.
+    // v4.1.26: tambem extrai firmware_sha256 (opcional) pra validar integridade.
     int fwKey = response.indexOf("\"firmware_url\":\"");
     if (fwKey >= 0) {
       int fwStart = fwKey + 16;  // pula ate apos o segundo "
       int fwEnd = response.indexOf("\"", fwStart);
       if (fwEnd > fwStart) {
         String fwUrl = response.substring(fwStart, fwEnd);
+        String fwSha = jsonVal(response, "firmware_sha256");
         http.end();  // Libera a conexao HTTP antes de iniciar o download OTA
-        performRemoteOTA(fwUrl);
+        performRemoteOTA(fwUrl, fwSha);
         // Se chegar aqui, OTA falhou (nao reiniciou). Continua normalmente.
         return;  // Sai do register — proximo ciclo tenta de novo (se nao tentou ainda)
       }

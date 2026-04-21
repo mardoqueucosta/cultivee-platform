@@ -26,6 +26,25 @@ let token = localStorage.getItem(`${STORAGE_PREFIX}_token`);
 let user = JSON.parse(localStorage.getItem(`${STORAGE_PREFIX}_user`) || "null");
 let modules = [];
 
+// v4.1.26: escape de texto inserido em HTML via innerHTML / template literal
+// Usar sempre que o valor venha do banco (nome de modulo, fase, user, email) ou
+// de resposta de API. Nao preciso escapar chipId (formato hex controlado), nem
+// numeros, nem constantes do proprio app.
+function escapeHtml(s) {
+    if (s === null || s === undefined) return '';
+    return String(s)
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');
+}
+// Variante para atributos onclick='...' — escapa tambem backslash e quebra de linha
+function escapeAttr(s) {
+    if (s === null || s === undefined) return '';
+    return escapeHtml(s).replaceAll('\\', '&#92;').replaceAll('\n', ' ').replaceAll('\r', ' ');
+}
+
 // API prefix por tipo de modulo
 function apiFor(moduleType) {
     return `/api/${moduleType}`;
@@ -609,8 +628,8 @@ function renderModuleList() {
             </label>
             <div class="mod-info" onclick="toggleModuleSelected('${m.chip_id}')">
                 <span class="status-dot ${online ? 'online' : 'offline'}"></span>
-                <span class="mod-name">${name}</span>
-                <span class="mod-status">${statusText}</span>
+                <span class="mod-name">${escapeHtml(name)}</span>
+                <span class="mod-status">${escapeHtml(statusText)}</span>
             </div>
             <div class="mod-arrows">
                 <button onclick="moveModuleUp('${m.chip_id}');event.stopPropagation()" ${i === 0 ? 'disabled' : ''}>&#9650;</button>
@@ -836,7 +855,7 @@ function renderDashboard(container, chipId, moduleType, data) {
                 else { diasInfo = `<span class="phase-item-days">${p.days} dias</span>`; }
             } else { diasInfo = `<span class="phase-item-days">&#8734;</span>`; }
             return `<div class="phase-item ${isActive ? 'active' : ''} ${isPast ? 'past' : ''}">
-                <div class="phase-item-header"><span class="phase-item-name">${p.name} ${isActive ? '<span class="phase-badge">ATIVA</span>' : ''}</span>${diasInfo}</div>
+                <div class="phase-item-header"><span class="phase-item-name">${escapeHtml(p.name)} ${isActive ? '<span class="phase-badge">ATIVA</span>' : ''}</span>${diasInfo}</div>
                 ${progressBar}
                 <div class="phase-item-details">&#128161; ${lOn} - ${lOff}<br>&#128167; Dia: ${p.pumpOnDay}/${p.pumpOffDay}min | Noite: ${p.pumpOnNight}/${p.pumpOffNight}min<br>&#127744; ${String(p.ventOnHour||0).padStart(2,'0')}:${String(p.ventOnMin||0).padStart(2,'0')} - ${String(p.ventOffHour||0).padStart(2,'0')}:${String(p.ventOffMin||0).padStart(2,'0')}<br>&#128168; Dia: ${p.aerOnDay||15}/${p.aerOffDay||15}min | Noite: ${p.aerOnNight||15}/${p.aerOffNight||45}min</div>
             </div>`;
@@ -1141,7 +1160,7 @@ function renderConfigModal(data) {
         return `<div class="config-phase">
             <div class="config-phase-header"><span class="config-phase-title">Fase ${i+1}</span>${phases.length > 1 ? `<button class="config-remove" onclick="removePhase(${i})">&#10005;</button>` : ''}</div>
             <div class="config-grid">
-                <div class="config-field"><label>Nome</label><input type="text" id="cfg-n${i}" value="${p.name||`Fase ${i+1}`}"></div>
+                <div class="config-field"><label>Nome</label><input type="text" id="cfg-n${i}" value="${escapeHtml(p.name||`Fase ${i+1}`)}"></div>
                 <div class="config-field"><label>Dias</label><input type="number" id="cfg-d${i}" value="${p.days!=null?p.days:7}" min="0"></div>
             </div>
             <div class="config-section-label sec-light">&#128161; Iluminacao</div>
@@ -1434,7 +1453,15 @@ async function cam_capture(chipId, moduleType) {
                 const data = await api(`${apiFor(moduleType)}/${chipId}/last-capture`);
                 if (data.status === "ok" && data.url && data.url !== prevBase) {
                     cam_imageUrl = data.url + "?t=" + Date.now();
-                    if (img) img.innerHTML = `<img src="${cam_imageUrl}&token=${token}" style="width:100%;border-radius:8px" alt="Captura" />`;
+                    if (img) {
+                        // v4.1.26: createElement + setAttribute evita injecao via URL com aspas
+                        img.replaceChildren();
+                        const el = document.createElement('img');
+                        el.src = cam_imageUrl + "&token=" + encodeURIComponent(token);
+                        el.style.cssText = "width:100%;border-radius:8px";
+                        el.alt = "Captura";
+                        img.appendChild(el);
+                    }
                     break;
                 }
             } catch (e) { break; }
@@ -1506,7 +1533,15 @@ async function cam_loadLast(chipId, moduleType) {
         if (data.status === "ok" && data.url) {
             cam_imageUrl = data.url + "?t=" + Date.now();
             const img = document.getElementById("cam-img");
-            if (img) img.innerHTML = `<img src="${cam_imageUrl}&token=${token}" style="width:100%;border-radius:8px" alt="Captura" />`;
+            if (img) {
+                // v4.1.26: createElement evita injecao via URL (mesmo fluxo do cam_capture)
+                img.replaceChildren();
+                const el = document.createElement('img');
+                el.src = cam_imageUrl + "&token=" + encodeURIComponent(token);
+                el.style.cssText = "width:100%;border-radius:8px";
+                el.alt = "Captura";
+                img.appendChild(el);
+            }
         }
     } catch (e) {}
 }
@@ -2524,8 +2559,9 @@ async function loadAdminUsers() {
         const myId = user && user.id;
         const rows = data.users.map(u => {
             const roleColor = u.role === 'admin' ? '#e67e22' : (u.role === 'support' ? '#3498db' : '#888');
-            const roleBadge = `<span style="background:${roleColor}22;color:${roleColor};padding:2px 6px;border-radius:4px;font-size:0.65rem;font-weight:600;text-transform:uppercase">${u.role||'user'}</span>`;
-            const safeLabel = (u.name || u.email).replace(/'/g, "&#39;");
+            const roleBadge = `<span style="background:${roleColor}22;color:${roleColor};padding:2px 6px;border-radius:4px;font-size:0.65rem;font-weight:600;text-transform:uppercase">${escapeHtml(u.role||'user')}</span>`;
+            // v4.1.26: safeLabel vai pra atributo onclick='...' — usar escapeAttr
+            const safeLabel = escapeAttr(u.name || u.email);
             // v4.1.14 + v4.1.21: menu de acoes
             const canImpersonate = u.role !== 'admin' && u.id !== myId;
             const actions = [];
@@ -2533,14 +2569,14 @@ async function loadAdminUsers() {
                 actions.push(`<button onclick="impersonateUser(${u.id}, '${safeLabel}')" style="background:transparent;border:1px solid var(--border);color:var(--primary);padding:3px 8px;border-radius:6px;cursor:pointer;font-size:0.7rem;font-weight:600">Acessar</button>`);
             }
             if (u.id !== myId) {
-                actions.push(`<button onclick="showRoleModal(${u.id}, '${safeLabel}', '${u.role||'user'}')" style="background:transparent;border:1px solid var(--border);color:#e67e22;padding:3px 8px;border-radius:6px;cursor:pointer;font-size:0.7rem;font-weight:600">Nivel</button>`);
+                actions.push(`<button onclick="showRoleModal(${u.id}, '${safeLabel}', '${escapeAttr(u.role||'user')}')" style="background:transparent;border:1px solid var(--border);color:#e67e22;padding:3px 8px;border-radius:6px;cursor:pointer;font-size:0.7rem;font-weight:600">Nivel</button>`);
             }
             actions.push(`<button onclick="forceResetPwd(${u.id}, '${safeLabel}')" style="background:transparent;border:1px solid var(--border);color:#3498db;padding:3px 8px;border-radius:6px;cursor:pointer;font-size:0.7rem;font-weight:600">Resetar senha</button>`);
             const actionBtn = actions.length ? actions.join(" ") : '<span style="color:var(--text-dim);font-size:0.7rem">—</span>';
             return `<tr>
                 <td style="padding:6px 4px;font-family:monospace;font-size:0.75rem">#${u.id}</td>
-                <td style="padding:6px 4px">${u.name||'—'}</td>
-                <td style="padding:6px 4px;font-size:0.75rem;color:var(--text-dim)">${u.email}</td>
+                <td style="padding:6px 4px">${escapeHtml(u.name||'—')}</td>
+                <td style="padding:6px 4px;font-size:0.75rem;color:var(--text-dim)">${escapeHtml(u.email)}</td>
                 <td style="padding:6px 4px;text-align:center">${roleBadge}</td>
                 <td style="padding:6px 4px;text-align:center;font-size:0.75rem">${u.module_count}</td>
                 <td style="padding:6px 4px;text-align:center;white-space:nowrap">${actionBtn}</td>
@@ -2823,17 +2859,19 @@ async function loadAdminModules() {
             const onlineDot = m.online
                 ? '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#27ae60"></span>'
                 : '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#555"></span>';
-            const owner = m.user_email ? `${m.user_name||'—'} <span style="color:var(--text-dim);font-size:0.7rem">${m.user_email}</span>` : '<span style="color:var(--text-dim)">nao pareado</span>';
-            const safeEmail = (m.user_email || '').replace(/'/g, "&#39;");
+            const owner = m.user_email
+                ? `${escapeHtml(m.user_name||'—')} <span style="color:var(--text-dim);font-size:0.7rem">${escapeHtml(m.user_email)}</span>`
+                : '<span style="color:var(--text-dim)">nao pareado</span>';
+            const safeEmail = escapeAttr(m.user_email || '');
             // v4.1.21: botao Transferir
-            const transferBtn = `<button onclick="transferModule('${m.chip_id}', '${safeEmail}')" style="background:transparent;border:1px solid var(--border);color:var(--primary);padding:3px 8px;border-radius:6px;cursor:pointer;font-size:0.7rem;font-weight:600">Transferir</button>`;
+            const transferBtn = `<button onclick="transferModule('${escapeAttr(m.chip_id)}', '${safeEmail}')" style="background:transparent;border:1px solid var(--border);color:var(--primary);padding:3px 8px;border-radius:6px;cursor:pointer;font-size:0.7rem;font-weight:600">Transferir</button>`;
             return `<tr>
                 <td style="padding:6px 4px;text-align:center">${onlineDot}</td>
-                <td style="padding:6px 4px;font-family:monospace;font-size:0.7rem">${m.chip_id}</td>
-                <td style="padding:6px 4px">${m.type}</td>
-                <td style="padding:6px 4px">${m.name||'—'}</td>
+                <td style="padding:6px 4px;font-family:monospace;font-size:0.7rem">${escapeHtml(m.chip_id)}</td>
+                <td style="padding:6px 4px">${escapeHtml(m.type)}</td>
+                <td style="padding:6px 4px">${escapeHtml(m.name||'—')}</td>
                 <td style="padding:6px 4px">${owner}</td>
-                <td style="padding:6px 4px;font-size:0.7rem;color:var(--text-dim)">${m.ip||'—'}</td>
+                <td style="padding:6px 4px;font-size:0.7rem;color:var(--text-dim)">${escapeHtml(m.ip||'—')}</td>
                 <td style="padding:6px 4px;text-align:center">${transferBtn}</td>
             </tr>`;
         }).join("");

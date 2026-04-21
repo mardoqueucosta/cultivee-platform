@@ -8,7 +8,7 @@
 #define PRODUCT_CAM_H
 
 // ===== VERSAO =====
-#define FIRMWARE_VERSION   "4.1.10"
+#define FIRMWARE_VERSION   "4.1.26"
 
 // ===== MODULOS ATIVOS =====
 #define MOD_CAM
