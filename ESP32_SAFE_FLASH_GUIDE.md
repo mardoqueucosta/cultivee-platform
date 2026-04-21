@@ -104,7 +104,7 @@ arduino-cli upload --fqbn esp32:esp32:esp32cam -p COM9 \
 
 Portas do projeto Cultivee:
 - **COM9** — ESP32-CAM AI-Thinker e ESP32-WROVER-CAM
-- **COM7** — ESP32-WROOM-32D (firmware-ctrl, hidroponia)
+- **COM7** — ESP32-WROOM-32D (firmware-hidro, hidroponia)
 
 ### 3.4 Para Arduino IDE (referencia manual)
 

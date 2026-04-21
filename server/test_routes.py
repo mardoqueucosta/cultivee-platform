@@ -1,10 +1,13 @@
 """
 Teste automatizado de todas as rotas do servidor Cultivee.
-Roda contra o servidor local (ctrl na porta 5002).
+Roda contra o servidor local (hidro na porta 5002).
 
 Uso:
-  python test_routes.py          # testa ctrl local (porta 5002)
-  python test_routes.py ctrl vps # testa ctrl na VPS (app.cultivee.com.br)
+  python test_routes.py              # testa hidro local (porta 5002, via /api/hidro)
+  python test_routes.py hidro vps    # testa hidro na VPS (app.cultivee.com.br)
+
+v4.1.28: "ctrl" aceito como alias deprecated de "hidro" (rota /api/ctrl ainda
+funciona via alias backward-compat; sera removida numa proxima versao).
 """
 
 import sys
@@ -15,7 +18,10 @@ import urllib.request
 import urllib.error
 
 # --- Config ---
-product = sys.argv[1] if len(sys.argv) > 1 else "ctrl"
+product = sys.argv[1] if len(sys.argv) > 1 else "hidro"
+# v4.1.28: aceita "ctrl" legado e normaliza pra "hidro"
+if product == "ctrl":
+    product = "hidro"
 env = sys.argv[2] if len(sys.argv) > 2 else "local"
 
 # chip_id + short_id unicos por run — evita colisao entre execucoes paralelas
@@ -26,16 +32,16 @@ _RUN_TS = int(time.time())
 _RUN_SHORT = f"T{(_RUN_TS % 900 + 100):03d}"[:4]  # 4 chars: T100..T999
 
 PRODUCTS = {
-    "ctrl": {
+    "hidro": {
         "local": "http://localhost:5002",
         "vps": "https://app.cultivee.com.br",
-        "prefix": "/api/ctrl",
-        "chip_id": f"TEST_CTRL_{_RUN_TS}", "short_id": _RUN_SHORT, "caps": ["hidro"],
+        "prefix": "/api/hidro",
+        "chip_id": f"TEST_HIDRO_{_RUN_TS}", "short_id": _RUN_SHORT, "caps": ["hidro"],
     },
 }
 
 if product not in PRODUCTS:
-    print(f"Produto invalido: {product}. Use: ctrl")
+    print(f"Produto invalido: {product}. Use: hidro (ou 'ctrl' legado)")
     sys.exit(1)
 if env not in ("local", "vps"):
     print(f"Ambiente invalido: {env}. Use: local ou vps")
@@ -315,7 +321,7 @@ if resp:
     cmd_names = [c.get("cmd") for c in cmds]
     print(f"    -> Comandos pendentes consumidos: {cmd_names}")
 
-# --- 7. Camera Routes (pulado: ctrl nao tem camera) ---
+# --- 7. Camera Routes (pulado: hidro nao tem camera) ---
 if "cam" in cfg["caps"]:
     print("\n[CAMERA]")
     test("GET capture", "GET", f"{PREFIX}/{CHIP}/capture",

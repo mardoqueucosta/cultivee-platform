@@ -14,7 +14,8 @@ Compilação de todos os endpoints da API REST. Para a arquitetura + fluxos, ver
 | `/api/auth/*` | Usuário (público + autenticado) | `server/usuario/auth.py` |
 | `/api/profile/*` | Usuário (só próprio) | `server/usuario/profile.py` |
 | `/api/admin/*` | Admin (role='admin') | `server/admin/admin.py` |
-| `/api/ctrl/*` | Hardware Hidro | `server/hardware/hidro.py` |
+| `/api/hidro/*` | Hardware Hidro | `server/hardware/hidro.py` |
+| `/api/ctrl/*` | Hardware Hidro (alias deprecated v4.1.28) | `server/hardware/hidro.py` |
 | `/api/hidro-farm/*` | Hardware Hidro-Farm | `server/hardware/hidrofarm.py` |
 | `/api/cam/*` | Hardware Cam | `server/hardware/cam.py` |
 | `/api/gallery/*` | Hardware (galeria de fotos) | `server/hardware/gallery.py` |
@@ -112,7 +113,7 @@ Todos protegidos por `@require_admin` (401 sem auth, 403 sem role=admin).
 | GET | `/<chip_id>/firmware` | — (ESP32) | Download `.bin`. Auto-deletado após download (previne loop) |
 | DELETE | `/<chip_id>/firmware` | Token (admin) | Cancela OTA pendente |
 
-### Hidro (`/api/ctrl/*`)
+### Hidro (`/api/hidro/*` — `/api/ctrl/*` alias deprecated)
 
 Todas exigem auth + validam capability `"hidro"` + ownership.
 
@@ -208,7 +209,7 @@ Smoke tests locais: `python server/test_routes.py` (cobertura parcial).
 
 Simuladores de hardware (rodam sem ESP32 físico):
 ```bash
-python server/sim_esp32.py ctrl         # Hidro, código SC01
+python server/sim_esp32.py hidro        # Hidro, código SH01
 python server/sim_esp32.py hidro-farm   # Hidro-Farm, código HF01
 python server/sim_esp32.py cam          # Cam, código CA01
 ```

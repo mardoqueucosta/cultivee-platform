@@ -31,7 +31,7 @@ Plataforma IoT para cultivo inteligente. Arquitetura modular:
 Hardware especializado: cada ESP32 faz uma coisa so.
 Composicao por software: o app mostra os modulos que o usuario adicionar.
 
-Versao ativa: **v4.1.27** (backend/PWA) — definida como fonte unica em [`server/config.py:24`](./server/config.py) (`APP_VERSION`).
+Versao ativa: **v4.1.28** (backend/PWA) — definida como fonte unica em [`server/config.py:24`](./server/config.py) (`APP_VERSION`).
 
 Firmware: **v4.1.26** em todos os produtos — sincronizado automaticamente via [`sync-version.sh`](./sync-version.sh) em [`products/hidro.h:11`](./products/hidro.h), [`products/hidro-farm.h:16`](./products/hidro-farm.h) e [`products/cam.h:11`](./products/cam.h) (`FIRMWARE_VERSION`). Rode `bash sync-version.sh --write` antes de recompilar.
 
@@ -102,9 +102,9 @@ cultivee-platform/
 │   ├── static/app.js         # PWA — registry pattern, hidro + hidro-farm + cam UI
 │   ├── static/gallery.js     # Galeria modal: pastas, grid, selecao, exclusao
 │   ├── static/style.css      # Dark theme responsivo (desktop ate 3 colunas, mobile 1)
-│   ├── sim_esp32.py          # Simulador de hardware (ctrl, hidro-farm, cam) para dev sem ESP32
+│   ├── sim_esp32.py          # Simulador de hardware (hidro, hidro-farm, cam) para dev sem ESP32
 │   ├── run-app.py            # Dev server local preferido (porta 5002)
-│   ├── run-ctrl.py           # Dev server dedicado a Ctrl (DB separado)
+│   ├── run-hidro.py          # Dev server dedicado ao Hidro (DB separado)
 │   ├── test_routes.py        # Smoke tests das rotas HTTP
 │   ├── Dockerfile            # python:3.10-slim + gunicorn (2w x 4t)
 │   ├── requirements.txt      # flask, python-dotenv, gunicorn, pillow, pywebpush
@@ -155,7 +155,7 @@ Cada modulo implementa: `*_setup()`, `*_loop()`, `*_register_routes()`, `*_proce
 from usuario.auth     import auth_bp      # /api/auth/*
 from usuario.profile  import profile_bp   # /api/profile/*
 from admin.admin      import admin_bp     # /api/admin/*
-from hardware.hidro     import hidro_bp      # /api/ctrl/*
+from hardware.hidro     import hidro_bp      # /api/hidro/* (+ /api/ctrl/* alias deprecated)
 from hardware.hidrofarm import hidrofarm_bp  # /api/hidro-farm/*
 from hardware.cam       import cam_bp        # /api/cam/*
 from hardware.gallery   import gallery_bp    # /api/gallery/*
@@ -163,7 +163,8 @@ from hardware.gallery   import gallery_bp    # /api/gallery/*
 app.register_blueprint(auth_bp,      url_prefix="/api/auth",       name="auth")
 app.register_blueprint(profile_bp,   url_prefix="/api/profile",    name="profile")
 app.register_blueprint(admin_bp,     url_prefix="/api/admin",      name="admin")
-app.register_blueprint(hidro_bp,     url_prefix="/api/ctrl",       name="hidro_ctrl")
+app.register_blueprint(hidro_bp,     url_prefix="/api/hidro",      name="hidro")
+app.register_blueprint(hidro_bp,     url_prefix="/api/ctrl",       name="hidro_ctrl_legacy")  # alias deprecated v4.1.28
 app.register_blueprint(hidrofarm_bp, url_prefix="/api/hidro-farm", name="hidrofarm")
 app.register_blueprint(cam_bp,       url_prefix="/api/cam",        name="cam_standalone")
 app.register_blueprint(gallery_bp,   url_prefix="/api/gallery",    name="gallery")
@@ -192,7 +193,7 @@ Validacao por capability nos blueprints de hardware:
 
 As capabilities sao reportadas pelo ESP32 em cada `POST /api/modules/register` e armazenadas como JSON array no DB.
 
-> **Nota convencional:** `hidro` usa `MODULE_TYPE="ctrl"` por motivo historico (prefixo `/api/ctrl`), mas o novo padrao — adotado pelo `hidro-farm` — e usar `MODULE_TYPE` igual a capability (ex: `"hidro-farm"` e prefixo `/api/hidro-farm`). Proximos modulos devem seguir o novo padrao. O helper [`getCtrlContainer(chipId, moduleType)`](./server/static/app.js) em `app.js` faz o mapping `ctrl→hidro` internamente.
+> **v4.1.28 — migracao do legado `ctrl`:** `MODULE_TYPE` do hidro virou `"hidro"` (antes `"ctrl"` por motivo historico). Todos os produtos agora seguem `MODULE_TYPE == capability`. Servidor normaliza ESP32 com firmware antigo (`type="ctrl"` -> `"hidro"`) e mantem `/api/ctrl/*` como alias deprecated de `/api/hidro/*` com log de warning. A migracao do banco (`UPDATE modules SET type='hidro' WHERE type='ctrl'`) ocorre automaticamente no `init_db`. O helper [`getCtrlContainer(chipId, moduleType)`](./server/static/app.js) continua tolerando ambos como safety net — remover depois de ~1 semana sem hits em `/api/ctrl`.
 
 ### PWA: Registry Pattern
 ```javascript
@@ -230,7 +231,7 @@ O ESP32 NAO tem token de autenticacao — e identificado pelo `chip_id`. O `ctrl
 **2. App (PWA) → Servidor → ESP32 (quando usuario faz acao)**
 ```
 Exemplo: usuario clica "toggle luz" no app
-  1. PWA: POST /api/ctrl/<chip_id>/relay?device=light&action=toggle
+  1. PWA: POST /api/hidro/<chip_id>/relay?device=light&action=toggle
   2. Servidor (hardware/hidro.py):
      a) Tenta PROXY DIRETO: HTTP GET http://<ip_esp32>/relay?device=light&action=toggle (timeout 2s)
      b) Se proxy OK: retorna resposta do ESP32 direto pra PWA
@@ -315,7 +316,7 @@ PWA: `requestPermission()` + `pushManager.subscribe()` chamado 2s apos login. To
 - **Reset WiFi:** botao BOOT (GPIO0 — `RESET_BTN`), segurar por 3s
 - **Automacao:** `MAX_PHASES = 10` fases, cada fase tem luz + bomba + ventilacao + aeracao com ciclos dia/noite independentes (struct `Phase` em [`firmware/firmware.ino:28-47`](./firmware/firmware.ino))
 - **AP:** `Cultivee-Hidro`
-- **mDNS:** `cultivee-ctrl.local`
+- **mDNS:** `cultivee-hidro.local` (v4.1.28+; legado: `cultivee-ctrl.local`)
 - **SERVER_URL prod:** `http://app.cultivee.com.br` (HTTP puro — ESP32 nao faz TLS)
 - **APP_URL prod:** `https://app.cultivee.com.br` (usuario acessa PWA via HTTPS)
 
@@ -618,7 +619,7 @@ Implementado em [`server/app.py`](./server/app.py). Permite enviar .bin para OTA
 
 O `POST /api/modules/register` inclui campo `firmware_url` na resposta quando ha .bin pendente para o `chip_id`. Armazenamento: `DATA_DIR/firmware/<chip_id>.bin`.
 
-### Hidro (prefixo: `/api/ctrl`)
+### Hidro (prefixo: `/api/hidro` + `/api/ctrl` alias deprecated)
 
 Implementado em [`server/hardware/hidro.py`](./server/hardware/hidro.py). Todas as rotas exigem `Authorization` e validam que o modulo pertence ao usuario autenticado **e** tem `"hidro"` em `capabilities`.
 
@@ -976,11 +977,11 @@ cd server/
 # Servidor unificado (preferido — cobre todos os prefixos)
 python run-app.py                   # porta 5002
 
-# Alternativa: servidor dedicado para testes de Ctrl (DB separado)
-python run-ctrl.py                  # porta 5002, DB em data/cultivee-ctrl.db
+# Alternativa: servidor dedicado para testes de Hidro (DB separado)
+python run-hidro.py                 # porta 5002, DB em data/cultivee-hidro.db
 
 # Simuladores de hardware (em terminais separados — dev sem ESP32)
-python -u sim_esp32.py ctrl         # hidro      — codigo de pareamento: SC01
+python -u sim_esp32.py hidro        # hidro      — codigo de pareamento: SH01
 python -u sim_esp32.py hidro-farm   # hidro-farm — codigo de pareamento: HF01
 python -u sim_esp32.py cam          # cam        — codigo de pareamento: CA01
 
@@ -1074,6 +1075,7 @@ Historico de versoes significativas. Formato: **`vX.Y.Z`** — `feat`/`fix`/`ref
 
 ### v4.1.x — Commercial-grade (2026-04)
 
+- **v4.1.28** — `refactor`: migracao do legado `MODULE_TYPE="ctrl"` para `"hidro"`. Antes, o produto Hidro reportava `type="ctrl"` e as rotas eram `/api/ctrl/*` — inconsistente com Hidro-Farm e Cam que ja usam `MODULE_TYPE == capability`. Migracao backward-compatible em 3 commits: (1) backend normaliza `ctrl->hidro` + blueprint duplo `/api/hidro` (novo) + `/api/ctrl` (alias deprecated com log) + migracao idempotente do DB via `UPDATE modules SET type='hidro' WHERE type='ctrl'` no `init_db`; (2) firmware Hidro `products/hidro.h` passa a reportar `MODULE_TYPE="hidro"` + `MDNS_NAME="cultivee-hidro"` (legado `cultivee-ctrl.local` deixou de existir); (3) renomeia `server/run-ctrl.py` -> `server/run-hidro.py` (git mv preserva historico), `sim_esp32.py` aceita "hidro" como produto primario (chip_id `SIM_HIDRO_0001`/short `SH01`) + alias "ctrl" deprecated, `test_routes.py` usa `/api/hidro` por padrao. Sem `ctrl_data` (nome de campo legitimo) nem APIs `esp_camera` (`set_exposure_ctrl`, etc.) foram tocadas. Alias `/api/ctrl/*` mantido por ~1 semana pra nao quebrar PWAs cacheados; remover em v4.1.29 se logs `[deprecated]` pararem.
 - **v4.1.27** — `feat`(admin): OTA remoto direto no painel admin. Novo botao "Firmware" na tabela de modulos abre modal que calcula SHA-256 client-side (crypto.subtle), faz upload multipart para `POST /api/admin/modules/<chip>/firmware` (exige role=admin), grava `.bin + .sha256` e registra em `audit_log` com action `module.firmware_upload`. GET e DELETE tambem expostos (status + cancelar). Elimina a fricao de precisar do token do dono via `ota-remote.sh` (legacy, mantido). Limite 3MB por upload.
 - **v4.1.26** — `feat`+`fix`: rodada completa de hardening pre-comercial. **Segurança:** path traversal corrigido em `hardware/cam.py` (helper `_safe_join`), `MAX_CONTENT_LENGTH=6MB` global + `MAX_UPLOAD_BYTES=5MB` por request, senha migra para `bcrypt` (rounds=12) transparentemente no login (rehash automatico), escape HTML em todos os `innerHTML` de dados (lista de modulos, fases, admin users/modules). **LGPD:** `delete_user_cascade` agora purga `captures/`, `thumbs/`, `live/` e firmware pendente do usuario excluido. **Firmware:** brownout detector nivel 4 (~2.7V), telemetria + protecao de heap com `min_free_heap` (restart <5kB), timeout 30min em `MODE_SETUP`, validacao SHA-256 obrigatoria no OTA remoto (firmware aborta e preserva versao anterior se hash nao bater), rollback A/B manual por NVS + `esp_ota_set_boot_partition` se 3 boots consecutivos falharem self-test. **Ops:** `sync-version.sh` alinha `FIRMWARE_VERSION` ao `APP_VERSION`, `backup-vps.sh` com `.backup` online + manifest SHA-256 e fluxo `--restore`. **Docs:** [`docs/manual-usuario.md`](./docs/manual-usuario.md) consumidor final, [`docs/operacao.md`](./docs/operacao.md) Uptime Robot + incidente, [`docs/lgpd-aipd.md`](./docs/lgpd-aipd.md) AIPD draft, [`docs/termos-uso.md`](./docs/termos-uso.md) minuta legal, [`docs/license-gate.md`](./docs/license-gate.md) modelo de monetizacao.
 - **v4.1.25** — `feat`(admin): modal custom com dropdown pra alterar nivel do user (antes era `prompt()` do navegador — feio, permitia digitacao livre, ruim em mobile). Segue o mesmo padrao visual do modal de impersonation (header + botao fechar + Cancelar + acao primaria). Cada opcao do select tem descricao curta do que o nivel faz.

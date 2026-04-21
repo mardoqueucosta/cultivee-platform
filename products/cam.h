@@ -1,7 +1,7 @@
 /*
   Cultivee - Produto: Camera Standalone
   ESP32-WROVER-DEV + Camera OV2640 (sem controle de reles)
-  Monitoramento visual — composto com modulo ctrl via grupos no servidor
+  Monitoramento visual — composto com modulo hidro via grupos no servidor
 */
 
 #ifndef PRODUCT_CAM_H

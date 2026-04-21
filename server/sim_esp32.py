@@ -3,9 +3,11 @@ Simulador de ESP32 para testes locais.
 Finge ser um modulo ESP32 registrando no servidor local.
 
 Uso:
-  python sim_esp32.py              # simula produto ctrl (porta 5002)
+  python sim_esp32.py              # simula produto hidro (porta 5002)
   python sim_esp32.py hidro-farm   # simula produto hidro-farm (porta 5002)
   python sim_esp32.py cam          # simula produto cam (porta 5002)
+
+  (aceita "ctrl" como alias deprecated de "hidro" pra nao quebrar scripts antigos)
 
 O simulador:
   1. Registra um modulo fake com chip_id/short_id fixos
@@ -22,14 +24,17 @@ import urllib.error
 import random
 
 # --- Config baseada no produto ---
-product = sys.argv[1] if len(sys.argv) > 1 else "ctrl"
+product = sys.argv[1] if len(sys.argv) > 1 else "hidro"
+# v4.1.28: "ctrl" e alias deprecated de "hidro" (nao quebra scripts antigos)
+if product == "ctrl":
+    product = "hidro"
 
 PRODUCTS = {
-    "ctrl": {
+    "hidro": {
         "port": 5002,
-        "chip_id": "SIM_CTRL_0001",
-        "short_id": "SC01",
-        "module_type": "ctrl",
+        "chip_id": "SIM_HIDRO_0001",
+        "short_id": "SH01",
+        "module_type": "hidro",
         "capabilities": ["hidro"],
     },
     "hidro-farm": {
@@ -49,7 +54,7 @@ PRODUCTS = {
 }
 
 if product not in PRODUCTS:
-    print(f"Produto invalido: {product}. Use: ctrl, hidro-farm ou cam")
+    print(f"Produto invalido: {product}. Use: hidro, hidro-farm ou cam")
     sys.exit(1)
 
 cfg = PRODUCTS[product]
