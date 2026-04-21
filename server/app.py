@@ -2,7 +2,8 @@
 """
 Cultivee — Servidor Unificado
 Core: auth, modules, groups, dashboard.
-Blueprints registrados por capability: /api/ctrl, /api/hidro-farm, /api/cam, /api/gallery.
+Blueprints registrados por capability: /api/hidro, /api/hidro-farm, /api/cam, /api/gallery.
+(/api/ctrl e alias deprecated de /api/hidro desde v4.1.28 — manter ate todos ESP32 migrarem)
 """
 
 import os
@@ -196,7 +197,10 @@ def register_module():
 
     chip_id = data.get("chip_id", "")
     short_id = data.get("short_id", "")
-    module_type = data.get("type", "ctrl")
+    # v4.1.28: "ctrl" legado -> "hidro" normalizado. Ambos sao aceitos.
+    module_type = data.get("type", "hidro")
+    if module_type == "ctrl":
+        module_type = "hidro"
     ip = data.get("ip", "")
     ssid = data.get("ssid", "")
     rssi = data.get("rssi", 0)
@@ -528,7 +532,10 @@ app.register_blueprint(admin_bp, url_prefix="/api/admin", name="admin")
 
 # --- Camada de HARDWARE ---
 # Cada tipo de firmware encontra suas rotas pelo prefixo
-app.register_blueprint(hidro_bp, url_prefix="/api/ctrl", name="hidro_ctrl")
+# v4.1.28: hidro registrado em /api/hidro (novo padrao) E /api/ctrl (alias
+# deprecated — manter ate 100% dos ESP32 + PWAs cacheados estarem em >=v4.1.28).
+app.register_blueprint(hidro_bp, url_prefix="/api/hidro", name="hidro")
+app.register_blueprint(hidro_bp, url_prefix="/api/ctrl", name="hidro_ctrl_legacy")
 app.register_blueprint(hidrofarm_bp, url_prefix="/api/hidro-farm", name="hidrofarm")
 app.register_blueprint(cam_bp, url_prefix="/api/cam", name="cam_standalone")
 app.register_blueprint(gallery_bp, url_prefix="/api/gallery", name="gallery")
@@ -536,10 +543,18 @@ app.register_blueprint(gallery_bp, url_prefix="/api/gallery", name="gallery")
 log.info("  [+] auth_bp registrado em /api/auth")
 log.info("  [+] profile_bp registrado em /api/profile")
 log.info("  [+] admin_bp registrado em /api/admin")
-log.info("  [+] hidro_bp registrado em /api/ctrl")
+log.info("  [+] hidro_bp registrado em /api/hidro (novo) + /api/ctrl (alias deprecated)")
 log.info("  [+] hidrofarm_bp registrado em /api/hidro-farm")
 log.info("  [+] cam_bp registrado em /api/cam")
 log.info("  [+] gallery_bp registrado em /api/gallery")
+
+
+# v4.1.28: loga uso do alias /api/ctrl com aviso de deprecacao — pra rastrear
+# quando podemos remover com seguranca (alvo: zero calls em /api/ctrl por ~1 semana).
+@app.before_request
+def _log_ctrl_alias_deprecation():
+    if request.path.startswith("/api/ctrl/"):
+        log.info(f"[deprecated] /api/ctrl -> /api/hidro | {request.method} {request.path} | ua={request.headers.get('User-Agent', '')[:60]}")
 
 # Migrar fotos existentes (flat) para _sem-pasta (uma vez)
 import pathlib

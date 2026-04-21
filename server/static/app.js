@@ -725,9 +725,9 @@ const TOGGLE_COOLDOWN = 35000;
 let pendingCommands = new Set();
 
 // Resolve o container do modulo de controle pelo moduleType.
-// Necessario porque o hidro legado usa moduleType "ctrl" mas capability "hidro",
-// enquanto o hidro-farm usa "hidro-farm" em ambos. Match exato evita o seletor
-// [id^="mod-content-X-hidro"] capturar "mod-content-X-hidro-farm" por engano.
+// v4.1.28: migracao ctrl -> hidro finalizada. Mantido mapping defensivo ainda
+// porque PWAs cacheados (SW) podem ter data antigo com type=ctrl ate o user
+// recarregar. Apos ~1 semana sem chamadas /api/ctrl no log, remover este ramo.
 function getCtrlContainer(chipId, moduleType) {
     const cap = moduleType === 'ctrl' ? 'hidro' : moduleType;
     return document.getElementById(`mod-content-${chipId}-${cap}`);
@@ -3006,6 +3006,9 @@ async function loadAdminModules() {
             const safeEmail = escapeAttr(m.user_email || '');
             const safeChip = escapeAttr(m.chip_id);
             const safeName = escapeAttr(m.name || m.chip_id);
+            // v4.1.28: normaliza legado ctrl -> hidro na coluna Tipo (safety net
+            // ate todos os ESP32 + PWAs cacheados estarem em >= v4.1.28).
+            const displayType = m.type === 'ctrl' ? 'hidro' : m.type;
             // v4.1.21: botao Transferir + v4.1.27: botao Firmware
             const transferBtn = `<button onclick="transferModule('${safeChip}', '${safeEmail}')" style="background:transparent;border:1px solid var(--border);color:var(--primary);padding:3px 8px;border-radius:6px;cursor:pointer;font-size:0.7rem;font-weight:600">Transferir</button>`;
             const firmwareBtn = `<button onclick="showFirmwareModal('${safeChip}', '${safeName}', '${escapeAttr(m.type||'')}')" style="background:transparent;border:1px solid var(--border);color:#3498db;padding:3px 8px;border-radius:6px;cursor:pointer;font-size:0.7rem;font-weight:600">Firmware</button>`;
@@ -3013,7 +3016,7 @@ async function loadAdminModules() {
             return `<tr>
                 <td style="padding:6px 4px;text-align:center">${onlineDot}</td>
                 <td style="padding:6px 4px;font-family:monospace;font-size:0.7rem">${escapeHtml(m.chip_id)}</td>
-                <td style="padding:6px 4px">${escapeHtml(m.type)}</td>
+                <td style="padding:6px 4px">${escapeHtml(displayType)}</td>
                 <td style="padding:6px 4px">${escapeHtml(m.name||'—')}</td>
                 <td style="padding:6px 4px">${owner}</td>
                 <td style="padding:6px 4px;font-size:0.7rem;color:var(--text-dim)">${escapeHtml(m.ip||'—')}</td>

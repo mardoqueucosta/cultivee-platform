@@ -59,7 +59,7 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             chip_id TEXT UNIQUE NOT NULL,
             short_id TEXT NOT NULL,
-            type TEXT NOT NULL DEFAULT 'ctrl',
+            type TEXT NOT NULL DEFAULT 'hidro',
             name TEXT DEFAULT '',
             user_id INTEGER,
             ip TEXT DEFAULT '',
@@ -262,6 +262,12 @@ def init_db():
             conn.execute(f"SELECT {col} FROM tokens LIMIT 0")
         except Exception:
             conn.execute(ddl)
+
+    # Migracao v4.1.28: normaliza modules.type de 'ctrl' (legado, firmware <v4.1.28)
+    # para 'hidro' (novo padrao, alinhado com capability). ESP32 em campo continua
+    # sendo aceito via normalizacao em register_module() enquanto nao atualizar OTA.
+    # Idempotente: so afeta linhas que ainda estao como 'ctrl'.
+    conn.execute("UPDATE modules SET type = 'hidro' WHERE type = 'ctrl'")
 
     conn.commit()
     conn.close()

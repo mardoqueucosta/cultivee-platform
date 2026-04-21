@@ -15,7 +15,7 @@ from .db import get_db, POLL_FAST, POLL_NORMAL, ACTIVITY_TIMEOUT
 # Registro + pareamento
 # =====================================================================
 
-def register_module(chip_id, short_id, module_type="ctrl", ip="", ssid="", rssi=0,
+def register_module(chip_id, short_id, module_type="hidro", ip="", ssid="", rssi=0,
                     uptime=0, free_heap=0, ctrl_data="{}", capabilities="[]"):
     """
     Registra/atualiza o modulo no banco. Chamado a cada poll do ESP32.
@@ -23,7 +23,13 @@ def register_module(chip_id, short_id, module_type="ctrl", ip="", ssid="", rssi=
     Merge do ctrl_data: campos marcados como "server_keys" (config de camera,
     estado de alerta, etc.) sao preservados do banco — o ESP32 nao sobrescreve.
     Demais campos vem frescos do ESP32 a cada register.
+
+    v4.1.28: Normaliza module_type="ctrl" (legado firmware <v4.1.28) -> "hidro".
+    O firmware do hidro sera atualizado via OTA, mas aceita dois valores durante
+    a transicao pra nao brickar ESP32 em campo com firmware antigo.
     """
+    if module_type == "ctrl":
+        module_type = "hidro"
     conn = get_db()
     existing = conn.execute(
         "SELECT * FROM modules WHERE chip_id = ?", (chip_id,)

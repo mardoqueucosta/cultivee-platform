@@ -1,7 +1,8 @@
 """
 Cultivee — Blueprint Hidroponia
 Rotas de controle: status, reles, fases, config.
-Registrado em /api/ctrl (valida capability "hidro").
+Registrado em /api/hidro (padrao v4.1.28+) + /api/ctrl (alias deprecated).
+Valida capability "hidro".
 """
 
 import json
@@ -28,7 +29,7 @@ def _get_module_or_404(chip_id):
 
 
 # =====================================================================
-# Hidro routes — montadas no prefix configurado (ex: /api/ctrl/<chip_id>)
+# Hidro routes — montadas no prefix configurado (ex: /api/hidro/<chip_id>)
 # =====================================================================
 
 @hidro_bp.route("/<chip_id>/status")
