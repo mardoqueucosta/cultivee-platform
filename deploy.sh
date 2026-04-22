@@ -35,7 +35,7 @@ tar czf /tmp/cultivee-platform.tar.gz \
     --exclude='.env' \
     server/app.py server/config.py server/notifications.py \
     server/models/ \
-    server/hardware/ server/usuario/ server/admin/ \
+    server/hardware/ server/usuario/ server/admin/ server/public/ \
     server/requirements.txt server/Dockerfile \
     server/static/ server/templates/ 2>/dev/null
 

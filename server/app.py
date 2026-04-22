@@ -519,6 +519,7 @@ from hardware.hidro import hidro_bp
 from hardware.hidrofarm import hidrofarm_bp
 from hardware.cam import cam_bp
 from hardware.gallery import gallery_bp
+from public.contact import public_bp  # v4.1.30: formularios do site institucional
 
 # --- Camada de USUARIO ---
 # Auth (registro, login, logout, recuperacao de senha)
@@ -540,6 +541,11 @@ app.register_blueprint(hidrofarm_bp, url_prefix="/api/hidro-farm", name="hidrofa
 app.register_blueprint(cam_bp, url_prefix="/api/cam", name="cam_standalone")
 app.register_blueprint(gallery_bp, url_prefix="/api/gallery", name="gallery")
 
+# --- Camada PUBLIC (v4.1.30) ---
+# Formularios do site institucional (cultivee.com.br) — sem auth, com honeypot
+# e rate limit in-memory. CORS seletivo configurado mais abaixo.
+app.register_blueprint(public_bp, url_prefix="/api/public", name="public")
+
 log.info("  [+] auth_bp registrado em /api/auth")
 log.info("  [+] profile_bp registrado em /api/profile")
 log.info("  [+] admin_bp registrado em /api/admin")
@@ -547,6 +553,35 @@ log.info("  [+] hidro_bp registrado em /api/hidro (novo) + /api/ctrl (alias depr
 log.info("  [+] hidrofarm_bp registrado em /api/hidro-farm")
 log.info("  [+] cam_bp registrado em /api/cam")
 log.info("  [+] gallery_bp registrado em /api/gallery")
+log.info("  [+] public_bp registrado em /api/public")
+
+
+# v4.1.30: CORS seletivo so para /api/public/*
+# Permite que o site institucional (cultivee.com.br + www) faca POST nos
+# formularios publicos. Outras rotas (auth, hardware, admin) continuam sem CORS
+# por design — sao acessadas so pelo PWA do mesmo dominio (app.cultivee.com.br)
+# e pelos ESP32 que nao respeitam CORS mesmo.
+_PUBLIC_CORS_ORIGINS = {
+    "https://cultivee.com.br",
+    "https://www.cultivee.com.br",
+    "http://localhost:8080",   # vite dev (porta padrao do site)
+    "http://localhost:8081",   # vite dev (porta alternativa quando 8080 ocupada)
+    "http://localhost:5173",   # vite default
+}
+
+
+@app.after_request
+def _public_cors(response):
+    """Adiciona headers CORS em /api/public/* se origem for conhecida."""
+    if request.path.startswith("/api/public/"):
+        origin = request.headers.get("Origin", "")
+        if origin in _PUBLIC_CORS_ORIGINS:
+            response.headers["Access-Control-Allow-Origin"] = origin
+            response.headers["Vary"] = "Origin"
+            response.headers["Access-Control-Allow-Methods"] = "POST, OPTIONS"
+            response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+            response.headers["Access-Control-Max-Age"] = "3600"
+    return response
 
 
 # v4.1.28: loga uso do alias /api/ctrl com aviso de deprecacao — pra rastrear
