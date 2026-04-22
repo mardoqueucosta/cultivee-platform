@@ -153,6 +153,24 @@ def init_db():
             created_at TEXT DEFAULT (datetime('now')),
             FOREIGN KEY (user_id) REFERENCES users(id)
         );
+
+        -- v4.1.31: historico de transicoes online/offline dos modulos.
+        -- Cada linha e um evento de inicio de estado (status='online' ou
+        -- 'offline'). duration_seconds e NULL ate o proximo evento entrar
+        -- (quando o estado atual termina). Retencao: 90 dias (purge no
+        -- init_db + a cada N registers).
+        CREATE TABLE IF NOT EXISTS module_status_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            chip_id TEXT NOT NULL,
+            status TEXT NOT NULL,              -- 'online' | 'offline'
+            occurred_at TEXT NOT NULL,         -- ISO 8601 quando comecou
+            duration_seconds INTEGER,          -- NULL enquanto aberto
+            reason TEXT,                       -- snapshot wifi_last_error (offline)
+            rssi INTEGER,                      -- snapshot RSSI (online)
+            created_at TEXT DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_msev_chip_time
+            ON module_status_events(chip_id, occurred_at);
     """)
 
     # --- Migracoes aditivas (ALTER TABLE IF NOT EXISTS pattern) ---
@@ -288,6 +306,17 @@ def init_db():
         conn.execute("SELECT email_2fa_enabled FROM users LIMIT 0")
     except Exception:
         conn.execute("ALTER TABLE users ADD COLUMN email_2fa_enabled INTEGER DEFAULT 0")
+
+    # Migracao v4.1.31: cleanup inicial do historico de status (retencao 90 dias)
+    # Roda 1x a cada boot do container; bom o suficiente pro volume esperado.
+    try:
+        conn.execute(
+            "DELETE FROM module_status_events "
+            "WHERE occurred_at < datetime('now', '-90 days')"
+        )
+    except Exception as e:
+        # Se a tabela ainda nao existe por algum motivo, ignora — vai rolar no proximo boot
+        pass
 
     conn.commit()
     conn.close()

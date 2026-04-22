@@ -583,6 +583,41 @@ def admin_firmware_status(chip_id):
     })
 
 
+@admin_bp.route("/modules/<chip_id>/uptime")
+@require_admin
+def admin_module_uptime(chip_id):
+    """
+    Admin: historico de online/offline de qualquer modulo.
+    Mesma API do endpoint do usuario, mas sem check de ownership.
+    """
+    module = models.get_module_by_chip_id(chip_id)
+    if not module:
+        return jsonify({"error": "Modulo nao encontrado"}), 404
+
+    try:
+        days = int(request.args.get("days", 7))
+    except (TypeError, ValueError):
+        days = 7
+    days = max(1, min(models.MODULE_STATUS_RETENTION_DAYS, days))
+    try:
+        n_events = int(request.args.get("events", 20))
+    except (TypeError, ValueError):
+        n_events = 20
+    n_events = max(0, min(200, n_events))
+
+    try:
+        models.compute_module_status_lazy(chip_id)
+    except Exception:
+        pass
+    summary = models.get_module_uptime_summary(chip_id, days=days)
+    events = models.get_module_status_events(chip_id, days=days, limit=n_events) if n_events > 0 else []
+    return jsonify({
+        "chip_id": chip_id,
+        "summary": summary,
+        "events": events,
+    })
+
+
 @admin_bp.route("/modules/<chip_id>/firmware", methods=["DELETE"])
 @require_admin
 def admin_firmware_cancel(chip_id):

@@ -460,6 +460,23 @@
                 </div>
             </div>
 
+            <!-- v4.1.31: Modal de historico online/offline do modulo -->
+            <div id="uptime-modal" class="modal hidden" onclick="if(event.target===this)closeUptimeModal()">
+                <div class="modal-content" style="max-width:560px;max-height:90vh;overflow-y:auto">
+                    <button class="modal-close" onclick="closeUptimeModal()">&times;</button>
+                    <h3 style="margin:0 0 4px">Historico de conexao</h3>
+                    <p id="uptime-modal-subtitle" style="color:var(--text-dim);font-size:0.8rem;margin:0 0 12px">Modulo</p>
+                    <div style="display:flex;gap:6px;margin-bottom:14px">
+                        <button class="uptime-period-btn" onclick="switchUptimePeriod(7)" data-days="7" style="flex:1;padding:8px;background:var(--primary);color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:0.8rem;font-weight:600">7 dias</button>
+                        <button class="uptime-period-btn" onclick="switchUptimePeriod(30)" data-days="30" style="flex:1;padding:8px;background:transparent;color:var(--text);border:1px solid var(--border);border-radius:6px;cursor:pointer;font-size:0.8rem">30 dias</button>
+                        <button class="uptime-period-btn" onclick="switchUptimePeriod(60)" data-days="60" style="flex:1;padding:8px;background:transparent;color:var(--text);border:1px solid var(--border);border-radius:6px;cursor:pointer;font-size:0.8rem">60 dias</button>
+                    </div>
+                    <div id="uptime-modal-body" style="font-size:0.85rem">
+                        <p style="text-align:center;color:var(--text-dim)">Carregando...</p>
+                    </div>
+                </div>
+            </div>
+
             <!-- v4.1.29: Modal pra desativar 2FA por Email (senha + codigo) -->
             <div id="email2fa-disable-modal" class="modal hidden" onclick="if(event.target===this)closeEmail2FADisableModal()">
                 <div class="modal-content" style="max-width:380px">

@@ -50,6 +50,10 @@ app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1, x_
 models.init_db()
 log.info(f"Banco de dados inicializado ({PRODUCT_NAME})")
 
+# v4.1.31: contador pra cleanup periodico do historico de status
+# (usado em register_module; ver comentario la embaixo)
+_REGISTER_COUNTER = 0
+
 
 # =====================================================================
 # Auth helpers (exportados para blueprints)
@@ -213,6 +217,23 @@ def register_module():
         return jsonify({"error": "chip_id obrigatorio"}), 400
 
     models.register_module(chip_id, short_id, module_type, ip, ssid, rssi, uptime, free_heap, ctrl_data, capabilities)
+
+    # v4.1.31: grava transicao offline->online no historico. Se o ultimo
+    # evento ja e 'online', record_module_status e no-op (heartbeat silencioso).
+    try:
+        models.record_module_status(chip_id, "online", rssi=int(rssi) if rssi else None)
+    except Exception as e:
+        log.warning(f"status_event online falhou pra {chip_id}: {e}")
+
+    # Cleanup periodico do historico (retencao 90 dias). Nao toda requisicao
+    # pra nao virar hotspot — uma amostra a cada ~1000 registers.
+    global _REGISTER_COUNTER
+    _REGISTER_COUNTER = (_REGISTER_COUNTER + 1) % 1000
+    if _REGISTER_COUNTER == 0:
+        try:
+            models.purge_old_status_events()
+        except Exception as e:
+            log.warning(f"purge_old_status_events falhou: {e}")
 
     # Alertas — verifica condicoes e notifica se necessario (non-blocking)
     try:
@@ -500,8 +521,51 @@ def list_modules():
             m["capabilities"] = json.loads(m.get("capabilities", "[]"))
         except (json.JSONDecodeError, TypeError):
             m["capabilities"] = []
+        # v4.1.31: detecta offline silencioso (last_seen > threshold) e grava
+        # transicao no historico. Barato — so escreve se mudou.
+        try:
+            models.compute_module_status_lazy(m["chip_id"], now=now)
+        except Exception as e:
+            log.warning(f"compute_module_status_lazy falhou pra {m.get('chip_id')}: {e}")
 
     return jsonify({"modules": modules})
+
+
+@app.route("/api/modules/<chip_id>/uptime")
+@require_auth
+def module_uptime(chip_id):
+    """
+    Historico de online/offline do modulo. Proprio dono do modulo.
+    Query: days=N (1..90, default 7), events=N (0..200, default 20).
+    """
+    module = models.get_module_by_chip_id(chip_id)
+    if not module or module.get("user_id") != request.user["id"]:
+        return jsonify({"error": "Modulo nao encontrado"}), 404
+
+    try:
+        days = int(request.args.get("days", 7))
+    except (TypeError, ValueError):
+        days = 7
+    days = max(1, min(models.MODULE_STATUS_RETENTION_DAYS, days))
+    try:
+        n_events = int(request.args.get("events", 20))
+    except (TypeError, ValueError):
+        n_events = 20
+    n_events = max(0, min(200, n_events))
+
+    # Recalcula status antes de agregar (captura offline silencioso)
+    try:
+        models.compute_module_status_lazy(chip_id)
+    except Exception as e:
+        log.warning(f"compute_lazy em uptime: {e}")
+
+    summary = models.get_module_uptime_summary(chip_id, days=days)
+    events = models.get_module_status_events(chip_id, days=days, limit=n_events) if n_events > 0 else []
+    return jsonify({
+        "chip_id": chip_id,
+        "summary": summary,
+        "events": events,
+    })
 
 
 

@@ -102,6 +102,14 @@ from .modules import (
     set_capture_config,
     get_capture_config,
     mark_capture,
+    # Historico online/offline (v4.1.31)
+    record_module_status,
+    compute_module_status_lazy,
+    get_module_uptime_summary,
+    get_module_status_events,
+    purge_old_status_events,
+    MODULE_OFFLINE_THRESHOLD_SEC,
+    MODULE_STATUS_RETENTION_DAYS,
 )
 
 # --- Push subscriptions + alert log ---

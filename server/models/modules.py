@@ -390,3 +390,230 @@ def get_capture_config(chip_id):
 
 def mark_capture(chip_id):
     update_ctrl_data(chip_id, {"last_capture_at": datetime.now().isoformat()})
+
+
+# =====================================================================
+# Historico online/offline (v4.1.31)
+# =====================================================================
+# Cada transicao e um evento. duration_seconds do evento anterior e
+# preenchido quando o proximo entra (simplifica queries de uptime).
+#
+# Retencao: 90 dias (purge lazy no init_db + a cada N registers).
+# Threshold de offline: 120 segundos sem register.
+# =====================================================================
+
+MODULE_OFFLINE_THRESHOLD_SEC = 120
+MODULE_STATUS_RETENTION_DAYS = 90
+
+
+def _get_last_status_event(conn, chip_id):
+    """Ultimo evento registrado pro chip — None se historico vazio."""
+    return conn.execute(
+        "SELECT id, status, occurred_at, duration_seconds "
+        "FROM module_status_events WHERE chip_id = ? "
+        "ORDER BY occurred_at DESC, id DESC LIMIT 1",
+        (chip_id,)
+    ).fetchone()
+
+
+def _close_event_duration(conn, event_id, start_iso, end_dt):
+    """Preenche duration_seconds do evento anterior ao fechar."""
+    try:
+        start_dt = datetime.fromisoformat(start_iso)
+        dur = int((end_dt - start_dt).total_seconds())
+        if dur < 0:
+            dur = 0
+    except (ValueError, TypeError):
+        dur = 0
+    conn.execute(
+        "UPDATE module_status_events SET duration_seconds = ? WHERE id = ?",
+        (dur, event_id)
+    )
+
+
+def record_module_status(chip_id, status, reason=None, rssi=None, when=None):
+    """
+    Grava evento de transicao. Idempotente: se o ultimo evento ja e do mesmo
+    status, nao cria novo (heartbeat silencioso).
+    """
+    if status not in ("online", "offline"):
+        return
+    now = when or datetime.now()
+    conn = get_db()
+    last = _get_last_status_event(conn, chip_id)
+    if last and last["status"] == status:
+        # Heartbeat do mesmo estado — nao registra novo evento
+        conn.close()
+        return
+    if last:
+        _close_event_duration(conn, last["id"], last["occurred_at"], now)
+    conn.execute(
+        "INSERT INTO module_status_events (chip_id, status, occurred_at, reason, rssi) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (chip_id, status, now.isoformat(), reason, rssi)
+    )
+    conn.commit()
+    conn.close()
+
+
+def compute_module_status_lazy(chip_id, now=None):
+    """
+    Verifica se o modulo esta silencioso (last_seen > threshold). Se sim e
+    o ultimo evento era 'online', marca transicao pra 'offline' automaticamente.
+
+    Chamado em GET /api/modules (por cada modulo do user) e depois de um
+    register (pra garantir que online foi registrado).
+    """
+    now = now or datetime.now()
+    conn = get_db()
+    row = conn.execute(
+        "SELECT last_seen FROM modules WHERE chip_id = ?", (chip_id,)
+    ).fetchone()
+    if not row or not row["last_seen"]:
+        conn.close()
+        return
+    try:
+        last_seen = datetime.fromisoformat(row["last_seen"])
+    except (ValueError, TypeError):
+        conn.close()
+        return
+    age = (now - last_seen).total_seconds()
+    last = _get_last_status_event(conn, chip_id)
+    if age > MODULE_OFFLINE_THRESHOLD_SEC:
+        # Modulo silencioso ha mais que o threshold -> offline
+        if not last or last["status"] != "offline":
+            if last:
+                _close_event_duration(conn, last["id"], last["occurred_at"], last_seen)
+            # O evento offline comeca quando o modulo foi visto pela ultima vez
+            conn.execute(
+                "INSERT INTO module_status_events (chip_id, status, occurred_at, reason) "
+                "VALUES (?, 'offline', ?, ?)",
+                (chip_id, last_seen.isoformat(), "timeout")
+            )
+            conn.commit()
+    conn.close()
+
+
+def get_module_uptime_summary(chip_id, days=7, now=None):
+    """
+    Agrega uptime do chip nos ultimos N dias.
+
+    Retorna dict:
+      {
+        period_days, period_start, period_end,
+        online_seconds, offline_seconds, total_seconds,
+        uptime_pct, offline_count, longest_offline_seconds,
+        last_offline_at, current_status,
+      }
+    """
+    now = now or datetime.now()
+    start = now - _timedelta_days(days)
+    conn = get_db()
+    # Busca ultimo evento antes do periodo pra saber estado inicial
+    pre = conn.execute(
+        "SELECT status, occurred_at FROM module_status_events "
+        "WHERE chip_id = ? AND occurred_at < ? "
+        "ORDER BY occurred_at DESC LIMIT 1",
+        (chip_id, start.isoformat())
+    ).fetchone()
+    # Eventos dentro do periodo
+    rows = conn.execute(
+        "SELECT status, occurred_at, duration_seconds FROM module_status_events "
+        "WHERE chip_id = ? AND occurred_at >= ? "
+        "ORDER BY occurred_at ASC",
+        (chip_id, start.isoformat())
+    ).fetchall()
+    # Current status (para exibir)
+    last = _get_last_status_event(conn, chip_id)
+    conn.close()
+
+    online_sec = 0
+    offline_sec = 0
+    offline_count = 0
+    longest_offline = 0
+    last_offline_at = None
+
+    # Estado inicial dentro do periodo
+    cur_status = pre["status"] if pre else None
+    cur_start = start
+
+    def _accum(status, segment_start, segment_end):
+        nonlocal online_sec, offline_sec, offline_count, longest_offline, last_offline_at
+        if segment_end <= segment_start:
+            return
+        seg = int((segment_end - segment_start).total_seconds())
+        if status == "online":
+            online_sec += seg
+        elif status == "offline":
+            offline_sec += seg
+            offline_count += 1
+            if seg > longest_offline:
+                longest_offline = seg
+            if last_offline_at is None or segment_start > last_offline_at:
+                last_offline_at = segment_start
+
+    for r in rows:
+        try:
+            evt_at = datetime.fromisoformat(r["occurred_at"])
+        except (ValueError, TypeError):
+            continue
+        if cur_status is not None:
+            _accum(cur_status, cur_start, evt_at)
+        cur_status = r["status"]
+        cur_start = evt_at
+
+    if cur_status is not None:
+        _accum(cur_status, cur_start, now)
+
+    total = online_sec + offline_sec
+    uptime_pct = (100.0 * online_sec / total) if total > 0 else None
+
+    return {
+        "period_days": days,
+        "period_start": start.isoformat(),
+        "period_end": now.isoformat(),
+        "online_seconds": online_sec,
+        "offline_seconds": offline_sec,
+        "total_seconds": total,
+        "uptime_pct": round(uptime_pct, 2) if uptime_pct is not None else None,
+        "offline_count": offline_count,
+        "longest_offline_seconds": longest_offline,
+        "last_offline_at": last_offline_at.isoformat() if last_offline_at else None,
+        "current_status": last["status"] if last else "unknown",
+    }
+
+
+def get_module_status_events(chip_id, days=60, limit=200, only_offline=False):
+    """Lista eventos pra timeline. Default: todos. only_offline=True filtra."""
+    start = (datetime.now() - _timedelta_days(days)).isoformat()
+    conn = get_db()
+    sql = (
+        "SELECT id, status, occurred_at, duration_seconds, reason, rssi "
+        "FROM module_status_events "
+        "WHERE chip_id = ? AND occurred_at >= ?"
+    )
+    params = [chip_id, start]
+    if only_offline:
+        sql += " AND status = 'offline'"
+    sql += " ORDER BY occurred_at DESC LIMIT ?"
+    params.append(int(limit))
+    rows = conn.execute(sql, params).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def purge_old_status_events(retention_days=MODULE_STATUS_RETENTION_DAYS):
+    """Remove eventos mais antigos que retention_days. Idempotente."""
+    conn = get_db()
+    cutoff = (datetime.now() - _timedelta_days(retention_days)).isoformat()
+    conn.execute(
+        "DELETE FROM module_status_events WHERE occurred_at < ?", (cutoff,)
+    )
+    conn.commit()
+    conn.close()
+
+
+def _timedelta_days(n):
+    """Helper: evita import extra de timedelta no topo do arquivo."""
+    from datetime import timedelta
+    return timedelta(days=int(n))

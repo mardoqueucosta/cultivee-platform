@@ -509,9 +509,169 @@ function formatUptime(seconds) {
     return `${seconds}s`;
 }
 
+// =====================================================================
+// Historico online/offline (v4.1.31)
+// =====================================================================
+// Compartilhado entre user (modal a partir do card do modulo) e admin
+// (modal a partir da tabela de modulos). Endpoint difere apenas em prefixo:
+//   /api/modules/<chip>/uptime          (dono)
+//   /api/admin/modules/<chip>/uptime    (admin)
+
+let _uptimeCtx = { chipId: null, name: null, isAdmin: false, days: 7 };
+
+function formatHumanDuration(seconds) {
+    seconds = Math.max(0, Math.round(seconds || 0));
+    if (seconds < 60) return `${seconds}s`;
+    const min = Math.floor(seconds / 60);
+    if (min < 60) return `${min}min`;
+    const h = Math.floor(min / 60);
+    const remMin = min % 60;
+    if (h < 24) return remMin > 0 ? `${h}h ${remMin}min` : `${h}h`;
+    const d = Math.floor(h / 24);
+    const remH = h % 24;
+    return remH > 0 ? `${d}d ${remH}h` : `${d}d`;
+}
+
+function formatRelativeShort(iso) {
+    if (!iso) return '—';
+    try {
+        const dt = new Date(iso);
+        const now = new Date();
+        const diff = (now - dt) / 1000;
+        if (diff < 60) return 'agora ha pouco';
+        if (diff < 3600) return `ha ${Math.floor(diff / 60)}min`;
+        if (diff < 86400) return `ha ${Math.floor(diff / 3600)}h`;
+        const days = Math.floor(diff / 86400);
+        if (days < 7) return `ha ${days}d`;
+        return dt.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+    } catch (e) { return iso; }
+}
+
+function uptimeColor(pct) {
+    if (pct === null || pct === undefined) return 'var(--text-dim)';
+    if (pct >= 99) return 'var(--primary)';        // verde
+    if (pct >= 95) return '#e67e22';                // laranja
+    return '#e74c3c';                               // vermelho
+}
+
+function renderUptimeBadge(summary) {
+    if (!summary) return '';
+    const pct = summary.uptime_pct;
+    const c = uptimeColor(pct);
+    const txt = (pct === null || pct === undefined) ? '— sem dados' : `${pct}%`;
+    return `<span style="color:${c};font-weight:700">${txt}</span>`;
+}
+
+async function loadUptimeData(chipId, days, isAdmin) {
+    const prefix = isAdmin ? '/api/admin/modules' : '/api/modules';
+    return await api(`${prefix}/${encodeURIComponent(chipId)}/uptime?days=${days}&events=20`);
+}
+
+function showUptimeModal(chipId, name, isAdmin) {
+    _uptimeCtx = { chipId, name: name || chipId, isAdmin: !!isAdmin, days: 7 };
+    document.getElementById('uptime-modal-subtitle').textContent =
+        `Modulo: ${name || chipId} (${chipId})`;
+    document.getElementById('uptime-modal').classList.remove('hidden');
+    _setUptimePeriodButtons(7);
+    _renderUptimeBody();  // Mostra "Carregando..." e dispara fetch
+}
+
+function closeUptimeModal() {
+    document.getElementById('uptime-modal').classList.add('hidden');
+    _uptimeCtx = { chipId: null, name: null, isAdmin: false, days: 7 };
+}
+
+function switchUptimePeriod(days) {
+    if (!_uptimeCtx.chipId) return;
+    _uptimeCtx.days = days;
+    _setUptimePeriodButtons(days);
+    _renderUptimeBody();
+}
+
+function _setUptimePeriodButtons(activeDays) {
+    document.querySelectorAll('.uptime-period-btn').forEach(btn => {
+        const d = parseInt(btn.dataset.days, 10);
+        if (d === activeDays) {
+            btn.style.background = 'var(--primary)';
+            btn.style.color = '#fff';
+            btn.style.border = 'none';
+        } else {
+            btn.style.background = 'transparent';
+            btn.style.color = 'var(--text)';
+            btn.style.border = '1px solid var(--border)';
+        }
+    });
+}
+
+async function _renderUptimeBody() {
+    const body = document.getElementById('uptime-modal-body');
+    body.innerHTML = '<p style="text-align:center;color:var(--text-dim)">Carregando...</p>';
+    try {
+        const data = await loadUptimeData(_uptimeCtx.chipId, _uptimeCtx.days, _uptimeCtx.isAdmin);
+        const s = data.summary || {};
+        const events = data.events || [];
+        const pctTxt = (s.uptime_pct === null || s.uptime_pct === undefined) ? '—' : `${s.uptime_pct}%`;
+        const pctColor = uptimeColor(s.uptime_pct);
+        const lastOff = s.last_offline_at ? formatRelativeShort(s.last_offline_at) : '—';
+        const longestOff = formatHumanDuration(s.longest_offline_seconds);
+        const totalOff = formatHumanDuration(s.offline_seconds);
+
+        // Stats grid
+        let html = `
+            <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:14px">
+                <div style="padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:8px">
+                    <div style="font-size:0.7rem;color:var(--text-dim)">Uptime</div>
+                    <div style="font-size:1.4rem;font-weight:700;color:${pctColor}">${escapeHtml(pctTxt)}</div>
+                </div>
+                <div style="padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:8px">
+                    <div style="font-size:0.7rem;color:var(--text-dim)">Quedas no periodo</div>
+                    <div style="font-size:1.4rem;font-weight:700">${s.offline_count || 0}</div>
+                </div>
+                <div style="padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:8px">
+                    <div style="font-size:0.7rem;color:var(--text-dim)">Tempo offline total</div>
+                    <div style="font-size:0.95rem;font-weight:600">${escapeHtml(totalOff)}</div>
+                </div>
+                <div style="padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:8px">
+                    <div style="font-size:0.7rem;color:var(--text-dim)">Maior queda</div>
+                    <div style="font-size:0.95rem;font-weight:600">${escapeHtml(longestOff)}</div>
+                </div>
+            </div>
+            <div style="font-size:0.75rem;color:var(--text-dim);margin-bottom:8px">
+                Ultima queda: ${escapeHtml(lastOff)} &middot; estado atual:
+                <b style="color:${s.current_status === 'online' ? 'var(--primary)' : '#e74c3c'}">${escapeHtml(s.current_status || 'desconhecido')}</b>
+            </div>`;
+
+        // Lista de eventos
+        if (events.length === 0) {
+            html += '<p style="color:var(--text-dim);font-size:0.8rem;text-align:center;margin-top:12px">Sem eventos no periodo.</p>';
+        } else {
+            html += '<h4 style="margin:14px 0 6px;font-size:0.85rem">Eventos recentes</h4>';
+            html += '<div style="display:grid;gap:4px;font-size:0.78rem">';
+            for (const e of events) {
+                const isOffline = e.status === 'offline';
+                const dot = isOffline
+                    ? '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#e74c3c;margin-right:6px"></span>'
+                    : '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#27ae60;margin-right:6px"></span>';
+                const dur = e.duration_seconds != null ? formatHumanDuration(e.duration_seconds) : '<i>em curso</i>';
+                const reason = e.reason ? ` &middot; ${escapeHtml(e.reason)}` : '';
+                const rssi = (e.rssi != null && e.status === 'online') ? ` &middot; ${e.rssi} dBm` : '';
+                html += `<div style="padding:6px 8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;display:flex;justify-content:space-between;gap:8px;align-items:center">
+                    <div>${dot}<b>${isOffline ? 'OFFLINE' : 'online'}</b>${reason}${rssi}</div>
+                    <div style="color:var(--text-dim);white-space:nowrap">${escapeHtml(formatRelativeShort(e.occurred_at))} &middot; ${dur}</div>
+                </div>`;
+            }
+            html += '</div>';
+        }
+        body.innerHTML = html;
+    } catch (e) {
+        body.innerHTML = `<p style="color:#e74c3c;font-size:0.85rem">Erro: ${escapeHtml(e.message)}</p>`;
+    }
+}
+
 // v4.1.8: pequena linha de telemetria WiFi exibida no fim de cada card de modulo
 // Mostra estado ("OK" verde / erro vermelho), RSSI, quedas e tempo online
-function renderWifiTelemetry(data) {
+// v4.1.31: aceita chipId opcional pra incluir linha de uptime historico
+function renderWifiTelemetry(data, chipId, modName) {
     if (!data) return '';
     const err = data.wifi_last_error;
     const rssi = data.rssi;
@@ -534,12 +694,51 @@ function renderWifiTelemetry(data) {
     const dropColor = (discCount && discCount > 0) ? '#e74c3c' : 'var(--text-dim)';
     const rssiText = (typeof rssi === 'number' && rssi !== 0) ? `${rssi} dBm` : '--';
 
+    // v4.1.31: link pra abrir modal de historico (so se chipId foi passado)
+    let historyLink = '';
+    if (chipId) {
+        const safeChip = escapeAttr(chipId);
+        const safeName = escapeAttr(modName || chipId);
+        const uptimeSpanId = `uptime-inline-${chipId}`;
+        historyLink = `<div style="text-align:center;font-size:0.7rem;color:var(--text-dim);margin-top:4px">
+            <span id="${uptimeSpanId}">Uptime 7d: <i>carregando...</i></span>
+            &middot; <a href="#" onclick="event.preventDefault();showUptimeModal('${safeChip}','${safeName}',false)" style="color:var(--primary);text-decoration:none">Ver historico</a>
+        </div>`;
+        // Dispara carregamento assincrono (so uma vez por render)
+        setTimeout(() => loadInlineUptime(chipId, uptimeSpanId, false), 50);
+    }
+
     return `<div style="text-align:center;font-size:0.7rem;color:var(--text-dim);margin:0.6rem 0 0;padding-top:0.5rem;border-top:1px dashed rgba(255,255,255,0.06);letter-spacing:0.2px">
         &#128246; <span style="color:${errColor};font-weight:600">${errLabel}</span>
         &middot; ${rssiText}
         &middot; <span style="color:${dropColor}">${discCount ?? 0} quedas</span>
         ${onlineText ? `&middot; online ${onlineText}` : ''}
-    </div>`;
+    </div>${historyLink}`;
+}
+
+// v4.1.31: cache em memoria pra nao refazer fetch a cada poll (TTL 60s)
+const _uptimeInlineCache = {};  // { chipId: { ts, html } }
+
+async function loadInlineUptime(chipId, spanId, isAdmin) {
+    const span = document.getElementById(spanId);
+    if (!span) return;
+    const cached = _uptimeInlineCache[chipId];
+    if (cached && (Date.now() - cached.ts) < 60000) {
+        span.innerHTML = cached.html;
+        return;
+    }
+    try {
+        const data = await loadUptimeData(chipId, 7, isAdmin);
+        const s = data.summary || {};
+        const badge = renderUptimeBadge(s);
+        const drops = s.offline_count || 0;
+        const dropsTxt = drops === 0 ? 'sem quedas' : `${drops} queda${drops > 1 ? 's' : ''}`;
+        const html = `Uptime 7d: ${badge} &middot; ${dropsTxt}`;
+        _uptimeInlineCache[chipId] = { ts: Date.now(), html };
+        span.innerHTML = html;
+    } catch (e) {
+        span.innerHTML = '<span style="color:var(--text-dim)">Uptime indisponivel</span>';
+    }
 }
 
 function hasCap(mod, cap) {
@@ -1111,7 +1310,7 @@ function renderDashboard(container, chipId, moduleType, data) {
         ${ambientHtml}
         ${reservoirHtml}
         ${extrasHtml}
-        ${renderWifiTelemetry(data)}`;
+        ${renderWifiTelemetry(data, chipId, data && data.name)}`;
 }
 
 async function toggleRelay(chipId, moduleType, device) {
@@ -1451,7 +1650,7 @@ function renderModule_cam(container, mod) {
                 </div>
             </div>
         </div>
-        ${renderWifiTelemetry({ ...(mod.ctrl_data || {}), rssi: mod.rssi, uptime: mod.uptime })}`;
+        ${renderWifiTelemetry({ ...(mod.ctrl_data || {}), rssi: mod.rssi, uptime: mod.uptime }, mod.chip_id, mod.name)}`;
 
     if (cam_captureOpen && !cam_imageUrl && camReady) cam_loadLast(chipId, moduleType);
     if (cam_recordOpen) {
@@ -3204,10 +3403,14 @@ async function loadAdminModules() {
             // v4.1.28: normaliza legado ctrl -> hidro na coluna Tipo (safety net
             // ate todos os ESP32 + PWAs cacheados estarem em >= v4.1.28).
             const displayType = m.type === 'ctrl' ? 'hidro' : m.type;
-            // v4.1.21: botao Transferir + v4.1.27: botao Firmware
+            // v4.1.21: botao Transferir + v4.1.27: botao Firmware + v4.1.31: botao Historico
             const transferBtn = `<button onclick="transferModule('${safeChip}', '${safeEmail}')" style="background:transparent;border:1px solid var(--border);color:var(--primary);padding:3px 8px;border-radius:6px;cursor:pointer;font-size:0.7rem;font-weight:600">Transferir</button>`;
             const firmwareBtn = `<button onclick="showFirmwareModal('${safeChip}', '${safeName}', '${escapeAttr(m.type||'')}')" style="background:transparent;border:1px solid var(--border);color:#3498db;padding:3px 8px;border-radius:6px;cursor:pointer;font-size:0.7rem;font-weight:600">Firmware</button>`;
-            const actionBtns = `${firmwareBtn} ${transferBtn}`;
+            const historyBtn = `<button onclick="showUptimeModal('${safeChip}', '${safeName}', true)" style="background:transparent;border:1px solid var(--border);color:#9b59b6;padding:3px 8px;border-radius:6px;cursor:pointer;font-size:0.7rem;font-weight:600">Historico</button>`;
+            const actionBtns = `${historyBtn} ${firmwareBtn} ${transferBtn}`;
+            // v4.1.31: span que carrega uptime 7d async
+            const uptimeSpanId = `admin-uptime-${m.chip_id}`;
+            setTimeout(() => loadInlineUptime(m.chip_id, uptimeSpanId, true), 50);
             return `<tr>
                 <td style="padding:6px 4px;text-align:center">${onlineDot}</td>
                 <td style="padding:6px 4px;font-family:monospace;font-size:0.7rem">${escapeHtml(m.chip_id)}</td>
@@ -3215,6 +3418,7 @@ async function loadAdminModules() {
                 <td style="padding:6px 4px">${escapeHtml(m.name||'—')}</td>
                 <td style="padding:6px 4px">${owner}</td>
                 <td style="padding:6px 4px;font-size:0.7rem;color:var(--text-dim)">${escapeHtml(m.ip||'—')}</td>
+                <td style="padding:6px 4px;text-align:center;font-size:0.72rem"><span id="${uptimeSpanId}"><i style="color:var(--text-dim)">...</i></span></td>
                 <td style="padding:6px 4px;text-align:center;white-space:nowrap">${actionBtns}</td>
             </tr>`;
         }).join("");
@@ -3226,6 +3430,7 @@ async function loadAdminModules() {
                 <th style="padding:6px 4px">Nome</th>
                 <th style="padding:6px 4px">Dono</th>
                 <th style="padding:6px 4px">IP</th>
+                <th style="padding:6px 4px;text-align:center">Uptime 7d</th>
                 <th style="padding:6px 4px;text-align:center">Acao</th>
             </tr></thead>
             <tbody>${rows}</tbody>
