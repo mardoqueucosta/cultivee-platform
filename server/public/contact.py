@@ -14,10 +14,13 @@ Padrao inspirado no /api/contact do biopdi-nextjs:
 """
 
 import html
+import json
 import logging
 import os
 import smtplib
 import time
+import urllib.parse
+import urllib.request
 from collections import defaultdict, deque
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -90,6 +93,44 @@ def _valid_email(email):
     return True
 
 
+# ============================================================
+# Cloudflare Turnstile — verificacao anti-bot
+# ============================================================
+# Se TURNSTILE_SECRET_KEY esta no env, as rotas passam a EXIGIR token valido.
+# Sem a env var, o Turnstile e ignorado (fallback dev/staging) — nesse caso
+# as protecoes restantes (honeypot + rate limit) ainda valem.
+
+TURNSTILE_VERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
+
+
+def _turnstile_enabled():
+    return bool(os.environ.get("TURNSTILE_SECRET_KEY", "").strip())
+
+
+def _verify_turnstile(token, ip=None):
+    """Chama o Cloudflare siteverify. Retorna True se token valido."""
+    secret = os.environ.get("TURNSTILE_SECRET_KEY", "").strip()
+    if not secret:
+        # Sem secret -> Turnstile desligado (chamada defensiva, nao deveria ocorrer)
+        return True
+    if not token or not isinstance(token, str):
+        return False
+    try:
+        form = {"secret": secret, "response": token}
+        if ip:
+            form["remoteip"] = ip
+        body = urllib.parse.urlencode(form).encode("utf-8")
+        req = urllib.request.Request(TURNSTILE_VERIFY_URL, data=body, method="POST")
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            result = json.loads(resp.read().decode("utf-8"))
+        if not result.get("success"):
+            log.warning(f"[TURNSTILE] Verification failed: {result.get('error-codes')}")
+        return result.get("success") is True
+    except Exception as e:
+        log.error(f"[TURNSTILE] Erro no siteverify: {type(e).__name__}: {e}")
+        return False
+
+
 def _send_html_email(to_email, subject, body_html, reply_to=None):
     """
     Envia email HTML via SMTP SSL (porta 465, HostGator).
@@ -156,14 +197,24 @@ def contact():
         # Retorna sucesso fake — bot pensa que funcionou
         return jsonify({"message": "Mensagem enviada com sucesso"}), 200
 
-    # 2) Extrai e sanitiza campos
+    ip = _get_client_ip()
+
+    # 2) Cloudflare Turnstile — so valida se env var estiver configurada
+    if _turnstile_enabled():
+        token = (data.get("turnstileToken") or data.get("cf-turnstile-response") or "").strip()
+        if not token:
+            return jsonify({"error": "Verificacao anti-spam ausente. Recarregue a pagina e tente novamente."}), 400
+        if not _verify_turnstile(token, ip):
+            return jsonify({"error": "Verificacao anti-spam falhou. Recarregue a pagina e tente novamente."}), 403
+
+    # 3) Extrai e sanitiza campos
     name = (data.get("name") or "").strip()
     email = (data.get("email") or "").strip().lower()
     phone = (data.get("phone") or "").strip()
     subject = (data.get("subject") or "").strip()
     message = (data.get("message") or "").strip()
 
-    # 3) Validacao
+    # 4) Validacao
     if not name or not email or not message:
         return jsonify({"error": "Nome, email e mensagem sao obrigatorios."}), 400
     if len(name) > MAX_NAME_LEN:
@@ -173,8 +224,7 @@ def contact():
     if len(message) > MAX_MESSAGE_LEN:
         return jsonify({"error": f"Mensagem muito longa (maximo {MAX_MESSAGE_LEN} caracteres)."}), 400
 
-    # 4) Rate limit
-    ip = _get_client_ip()
+    # 5) Rate limit
     if not _rate_limit_check(ip, "contact"):
         log.warning(f"[CONTACT] Rate limit hit for {ip}")
         return jsonify({"error": "Muitas mensagens enviadas. Tente novamente mais tarde ou fale pelo WhatsApp."}), 429
@@ -271,12 +321,21 @@ def newsletter():
         log.info(f"[NEWSLETTER] Honeypot triggered from {_get_client_ip()}")
         return jsonify({"message": "Inscricao realizada"}), 200
 
+    ip = _get_client_ip()
+
+    # Cloudflare Turnstile — opcional (so valida se env var estiver setada)
+    if _turnstile_enabled():
+        token = (data.get("turnstileToken") or data.get("cf-turnstile-response") or "").strip()
+        if not token:
+            return jsonify({"error": "Verificacao anti-spam ausente. Recarregue a pagina e tente novamente."}), 400
+        if not _verify_turnstile(token, ip):
+            return jsonify({"error": "Verificacao anti-spam falhou. Recarregue a pagina e tente novamente."}), 403
+
     email = (data.get("email") or "").strip().lower()
 
     if not _valid_email(email):
         return jsonify({"error": "Email invalido."}), 400
 
-    ip = _get_client_ip()
     if not _rate_limit_check(ip, "newsletter"):
         log.warning(f"[NEWSLETTER] Rate limit hit for {ip}")
         return jsonify({"error": "Muitas tentativas. Tente novamente mais tarde."}), 429
