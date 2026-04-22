@@ -319,6 +319,9 @@
                             <input type="text" id="prof-company" placeholder="Nome da empresa" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg-card);color:var(--text);font-size:0.9rem">
                         </div>
                     </div>
+                    <!-- v4.1.30: botao proprio (saveProfile() ja envia esses campos junto com Meus dados) -->
+                    <button onclick="saveProfile()" style="width:100%;padding:12px;background:var(--primary);color:#fff;border:none;border-radius:8px;font-weight:700;cursor:pointer;font-size:0.95rem;margin-top:14px">Salvar dados fiscais</button>
+                    <p id="profile-fiscal-save-msg" class="hidden" style="text-align:center;font-size:0.8rem;margin-top:8px"></p>
                 </div>
 
                 <!-- Alterar senha -->

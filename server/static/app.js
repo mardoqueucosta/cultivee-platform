@@ -2520,8 +2520,12 @@ function onPersonTypeChange() {
 }
 
 async function saveProfile() {
-    const msg = document.getElementById("profile-save-msg");
-    msg.classList.add("hidden");
+    // v4.1.30: feedback em ambos os botoes (Meus dados + Dados fiscais)
+    const msgs = [
+        document.getElementById("profile-save-msg"),
+        document.getElementById("profile-fiscal-save-msg"),
+    ].filter(Boolean);
+    msgs.forEach(m => m.classList.add("hidden"));
     const isPj = document.getElementById("prof-ptype-pj").checked;
     const payload = {
         name: document.getElementById("prof-name").value.trim(),
@@ -2542,20 +2546,24 @@ async function saveProfile() {
     };
     try {
         const r = await api("/api/profile/", { method: "PUT", body: payload });
-        msg.textContent = "Dados salvos com sucesso.";
-        msg.style.color = "var(--primary)";
-        msg.classList.remove("hidden");
+        msgs.forEach(m => {
+            m.textContent = "Dados salvos com sucesso.";
+            m.style.color = "var(--primary)";
+            m.classList.remove("hidden");
+        });
         // Atualiza user object + navbar (se nome mudou)
         if (payload.name && user) {
             user.name = payload.name;
             localStorage.setItem(`${STORAGE_PREFIX}_user`, JSON.stringify(user));
             _renderUserMenu();  // re-renderiza avatar + nome + header do dropdown
         }
-        setTimeout(() => msg.classList.add("hidden"), 3500);
+        setTimeout(() => msgs.forEach(m => m.classList.add("hidden")), 3500);
     } catch (e) {
-        msg.textContent = "Erro: " + e.message;
-        msg.style.color = "#e74c3c";
-        msg.classList.remove("hidden");
+        msgs.forEach(m => {
+            m.textContent = "Erro: " + e.message;
+            m.style.color = "#e74c3c";
+            m.classList.remove("hidden");
+        });
     }
 }
 
