@@ -9,6 +9,9 @@ services:
       - PORT=5002
       - DB_PATH=/app/data/cultivee.db
       - DATA_DIR=/app/data
+      # Fuso horario — afeta header Date dos emails (formatdate localtime=True)
+      # e timestamps dos logs. zoneinfo America/Sao_Paulo ja vem com python:3.10-slim.
+      - TZ=America/Sao_Paulo
     env_file:
       - .env
     volumes:
