@@ -48,6 +48,11 @@ from .users import (
     set_totp_secret,
     enable_totp,
     disable_totp,
+    # 2FA Email OTP (v4.1.29)
+    create_email_2fa_code,
+    verify_email_2fa_code,
+    enable_email_2fa,
+    disable_email_2fa,
     # Session management (v4.1.22)
     create_token_with_metadata,
     touch_token,

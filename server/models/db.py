@@ -140,6 +140,19 @@ def init_db():
             user_agent TEXT,
             created_at TEXT DEFAULT (datetime('now'))
         );
+
+        -- v4.1.29: 2FA por email (alternativa ao TOTP). Codigo de 6 digitos
+        -- valido por 10 minutos, single-use. Plain no DB (padrao OTP curto —
+        -- mesmo nivel de protecao de tokens de reset).
+        CREATE TABLE IF NOT EXISTS email_2fa_codes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            code TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            used INTEGER DEFAULT 0,
+            created_at TEXT DEFAULT (datetime('now')),
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        );
     """)
 
     # --- Migracoes aditivas (ALTER TABLE IF NOT EXISTS pattern) ---
@@ -268,6 +281,13 @@ def init_db():
     # sendo aceito via normalizacao em register_module() enquanto nao atualizar OTA.
     # Idempotente: so afeta linhas que ainda estao como 'ctrl'.
     conn.execute("UPDATE modules SET type = 'hidro' WHERE type = 'ctrl'")
+
+    # Migracao v4.1.29: flag de 2FA por email (alternativa ao TOTP).
+    # Mutuamente exclusivo com totp_enabled — UI/login impede ambos ativos.
+    try:
+        conn.execute("SELECT email_2fa_enabled FROM users LIMIT 0")
+    except Exception:
+        conn.execute("ALTER TABLE users ADD COLUMN email_2fa_enabled INTEGER DEFAULT 0")
 
     conn.commit()
     conn.close()

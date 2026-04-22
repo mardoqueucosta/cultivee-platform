@@ -290,7 +290,7 @@ def login():
     if not user or not models.check_password_and_upgrade(user["id"], password, user["password_hash"]):
         return jsonify({"error": "Email ou senha invalidos"}), 401
 
-    # v4.1.22: checa 2FA se habilitado
+    # v4.1.22: checa 2FA TOTP se habilitado
     totp_enabled = False
     totp_secret = None
     try:
@@ -314,6 +314,40 @@ def login():
             import logging
             logging.getLogger(__name__).error("pyotp nao instalado — 2FA bypassed")
 
+    # v4.1.29: checa 2FA por email se habilitado (alternativa ao TOTP)
+    email_2fa_enabled = False
+    try:
+        email_2fa_enabled = bool(user["email_2fa_enabled"])
+    except (KeyError, IndexError, TypeError):
+        pass
+    email_code = (data.get("email_code") or "").strip()
+
+    if email_2fa_enabled:
+        if not email_code:
+            # 1a etapa: gera codigo e envia. PWA mostra campo + botao "Reenviar".
+            try:
+                code = models.create_email_2fa_code(user["id"])
+                from notifications import send_email_2fa_code as _send
+                _send(user, code, context="login")
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).error(f"[2fa-email] envio falhou: {e}")
+                return jsonify({
+                    "error": "Falha ao enviar codigo de login. Tente novamente em alguns segundos.",
+                    "email_otp_required": True,
+                }), 502
+            return jsonify({
+                "error": "Codigo enviado pro seu email. Digite-o pra concluir o login.",
+                "email_otp_required": True,
+                "email_otp_sent": True,
+            }), 401
+        # 2a etapa: valida o codigo
+        if not models.verify_email_2fa_code(user["id"], email_code):
+            return jsonify({
+                "error": "Codigo invalido ou expirado",
+                "email_otp_required": True,
+            }), 401
+
     # v4.1.22: cria token com metadata (user_agent + ip pra session management)
     ua = request.headers.get("User-Agent", "")
     ip = request.headers.get("X-Forwarded-For", request.remote_addr or "").split(",")[0].strip()
@@ -334,6 +368,7 @@ def login():
             "role": role,
             "email_verified": email_verified,
             "totp_enabled": totp_enabled,
+            "email_2fa_enabled": email_2fa_enabled,
         }
     })
 
@@ -350,12 +385,20 @@ def me():
     email_verified = False
     try: email_verified = bool(user["email_verified_at"])
     except (KeyError, IndexError, TypeError): pass
+    totp_enabled = False
+    try: totp_enabled = bool(user["totp_enabled"])
+    except (KeyError, IndexError, TypeError): pass
+    email_2fa_enabled = False
+    try: email_2fa_enabled = bool(user["email_2fa_enabled"])
+    except (KeyError, IndexError, TypeError): pass
     return jsonify({
         "id": user["id"],
         "email": user["email"],
         "name": user["name"],
         "role": role,
         "email_verified": email_verified,
+        "totp_enabled": totp_enabled,
+        "email_2fa_enabled": email_2fa_enabled,
     })
 
 

@@ -66,6 +66,14 @@
                     <label style="font-size:0.8rem;color:var(--text-dim)">Codigo 2FA (do seu app autenticador)</label>
                     <input type="text" id="login-totp" placeholder="000000" maxlength="6" inputmode="numeric" pattern="[0-9]{6}" style="font-family:monospace;letter-spacing:4px;text-align:center;font-size:1.1rem">
                 </div>
+                <!-- v4.1.29: Campo 2FA por email aparece dinamicamente quando servidor envia codigo -->
+                <div id="login-email-code-row" class="hidden" style="margin-top:10px">
+                    <label style="font-size:0.8rem;color:var(--text-dim)">Codigo enviado pro seu email (6 digitos)</label>
+                    <input type="text" id="login-email-code" placeholder="000000" maxlength="6" inputmode="numeric" pattern="[0-9]{6}" style="font-family:monospace;letter-spacing:4px;text-align:center;font-size:1.1rem">
+                    <p style="margin:6px 0 0;text-align:center">
+                        <a href="#" onclick="event.preventDefault();resendEmail2faLogin()" style="color:var(--text-dim);font-size:0.78rem">Reenviar codigo por email</a>
+                    </p>
+                </div>
                 <button onclick="doLogin()">Entrar</button>
                 <p class="auth-switch" style="margin-top:0.75rem">
                     <a href="#" onclick="showForgot()" style="color:var(--text-dim);font-size:0.85rem">Esqueci minha senha</a>
@@ -340,13 +348,24 @@
                 <!-- v4.1.22: Seguranca (2FA + sessoes) -->
                 <div class="card" style="margin:10px">
                     <h3 style="margin:0 0 10px;font-size:0.95rem">Seguranca</h3>
-                    <div style="display:flex;justify-content:space-between;align-items:center;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg)">
+                    <div style="display:flex;justify-content:space-between;align-items:center;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);margin-bottom:8px">
                         <div>
-                            <div style="font-size:0.85rem;font-weight:600">Autenticacao em 2 fatores (2FA)</div>
+                            <div style="font-size:0.85rem;font-weight:600">2FA por App autenticador (TOTP)</div>
                             <div id="prof-2fa-status" style="font-size:0.75rem;color:var(--text-dim);margin-top:2px">Inativo</div>
                         </div>
                         <button id="prof-2fa-btn" onclick="toggle2FA()" style="padding:8px 14px;background:var(--primary);color:#fff;border:none;border-radius:6px;font-size:0.8rem;font-weight:600;cursor:pointer">Ativar</button>
                     </div>
+                    <!-- v4.1.29: 2FA por email (alternativa ao TOTP, sem app) -->
+                    <div style="display:flex;justify-content:space-between;align-items:center;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg)">
+                        <div>
+                            <div style="font-size:0.85rem;font-weight:600">2FA por Email (sem app)</div>
+                            <div id="prof-email2fa-status" style="font-size:0.75rem;color:var(--text-dim);margin-top:2px">Inativo</div>
+                        </div>
+                        <button id="prof-email2fa-btn" onclick="toggleEmail2FA()" style="padding:8px 14px;background:var(--primary);color:#fff;border:none;border-radius:6px;font-size:0.8rem;font-weight:600;cursor:pointer">Ativar</button>
+                    </div>
+                    <p style="font-size:0.7rem;color:var(--text-dim);margin:8px 0 0">
+                        Escolha apenas um dos dois. App autenticador e mais rapido (codigo gerado offline). Email nao precisa de app extra mas exige caixa acessivel a cada login.
+                    </p>
                 </div>
 
                 <!-- v4.1.22: Meus dispositivos -->
@@ -413,6 +432,43 @@
                     <input type="text" id="totp-disable-code" placeholder="000000" maxlength="6" inputmode="numeric" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg-card);color:var(--text);text-align:center;letter-spacing:4px;font-family:monospace;margin-bottom:12px">
                     <button onclick="confirmDisable2FA()" style="width:100%;padding:12px;background:#e74c3c;color:#fff;border:none;border-radius:8px;font-weight:700;cursor:pointer">Desativar 2FA</button>
                     <p id="totp-disable-msg" class="hidden" style="font-size:0.8rem;margin-top:10px;color:#e74c3c;text-align:center"></p>
+                </div>
+            </div>
+
+            <!-- v4.1.29: Modal de setup de 2FA por Email (envia codigo + confirma) -->
+            <div id="email2fa-modal" class="modal hidden" onclick="if(event.target===this)closeEmail2FAModal()">
+                <div class="modal-content" style="max-width:420px;text-align:center">
+                    <button class="modal-close" onclick="closeEmail2FAModal()">&times;</button>
+                    <h3 style="margin:0 0 10px">Ativar 2FA por Email</h3>
+                    <div id="email2fa-step-intro">
+                        <p style="color:var(--text-dim);font-size:0.85rem;margin-bottom:14px">
+                            Vamos enviar um codigo de 6 digitos pro seu email cadastrado pra confirmar a posse. A partir dai, todo login exige um codigo novo enviado a cada tentativa.
+                        </p>
+                        <button onclick="email2faSetup()" style="width:100%;padding:12px;background:var(--primary);color:#fff;border:none;border-radius:8px;font-weight:700;cursor:pointer">Enviar codigo de confirmacao</button>
+                    </div>
+                    <div id="email2fa-step-confirm" style="display:none">
+                        <p style="color:var(--text-dim);font-size:0.85rem;margin-bottom:12px">
+                            Codigo enviado. Verifique seu email (incluindo spam) e digite abaixo:
+                        </p>
+                        <input type="text" id="email2fa-code-input" placeholder="000000" maxlength="6" inputmode="numeric" style="width:100%;padding:12px;border:1px solid var(--border);border-radius:8px;background:var(--bg-card);color:var(--text);font-size:1.2rem;text-align:center;letter-spacing:6px;font-family:monospace;margin-bottom:12px">
+                        <button onclick="email2faConfirmEnable()" style="width:100%;padding:12px;background:var(--primary);color:#fff;border:none;border-radius:8px;font-weight:700;cursor:pointer">Confirmar ativacao</button>
+                    </div>
+                    <p id="email2fa-msg" class="hidden" style="font-size:0.8rem;margin-top:10px;color:#e74c3c"></p>
+                </div>
+            </div>
+
+            <!-- v4.1.29: Modal pra desativar 2FA por Email (senha + codigo) -->
+            <div id="email2fa-disable-modal" class="modal hidden" onclick="if(event.target===this)closeEmail2FADisableModal()">
+                <div class="modal-content" style="max-width:380px">
+                    <button class="modal-close" onclick="closeEmail2FADisableModal()">&times;</button>
+                    <h3 style="margin:0 0 10px">Desativar 2FA por Email</h3>
+                    <p style="color:var(--text-dim);font-size:0.85rem;margin-bottom:12px">
+                        Vamos enviar um codigo pro seu email pra confirmar. Tambem precisamos da sua senha:
+                    </p>
+                    <input type="password" id="email2fa-disable-pass" placeholder="Senha atual" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg-card);color:var(--text);margin-bottom:10px">
+                    <input type="text" id="email2fa-disable-code" placeholder="Codigo do email (6 digitos)" maxlength="6" inputmode="numeric" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg-card);color:var(--text);text-align:center;letter-spacing:4px;font-family:monospace;margin-bottom:12px">
+                    <button onclick="confirmDisableEmail2FA()" style="width:100%;padding:12px;background:#e74c3c;color:#fff;border:none;border-radius:8px;font-weight:700;cursor:pointer">Desativar</button>
+                    <p id="email2fa-disable-msg" class="hidden" style="font-size:0.8rem;margin-top:10px;color:#e74c3c;text-align:center"></p>
                 </div>
             </div>
 

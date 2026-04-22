@@ -302,6 +302,106 @@ def totp_disable():
 
 
 # =====================================================================
+# 2FA Email OTP (v4.1.29) — alternativa ao TOTP, sem app authenticator.
+#
+# Fluxo:
+#   1. POST /2fa/email/setup -> gera 1o codigo, manda por email,
+#      NAO ativa ainda (so confirma posse do email)
+#   2. POST /2fa/email/enable {code} -> valida o codigo e ativa
+#   3. A partir dai, login exige senha + codigo enviado a cada login
+#   4. POST /2fa/email/disable {password, code} -> remove
+#
+# Mutuamente exclusivo com TOTP. Endpoint setup/enable retorna erro se TOTP
+# ja estiver ativo (UI evita o conflito, mas defensive check).
+# =====================================================================
+
+@profile_bp.route("/2fa/email/setup", methods=["POST"])
+@_require_auth
+def email_2fa_setup():
+    """Gera primeiro codigo + envia por email pra confirmar posse."""
+    user = request.user
+    # Mutua exclusao com TOTP
+    try:
+        if user["totp_enabled"]:
+            return jsonify({
+                "error": "TOTP ja esta ativo. Desative-o antes de ativar 2FA por email."
+            }), 400
+    except (KeyError, IndexError, TypeError):
+        pass
+
+    code = models.create_email_2fa_code(user["id"])
+    try:
+        from notifications import send_email_2fa_code
+        send_email_2fa_code(user, code, context="setup")
+    except Exception as e:
+        log.error(f"[2fa-email] falha ao enviar setup: {e}")
+        return jsonify({"error": f"Falha ao enviar email: {e}"}), 502
+    return jsonify({
+        "status": "ok",
+        "message": "Codigo enviado pro seu email. Digite-o pra concluir a ativacao.",
+    })
+
+
+@profile_bp.route("/2fa/email/enable", methods=["POST"])
+@_require_auth
+def email_2fa_enable():
+    """Valida o codigo enviado em /2fa/email/setup e ativa 2FA por email."""
+    user = request.user
+    data = request.get_json(silent=True, force=True) or {}
+    code = (data.get("code") or "").strip()
+
+    if not code or len(code) != 6:
+        return jsonify({"error": "Codigo deve ter 6 digitos"}), 400
+
+    if not models.verify_email_2fa_code(user["id"], code):
+        return jsonify({"error": "Codigo invalido ou expirado"}), 401
+
+    models.enable_email_2fa(user["id"])
+    log.info(f"[2fa-email] ativado pra user {user['email']}")
+    return jsonify({"status": "ok", "message": "2FA por email ativado com sucesso"})
+
+
+@profile_bp.route("/2fa/email/disable", methods=["POST"])
+@_require_auth
+def email_2fa_disable():
+    """Desativa 2FA por email. Exige senha + (opcionalmente) codigo recente."""
+    user = request.user
+    data = request.get_json(silent=True, force=True) or {}
+    password = data.get("password", "")
+    code = (data.get("code") or "").strip()
+
+    if not password:
+        return jsonify({"error": "Senha atual obrigatoria"}), 400
+    if not models.check_password(password, user["password_hash"]):
+        return jsonify({"error": "Senha incorreta"}), 401
+
+    # Se 2FA esta ativo, exige codigo (impede desativacao com so a senha
+    # se atacante so tem a senha mas nao o email)
+    try:
+        was_enabled = bool(user["email_2fa_enabled"])
+    except (KeyError, IndexError, TypeError):
+        was_enabled = False
+    if was_enabled and not code:
+        # Manda novo codigo e pede pra repetir o request
+        new_code = models.create_email_2fa_code(user["id"])
+        try:
+            from notifications import send_email_2fa_code
+            send_email_2fa_code(user, new_code, context="login")
+        except Exception as e:
+            log.error(f"[2fa-email] falha ao enviar codigo de disable: {e}")
+        return jsonify({
+            "error": "Codigo necessario. Enviamos um novo pro seu email — repita a operacao com o codigo.",
+            "code_sent": True,
+        }), 401
+    if was_enabled and not models.verify_email_2fa_code(user["id"], code):
+        return jsonify({"error": "Codigo invalido ou expirado"}), 401
+
+    models.disable_email_2fa(user["id"])
+    log.info(f"[2fa-email] desativado pra user {user['email']}")
+    return jsonify({"status": "ok", "message": "2FA por email desativado"})
+
+
+# =====================================================================
 # Session management (v4.1.22) — "Meus dispositivos"
 # =====================================================================
 

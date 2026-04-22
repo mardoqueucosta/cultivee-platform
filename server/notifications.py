@@ -245,5 +245,63 @@ Para desativar alertas, acesse o app e desabilite notificacoes.
         raise
 
 
+# =====================================================================
+# 2FA Email OTP — template (v4.1.29)
+# =====================================================================
+
+def send_email_2fa_code(user, code, context="login"):
+    """
+    Envia codigo OTP por email pra 2FA.
+    context = 'login' (a cada tentativa de login) ou 'setup' (ativacao inicial).
+    Usa notification_email se setado, senao email de login.
+    """
+    destination = None
+    try:
+        destination = user["notification_email"]
+    except (KeyError, IndexError, TypeError):
+        pass
+    if not destination:
+        destination = user["email"]
+    name = user["name"] if user["name"] else "Usuario"
+
+    if context == "setup":
+        subject = "Cultivee - Confirme sua autenticacao por email"
+        body = f"""Ola, {name}!
+
+Voce solicitou ativar a autenticacao em duas etapas (2FA) por email.
+
+Seu codigo de confirmacao:
+
+    {code}
+
+Digite esse codigo no app pra concluir a ativacao. O codigo e valido por
+10 minutos. Se nao foi voce que solicitou, ignore este email.
+
+--
+Equipe Cultivee
+contato@cultivee.com.br
+"""
+    else:
+        subject = "Cultivee - Codigo de login"
+        body = f"""Ola, {name}!
+
+Alguem (provavelmente voce) tentou entrar na sua conta Cultivee. Use o
+codigo abaixo pra concluir o login:
+
+    {code}
+
+O codigo e valido por 10 minutos e so pode ser usado uma vez.
+
+Se nao foi voce, alguem pode ter sua senha. Recomendamos:
+  1. Trocar a senha imediatamente
+  2. Manter a 2FA ativa
+
+--
+Equipe Cultivee
+contato@cultivee.com.br
+"""
+    send_email(destination, subject, body)
+
+
 # Instancia global — usada por app.py
 alert_manager = AlertManager()

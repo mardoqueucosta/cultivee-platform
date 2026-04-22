@@ -287,26 +287,70 @@ async function doLogin() {
     // v4.1.22: se campo TOTP estiver visivel, inclui
     const totpCode = document.getElementById("login-totp")?.value.trim();
     if (totpCode) body.totp_code = totpCode;
+    // v4.1.29: se campo email_code estiver visivel, inclui
+    const emailCode = document.getElementById("login-email-code")?.value.trim();
+    if (emailCode) body.email_code = emailCode;
 
     try {
-        const data = await api("/api/auth/login", { method: "POST", body });
+        // Faz request manual pra capturar o JSON de erro (com email_otp_required)
+        const resp = await fetch("/api/auth/login", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+        });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) {
+            // v4.1.29: 2FA por email — servidor mandou codigo, mostra campo
+            if (data.email_otp_required) {
+                const row = document.getElementById("login-email-code-row");
+                if (row) row.classList.remove("hidden");
+                showAuthError(data.email_otp_sent
+                    ? "Enviamos um codigo pro seu email. Digite-o aqui pra concluir o login."
+                    : (data.error || "Codigo invalido"));
+                document.getElementById("login-email-code")?.focus();
+                return;
+            }
+            // v4.1.22: TOTP fallback existente
+            if (data.totp_required || (data.error && /2FA|totp/i.test(data.error))) {
+                const row = document.getElementById("login-totp-row");
+                if (row && row.classList.contains("hidden")) {
+                    row.classList.remove("hidden");
+                    showAuthError("Digite o codigo do seu app autenticador");
+                    document.getElementById("login-totp")?.focus();
+                    return;
+                }
+            }
+            showAuthError(data.error || `HTTP ${resp.status}`);
+            return;
+        }
         token = data.token; user = data.user;
         localStorage.setItem(`${STORAGE_PREFIX}_token`, token);
         localStorage.setItem(`${STORAGE_PREFIX}_user`, JSON.stringify(user));
         enterApp();
     } catch (e) {
-        // v4.1.22: se erro indica que precisa de TOTP, mostra campo e pede
-        // A mensagem do servidor nao carrega o JSON direto — checamos via mensagem
-        if (e.message && /2FA|totp/i.test(e.message)) {
-            const row = document.getElementById("login-totp-row");
-            if (row && row.classList.contains("hidden")) {
-                row.classList.remove("hidden");
-                showAuthError("Digite o codigo do seu app autenticador");
-                document.getElementById("login-totp")?.focus();
-                return;
-            }
-        }
         showAuthError(e.message);
+    }
+}
+
+// v4.1.29: reenvia codigo de email 2FA (botao "Reenviar")
+async function resendEmail2faLogin() {
+    const email = document.getElementById("login-email").value.trim();
+    const password = document.getElementById("login-pass").value;
+    if (!email || !password) {
+        showAuthError("Preencha email e senha pra receber novo codigo");
+        return;
+    }
+    try {
+        // Bate no /login sem email_code -> servidor reenvia
+        await fetch("/api/auth/login", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email, password }),
+        });
+        showAuthSuccess("Novo codigo enviado pro seu email.");
+        document.getElementById("login-email-code")?.focus();
+    } catch (e) {
+        showAuthError("Erro ao reenviar: " + e.message);
     }
 }
 
@@ -2131,7 +2175,7 @@ async function loadProfile() {
         document.getElementById("prof-tax-id").value = p.tax_id || "";
         document.getElementById("prof-company").value = p.company_name || "";
         onPersonTypeChange();  // ajusta label + visibilidade de razao social
-        // v4.1.22: status 2FA
+        // v4.1.22: status 2FA TOTP
         const statusEl = document.getElementById("prof-2fa-status");
         const btnEl = document.getElementById("prof-2fa-btn");
         if (statusEl && btnEl) {
@@ -2144,11 +2188,50 @@ async function loadProfile() {
                 btnEl.style.color = "#e74c3c";
                 btnEl.style.border = "1px solid #e74c3c";
             } else {
-                statusEl.textContent = "Inativo — recomendamos ativar pra maior seguranca";
+                statusEl.textContent = "Inativo — codigo gerado pelo app, sem precisar de email";
                 btnEl.textContent = "Ativar";
                 btnEl.style.background = "var(--primary)";
                 btnEl.style.color = "#fff";
                 btnEl.style.border = "none";
+            }
+        }
+        // v4.1.29: status 2FA Email
+        const e2faStatusEl = document.getElementById("prof-email2fa-status");
+        const e2faBtnEl = document.getElementById("prof-email2fa-btn");
+        if (e2faStatusEl && e2faBtnEl) {
+            const enabled = !!p.email_2fa_enabled;
+            _email2faEnabled = enabled;
+            if (enabled) {
+                e2faStatusEl.innerHTML = '<span style="color:var(--primary)">&#10003; Ativo</span>';
+                e2faBtnEl.textContent = "Desativar";
+                e2faBtnEl.style.background = "transparent";
+                e2faBtnEl.style.color = "#e74c3c";
+                e2faBtnEl.style.border = "1px solid #e74c3c";
+            } else {
+                e2faStatusEl.textContent = "Inativo — codigo enviado por email a cada login";
+                e2faBtnEl.textContent = "Ativar";
+                e2faBtnEl.style.background = "var(--primary)";
+                e2faBtnEl.style.color = "#fff";
+                e2faBtnEl.style.border = "none";
+            }
+            // Mutua exclusao com TOTP — desabilita botao se outro ativo
+            if (_totpEnabled && !enabled) {
+                e2faBtnEl.disabled = true;
+                e2faBtnEl.style.opacity = "0.4";
+                e2faBtnEl.title = "Desative o TOTP primeiro";
+            } else {
+                e2faBtnEl.disabled = false;
+                e2faBtnEl.style.opacity = "1";
+                e2faBtnEl.title = "";
+            }
+            if (enabled && !_totpEnabled) {
+                btnEl.disabled = true;
+                btnEl.style.opacity = "0.4";
+                btnEl.title = "Desative o 2FA por Email primeiro";
+            } else {
+                btnEl.disabled = false;
+                btnEl.style.opacity = "1";
+                btnEl.title = "";
             }
         }
     } catch (e) {
@@ -2233,6 +2316,110 @@ async function confirmDisable2FA() {
         await api("/api/profile/2fa/disable", { method: "POST", body: { password, code } });
         alert("2FA desativado");
         close2FADisableModal();
+        loadProfile();
+    } catch (e) {
+        msg.textContent = e.message;
+        msg.classList.remove("hidden");
+    }
+}
+
+// =====================================================================
+// 2FA por Email (v4.1.29) — alternativa ao TOTP
+// =====================================================================
+
+let _email2faEnabled = false;
+
+function toggleEmail2FA() {
+    if (_email2faEnabled) {
+        // Desativar — abre modal que dispara envio de codigo
+        document.getElementById("email2fa-disable-pass").value = "";
+        document.getElementById("email2fa-disable-code").value = "";
+        document.getElementById("email2fa-disable-msg").classList.add("hidden");
+        document.getElementById("email2fa-disable-modal").classList.remove("hidden");
+    } else {
+        // Setup — abre modal e mostra etapa de envio
+        document.getElementById("email2fa-step-intro").style.display = "block";
+        document.getElementById("email2fa-step-confirm").style.display = "none";
+        document.getElementById("email2fa-code-input").value = "";
+        document.getElementById("email2fa-msg").classList.add("hidden");
+        document.getElementById("email2fa-modal").classList.remove("hidden");
+    }
+}
+
+function closeEmail2FAModal() {
+    document.getElementById("email2fa-modal").classList.add("hidden");
+}
+
+function closeEmail2FADisableModal() {
+    document.getElementById("email2fa-disable-modal").classList.add("hidden");
+}
+
+async function email2faSetup() {
+    const msg = document.getElementById("email2fa-msg");
+    msg.classList.add("hidden");
+    try {
+        await api("/api/profile/2fa/email/setup", { method: "POST" });
+        document.getElementById("email2fa-step-intro").style.display = "none";
+        document.getElementById("email2fa-step-confirm").style.display = "block";
+        setTimeout(() => document.getElementById("email2fa-code-input")?.focus(), 200);
+    } catch (e) {
+        msg.textContent = e.message;
+        msg.classList.remove("hidden");
+    }
+}
+
+async function email2faConfirmEnable() {
+    const code = document.getElementById("email2fa-code-input").value.trim();
+    const msg = document.getElementById("email2fa-msg");
+    msg.classList.add("hidden");
+    if (!code || code.length !== 6) {
+        msg.textContent = "Codigo deve ter 6 digitos";
+        msg.classList.remove("hidden");
+        return;
+    }
+    try {
+        await api("/api/profile/2fa/email/enable", { method: "POST", body: { code } });
+        alert("2FA por email ativado. Proximos logins vao receber codigo no seu email.");
+        closeEmail2FAModal();
+        loadProfile();
+    } catch (e) {
+        msg.textContent = e.message;
+        msg.classList.remove("hidden");
+    }
+}
+
+async function confirmDisableEmail2FA() {
+    const password = document.getElementById("email2fa-disable-pass").value;
+    const code = document.getElementById("email2fa-disable-code").value.trim();
+    const msg = document.getElementById("email2fa-disable-msg");
+    msg.classList.add("hidden");
+    if (!password) {
+        msg.textContent = "Senha obrigatoria";
+        msg.classList.remove("hidden");
+        return;
+    }
+    try {
+        const resp = await fetch("/api/profile/2fa/email/disable", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "Authorization": "Bearer " + token,
+            },
+            body: JSON.stringify({ password, code }),
+        });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) {
+            // Servidor mandou novo codigo? Mostra msg amigavel
+            if (data.code_sent) {
+                msg.textContent = data.error || "Codigo enviado pro seu email";
+            } else {
+                msg.textContent = data.error || "Erro";
+            }
+            msg.classList.remove("hidden");
+            return;
+        }
+        alert("2FA por email desativado");
+        closeEmail2FADisableModal();
         loadProfile();
     } catch (e) {
         msg.textContent = e.message;

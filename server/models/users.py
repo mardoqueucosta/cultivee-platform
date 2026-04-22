@@ -347,6 +347,90 @@ def disable_totp(user_id):
     conn.close()
 
 
+# --- 2FA Email OTP (v4.1.29) ---
+# Alternativa ao TOTP pra usuarios que nao querem instalar app authenticator.
+# Codigo de 6 digitos enviado por email a cada login, valido 10min, single-use.
+
+def _generate_email_2fa_code():
+    """6 digitos zero-padded. secrets.randbelow garante distribuicao uniforme."""
+    return f"{secrets.randbelow(1000000):06d}"
+
+
+def create_email_2fa_code(user_id, expires_minutes=10):
+    """
+    Gera novo codigo OTP por email. Invalida codigos anteriores nao-usados do
+    mesmo user (so 1 codigo valido por vez evita confusao no login).
+    Retorna o codigo plain (chamador envia por email).
+    """
+    code = _generate_email_2fa_code()
+    expires = (datetime.now() + timedelta(minutes=expires_minutes)).isoformat()
+    conn = get_db()
+    conn.execute(
+        "UPDATE email_2fa_codes SET used = 1 WHERE user_id = ? AND used = 0",
+        (user_id,)
+    )
+    conn.execute(
+        "INSERT INTO email_2fa_codes (user_id, code, expires_at) VALUES (?, ?, ?)",
+        (user_id, code, expires)
+    )
+    conn.commit()
+    conn.close()
+    return code
+
+
+def verify_email_2fa_code(user_id, code):
+    """Valida codigo + marca como usado. Retorna True se OK."""
+    if not code or len(code) != 6:
+        return False
+    conn = get_db()
+    row = conn.execute(
+        "SELECT id, expires_at, used FROM email_2fa_codes "
+        "WHERE user_id = ? AND code = ? ORDER BY id DESC LIMIT 1",
+        (user_id, code)
+    ).fetchone()
+    if not row:
+        conn.close()
+        return False
+    if row["used"]:
+        conn.close()
+        return False
+    try:
+        if datetime.fromisoformat(row["expires_at"]) < datetime.now():
+            conn.close()
+            return False
+    except (ValueError, TypeError):
+        conn.close()
+        return False
+    conn.execute("UPDATE email_2fa_codes SET used = 1 WHERE id = ?", (row["id"],))
+    conn.commit()
+    conn.close()
+    return True
+
+
+def enable_email_2fa(user_id):
+    """Ativa 2FA por email. UI deve garantir que TOTP esteja desativado."""
+    conn = get_db()
+    conn.execute(
+        "UPDATE users SET email_2fa_enabled = 1 WHERE id = ?", (user_id,)
+    )
+    conn.commit()
+    conn.close()
+
+
+def disable_email_2fa(user_id):
+    """Desativa 2FA por email + invalida codigos pendentes."""
+    conn = get_db()
+    conn.execute(
+        "UPDATE users SET email_2fa_enabled = 0 WHERE id = ?", (user_id,)
+    )
+    conn.execute(
+        "UPDATE email_2fa_codes SET used = 1 WHERE user_id = ? AND used = 0",
+        (user_id,)
+    )
+    conn.commit()
+    conn.close()
+
+
 # --- Sessions / Tokens com metadata (v4.1.22) ---
 
 def create_token_with_metadata(user_id, days=30, user_agent="", ip=""):
