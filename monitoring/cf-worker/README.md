@@ -6,6 +6,13 @@ envia email se cair. Externo ao servidor — sobrevive a falhas dele.
 **Status page publica:** <https://status.cultivee.com.br/>
 **Endpoint JSON:** <https://status.cultivee.com.br/check>
 
+Estilo Atlassian Statuspage / status.claude.com:
+- Multiplos componentes monitorados (App + Site)
+- Barrinhas de uptime de 90 dias por componente (verde/amarelo/vermelho)
+- Uptime % por janela: 24h / 7d / 30d / 90d
+- Historico de incidentes auto-detectados (ultimos 30 dias)
+- Persistencia em Cloudflare KV (free tier)
+
 ## Arquitetura
 
 ```
@@ -21,6 +28,42 @@ envia email se cair. Externo ao servidor — sobrevive a falhas dele.
 │ (Cache API)      │                │ + recovery email │
 └──────────────────┘                └──────────────────┘
 ```
+
+## Componentes monitorados
+
+Editar a constante `COMPONENTS` em `uptime.js`. Cada item tem:
+- `id`, `name`, `description` (mostrados no card)
+- `url` (alvo do GET)
+- `expectStatus` (default 200)
+- `expectBody` (string que precisa estar no body — opcional)
+
+Atualmente:
+1. **App Cultivee** — `app.cultivee.com.br/` valida HTTP 200 + palavra "Cultivee"
+2. **Site institucional** — `cultivee.com.br/` valida apenas HTTP 200
+
+Pra adicionar componente novo, append na lista + redeploy.
+
+## Persistencia (Cloudflare KV)
+
+Namespace: `cultivee_status` (id `3c4314b3fd394c6b8af6d31bf44678a2`)
+Bind no Worker: `STATUS_KV`
+
+Chaves:
+- `current:{component_id}` — snapshot atual (TTL 24h)
+- `daily:{component_id}:{YYYY-MM-DD}` — agregado diario (TTL 100 dias)
+- `incident:{component_id}:{start_iso}` — incidentes (TTL 100 dias)
+- `cooldown:{component_id}:{down|up}` — cooldown email 30min
+
+Uso esperado: ~720 writes/dia (cron 2min × 2 components × 1 write daily +
+poucos writes em transicoes), bem dentro do free tier de 1.000 writes/dia.
+
+## Detecao automatica de incidentes
+
+- Abre incidente: 2 checks DOWN consecutivos do mesmo componente
+- Fecha incidente: 2 checks UP consecutivos
+- Email de alerta: 1 vez por transicao (cooldown 30min)
+
+Editavel em `INCIDENT_OPEN_THRESHOLD` / `INCIDENT_CLOSE_THRESHOLD` no JS.
 
 ## Caracteristicas
 

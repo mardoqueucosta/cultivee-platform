@@ -13,6 +13,9 @@ WORKER_NAME="cultivee-uptime"
 WORKER_DIR="$(cd "$(dirname "$0")" && pwd)"
 COMPAT_DATE="2024-09-23"
 CRON_SCHEDULE="*/2 * * * *"  # a cada 2 minutos
+# KV namespace pra persistir checks/incidents (bindado como STATUS_KV no Worker)
+KV_NAMESPACE_ID="3c4314b3fd394c6b8af6d31bf44678a2"
+KV_BINDING_NAME="STATUS_KV"
 
 # Curl no Windows e mingw32-native (nao MSYS2 unix), entao paths /tmp/...
 # nao resolvem. Usar caminhos relativos ao cwd resolve.
@@ -42,7 +45,15 @@ API="https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT_ID/workers/script
 echo "=== 1. PUT do script $WORKER_NAME ==="
 # Worker como ES module (necessario pra usar export default {scheduled})
 META_FILE=".cf-meta.json"
-echo "{\"main_module\":\"uptime.js\",\"compatibility_date\":\"$COMPAT_DATE\"}" > "$META_FILE"
+cat > "$META_FILE" <<EOF
+{
+  "main_module": "uptime.js",
+  "compatibility_date": "$COMPAT_DATE",
+  "bindings": [
+    {"type": "kv_namespace", "name": "$KV_BINDING_NAME", "namespace_id": "$KV_NAMESPACE_ID"}
+  ]
+}
+EOF
 RESP_FILE=".cf-resp.json"
 HTTP_CODE=$(curl -sS -o "$RESP_FILE" -w "%{http_code}" -X PUT "$API" \
   -H "Authorization: Bearer $CF_API_TOKEN" \
