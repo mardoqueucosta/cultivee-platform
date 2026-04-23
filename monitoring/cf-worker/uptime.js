@@ -501,7 +501,7 @@ function renderHTML({ components, incidents, allOk }) {
 
   <div class="footer">
     Ultima atualizacao: ${escapeHtml(formatBR(new Date().toISOString()))}<br>
-    Verificacoes a cada 2 minutos &middot; <a href="/check">JSON</a><br>
+    Verificacoes a cada 2 minutos<br>
     <a href="https://cultivee.com.br" target="_blank" rel="noopener">cultivee.com.br</a> &middot;
     <a href="https://app.cultivee.com.br" target="_blank" rel="noopener">app.cultivee.com.br</a>
   </div>
