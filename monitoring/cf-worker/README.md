@@ -137,8 +137,40 @@ E rodar `bash deploy.sh` de novo.
 3 formas:
 
 1. **Status page publica (visual):** <https://status.cultivee.com.br/>
-2. **API JSON:** <https://status.cultivee.com.br/check> -> `{"healthy": true|false, "reason": "..."}`
+2. **API JSON (snapshot consolidado):** <https://status.cultivee.com.br/check>
+   - retorna o mesmo estado que a pagina HTML mostra: `overall`, `components` (com `current` + `uptime` 24h/7d/30d/90d) e `incidents` dos ultimos 30 dias.
+   - `?c=<id>` filtra um componente unico (ex: `/check?c=app`)
+   - `?live=1` ignora o KV e faz probe ao vivo (retorna so `healthy` + `latency_ms`) — util pra health check externo simples (Uptime Robot, etc.)
 3. **Forca fluxo completo (envia email se DOWN):** <https://status.cultivee.com.br/trigger>
+
+### Forma do JSON consolidado
+
+```json
+{
+  "generated_at": "2026-04-23T23:55:00.000Z",
+  "overall": { "healthy": true, "status": "operational" },
+  "components": [
+    {
+      "id": "app",
+      "name": "App Cultivee",
+      "description": "PWA + API REST — onde voce controla seus dispositivos",
+      "url": "https://app.cultivee.com.br/",
+      "current": {
+        "healthy": true,
+        "reason": null,
+        "latency_ms": 27,
+        "last_check_at": "2026-04-23T23:54:01.123Z",
+        "last_down_at": null,
+        "last_up_at": "2026-04-23T23:54:01.123Z",
+        "fail_streak": 0,
+        "ok_streak": 1234
+      },
+      "uptime": { "pct_24h": 100, "pct_7d": 99.95, "pct_30d": 99.92, "pct_90d": 99.92 }
+    }
+  ],
+  "incidents": []
+}
+```
 
 Logs em tempo real:
 - Dashboard CF > Workers & Pages > `cultivee-uptime` > **Logs (live)** (retencao 7 dias)

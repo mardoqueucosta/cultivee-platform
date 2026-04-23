@@ -83,8 +83,9 @@ if [[ "$HTTP_CODE" != "200" ]]; then
   rm -f "$RESP_FILE"
   exit 1
 fi
-python -c "import json,sys;d=json.load(open('$RESP_FILE'));print('  success:',d.get('success'));
-r=d.get('result') or [];[print('  cron:',c.get('cron'),'created_on:',c.get('created_on'),'modified_on:',c.get('modified_on')) for c in r]"
+python -c "import json;d=json.load(open('$RESP_FILE'));print('  success:',d.get('success'));
+r=d.get('result') or [];
+[print('  cron:',c) if isinstance(c,str) else print('  cron:',c.get('cron'),'modified_on:',c.get('modified_on')) for c in r]"
 rm -f "$RESP_FILE"
 
 echo ""

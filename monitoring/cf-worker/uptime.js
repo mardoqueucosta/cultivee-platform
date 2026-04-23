@@ -11,8 +11,9 @@
  * Dispara via:
  *   - Cron Trigger (a cada 2 minutos) — checa todos os componentes
  *   - GET /trigger             — manual (com email)
- *   - GET /check               — JSON do estado atual de todos
- *   - GET /check?c=app         — JSON de 1 componente
+ *   - GET /check               — JSON do snapshot persistido (overall + components + uptime + incidents)
+ *   - GET /check?c=app         — JSON apenas do componente "app"
+ *   - GET /check?live=1        — JSON de probe ao vivo (sem KV, util pra health check simples)
  *
  * Renderiza:
  *   - GET /                    — HTML status page
@@ -61,14 +62,31 @@ export default {
       return new Response('triggered\n', { status: 200 });
     }
     if (url.pathname === '/check') {
+      // ?live=1 — probe ao vivo (sem KV) — util pra health check simples
+      if (url.searchParams.get('live') === '1') {
+        const cid = url.searchParams.get('c');
+        if (cid) {
+          const c = COMPONENTS.find(x => x.id === cid);
+          if (!c) return jsonResp({ error: 'unknown component' }, 404);
+          return jsonResp(await checkComponent(c));
+        }
+        const all = await Promise.all(COMPONENTS.map(checkComponent));
+        return jsonResp(Object.fromEntries(COMPONENTS.map((c, i) => [c.id, all[i]])));
+      }
+      // Default: snapshot consolidado do KV (mesmo que a pagina HTML usa)
+      const snap = await buildStatusSnapshot(env);
+      const json = snapshotToJson(snap);
       const cid = url.searchParams.get('c');
       if (cid) {
-        const c = COMPONENTS.find(x => x.id === cid);
-        if (!c) return jsonResp({ error: 'unknown component' }, 404);
-        return jsonResp(await checkComponent(c));
+        const comp = json.components.find(c => c.id === cid);
+        if (!comp) return jsonResp({ error: 'unknown component' }, 404);
+        return jsonResp({
+          generated_at: json.generated_at,
+          ...comp,
+          incidents: json.incidents.filter(i => i.component === cid),
+        });
       }
-      const all = await Promise.all(COMPONENTS.map(checkComponent));
-      return jsonResp(Object.fromEntries(COMPONENTS.map((c, i) => [c.id, all[i]])));
+      return jsonResp(json);
     }
     return await renderStatusPage(env);
   },
@@ -262,9 +280,14 @@ async function writeJSON(kv, key, value, ttlSec) {
   await kv.put(key, JSON.stringify(value), ttlSec ? { expirationTtl: ttlSec } : undefined);
 }
 
-// ====== STATUS PAGE HTML ======
+// ====== SNAPSHOT (compartilhado entre HTML e JSON) ======
 
-async function renderStatusPage(env) {
+/**
+ * Le o estado consolidado do KV de todos os componentes.
+ * Usado tanto pela pagina HTML (renderStatusPage) quanto pelo JSON (/check).
+ */
+async function buildStatusSnapshot(env) {
+  const generatedAt = new Date().toISOString();
   const components = await Promise.all(
     COMPONENTS.map(async (c) => {
       const current = env.STATUS_KV ? await readJSON(env.STATUS_KV, `current:${c.id}`) : null;
@@ -275,8 +298,67 @@ async function renderStatusPage(env) {
   );
   const incidents = env.STATUS_KV ? await listRecentIncidents(env, 30) : [];
   const allOk = components.every((c) => c.current?.healthy !== false);
+  return { generatedAt, components, incidents, allOk };
+}
 
-  const html = renderHTML({ components, incidents, allOk });
+/**
+ * Converte o snapshot em JSON leve (sem o array `days` pesado).
+ * Forma de saida estavel — ok pra clientes externos consumirem.
+ */
+function snapshotToJson(snap) {
+  return {
+    generated_at: snap.generatedAt,
+    overall: {
+      healthy: snap.allOk,
+      status: snap.allOk ? 'operational' : 'incident',
+    },
+    components: snap.components.map((c) => ({
+      id: c.id,
+      name: c.name,
+      description: c.description,
+      url: c.url,
+      current: c.current
+        ? {
+            healthy: c.current.healthy,
+            reason: c.current.reason || null,
+            latency_ms: c.current.latency_ms || null,
+            last_check_at: c.current.last_check_at || null,
+            last_down_at: c.current.last_down_at || null,
+            last_up_at: c.current.last_up_at || null,
+            fail_streak: c.current.fail_streak || 0,
+            ok_streak: c.current.ok_streak || 0,
+          }
+        : null,
+      uptime: {
+        pct_24h: c.stats.pct_24h,
+        pct_7d: c.stats.pct_7d,
+        pct_30d: c.stats.pct_30d,
+        pct_90d: c.stats.overall_pct,
+      },
+    })),
+    incidents: snap.incidents.map((inc) => ({
+      component: inc.component,
+      component_name: inc.component_name || null,
+      start: inc.start,
+      end: inc.end || null,
+      reason: inc.reason || null,
+      duration_seconds: inc.end
+        ? Math.round((new Date(inc.end) - new Date(inc.start)) / 1000)
+        : null,
+      ongoing: !inc.end,
+    })),
+  };
+}
+
+// ====== STATUS PAGE HTML ======
+
+async function renderStatusPage(env) {
+  const snap = await buildStatusSnapshot(env);
+  const html = renderHTML({
+    components: snap.components,
+    incidents: snap.incidents,
+    allOk: snap.allOk,
+  });
   return new Response(html, {
     status: 200,
     headers: {
