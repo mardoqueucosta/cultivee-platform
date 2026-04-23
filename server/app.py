@@ -848,6 +848,7 @@ self.addEventListener('notificationclick', (event) => {{
 #   - fonts.googleapis.com / fonts.gstatic.com → Google Fonts (Inter)
 #   - challenges.cloudflare.com → Turnstile (CAPTCHA scaffolding)
 #   - api.qrserver.com → QR code do 2FA TOTP
+#   - status.cultivee.com.br → CF Worker externo (status da plataforma, v4.1.32)
 
 _CSP = (
     "default-src 'self'; "
@@ -855,7 +856,7 @@ _CSP = (
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
     "font-src 'self' https://fonts.gstatic.com data:; "
     "img-src 'self' data: blob: https://api.qrserver.com; "
-    "connect-src 'self'; "
+    "connect-src 'self' https://status.cultivee.com.br; "
     "frame-src https://challenges.cloudflare.com; "
     "manifest-src 'self'; "
     "worker-src 'self'; "

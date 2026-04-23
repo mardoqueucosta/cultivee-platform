@@ -641,6 +641,11 @@ async function _renderUptimeBody() {
                 <b style="color:${s.current_status === 'online' ? 'var(--primary)' : '#e74c3c'}">${escapeHtml(s.current_status || 'desconhecido')}</b>
             </div>`;
 
+        // v4.1.32: cruzamento com incidentes do servidor — se a plataforma esteve down
+        // no periodo, quedas do modulo nessas janelas podem ser falsos positivos
+        // (o ESP32 nao conseguiu fazer register, mas o problema era do servidor).
+        html += await _renderServerIncidentsOverlap(_uptimeCtx.days);
+
         // Lista de eventos
         if (events.length === 0) {
             html += '<p style="color:var(--text-dim);font-size:0.8rem;text-align:center;margin-top:12px">Sem eventos no periodo.</p>';
@@ -666,6 +671,42 @@ async function _renderUptimeBody() {
     } catch (e) {
         body.innerHTML = `<p style="color:#e74c3c;font-size:0.85rem">Erro: ${escapeHtml(e.message)}</p>`;
     }
+}
+
+// v4.1.32: aviso de incidentes do servidor que coincidem com o periodo do modal
+// de uptime. Resiliente — se o fetch ao Worker falhar, nao quebra o modal.
+async function _renderServerIncidentsOverlap(days) {
+    let data;
+    try {
+        data = await _fetchPlatformStatus(false);
+    } catch (e) {
+        return '';  // silencioso — modal continua funcionando sem o cruzamento
+    }
+    const cutoffMs = Date.now() - (days * 86400 * 1000);
+    const incidents = (data.incidents || []).filter(function (i) {
+        const startMs = new Date(i.start).getTime();
+        const endMs = i.end ? new Date(i.end).getTime() : Date.now();
+        // Sobrepoe se o incidente terminou depois do inicio do periodo
+        return endMs >= cutoffMs;
+    });
+    if (incidents.length === 0) return '';
+
+    const items = incidents.map(function (i) {
+        const start = formatRelativeShort(i.start);
+        const dur = i.duration_seconds != null ? formatHumanDuration(i.duration_seconds) : 'em curso';
+        const reason = i.reason ? ` &middot; ${escapeHtml(i.reason)}` : '';
+        const compName = escapeHtml(i.component_name || i.component || 'plataforma');
+        return `<li style="margin-bottom:2px">${compName} &middot; ${escapeHtml(start)} &middot; ${escapeHtml(dur)}${reason}</li>`;
+    }).join('');
+
+    return `<div style="margin:6px 0 14px;padding:10px 12px;background:rgba(230,126,34,0.10);border:1px solid rgba(230,126,34,0.35);border-radius:8px;font-size:0.78rem;line-height:1.5">
+        <div style="font-weight:600;color:#e67e22;margin-bottom:4px">&#9888; ${incidents.length} incidente${incidents.length>1?'s':''} da plataforma neste periodo</div>
+        <ul style="margin:4px 0 6px 18px;padding:0;color:var(--text)">${items}</ul>
+        <div style="font-size:0.7rem;color:var(--text-dim)">
+            Quedas do modulo nessas janelas podem ser falsos positivos — o ESP32 nao conseguiu fazer register porque o servidor estava indisponivel.
+            Detalhes em <a href="https://status.cultivee.com.br/" target="_blank" rel="noopener" style="color:var(--primary)">status.cultivee.com.br</a>.
+        </div>
+    </div>`;
 }
 
 // v4.1.8: pequena linha de telemetria WiFi exibida no fim de cada card de modulo
@@ -2250,6 +2291,7 @@ function showAdminPanel() {
     _hideAllMainViews();
     document.getElementById("admin-view").classList.remove("hidden");
     loadAdminStats();
+    loadAdminPlatformStatus();  // v4.1.32: status do servidor (CF Worker externo)
     loadAdminUsers();
     loadAdminModules();
     loadAdminAudit();  // v4.1.15
@@ -2938,6 +2980,95 @@ async function loadAdminStats() {
         `;
     } catch (e) {
         el.innerHTML = `<p style="color:#e74c3c;font-size:0.8rem">Erro: ${e.message}</p>`;
+    }
+}
+
+// =====================================================================
+// v4.1.32 — Status da plataforma (CF Worker externo em status.cultivee.com.br)
+// Endpoint /check ja tem CORS aberto + cache 30s na borda CF.
+// Cache local de 60s pra nao bater no Worker a cada modal aberto.
+// =====================================================================
+
+const _PLATFORM_STATUS_URL = "https://status.cultivee.com.br/check";
+let _platformStatusCache = null;  // { ts, data }
+
+async function _fetchPlatformStatus(force) {
+    if (!force && _platformStatusCache && (Date.now() - _platformStatusCache.ts) < 60000) {
+        return _platformStatusCache.data;
+    }
+    const r = await fetch(_PLATFORM_STATUS_URL, { cache: "no-store" });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const data = await r.json();
+    _platformStatusCache = { ts: Date.now(), data };
+    return data;
+}
+
+async function loadAdminPlatformStatus() {
+    const el = document.getElementById("admin-platform-status");
+    if (!el) return;
+    try {
+        const data = await _fetchPlatformStatus(false);
+        const overallOk = !!(data.overall && data.overall.healthy);
+        const headerColor = overallOk ? "#27ae60" : "#e74c3c";
+        const headerBg = overallOk ? "rgba(39,174,96,0.12)" : "rgba(231,76,60,0.12)";
+        const headerIcon = overallOk ? "&#10003;" : "&#9888;";
+        const headerLabel = overallOk ? "Operacional" : "Com problemas";
+
+        const rows = (data.components || []).map(function (c) {
+            const cur = c.current || {};
+            const ok = cur.healthy === true;
+            const dotColor = ok ? "#27ae60" : (cur.healthy === false ? "#e74c3c" : "#7d8a98");
+            const stateTxt = ok ? "operacional" : (cur.healthy === false ? (cur.reason || "indisponivel") : "sem dados");
+            const lat = (cur.latency_ms != null) ? `${cur.latency_ms}ms` : "—";
+            const up7 = (c.uptime && c.uptime.pct_7d != null) ? `${c.uptime.pct_7d}%` : "—";
+            const lastSeen = cur.last_check_at ? formatRelativeShort(cur.last_check_at) : "—";
+            return `
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 10px;background:var(--bg);border:1px solid var(--border);border-radius:8px">
+                    <div style="display:flex;align-items:center;gap:8px;min-width:0">
+                        <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${dotColor};flex-shrink:0"></span>
+                        <div style="min-width:0">
+                            <div style="font-size:0.82rem;font-weight:600">${escapeHtml(c.name)}</div>
+                            <div style="font-size:0.68rem;color:var(--text-dim)">${escapeHtml(stateTxt)} &middot; ${escapeHtml(lat)} &middot; uptime 7d: ${escapeHtml(up7)}</div>
+                        </div>
+                    </div>
+                    <div style="font-size:0.65rem;color:var(--text-dim);text-align:right;white-space:nowrap">verificado ${escapeHtml(lastSeen)}</div>
+                </div>`;
+        }).join("");
+
+        const incidents = data.incidents || [];
+        const ongoing = incidents.filter(function (i) { return i.ongoing; });
+        let incidentsHtml = "";
+        if (ongoing.length > 0) {
+            incidentsHtml = `<div style="margin-top:10px;padding:8px 10px;background:rgba(231,76,60,0.10);border:1px solid rgba(231,76,60,0.35);border-radius:8px;font-size:0.78rem">
+                &#9888; <b>${ongoing.length} incidente${ongoing.length>1?'s':''} em curso</b> &middot;
+                ${ongoing.map(function(i){return escapeHtml(i.component_name||i.component);}).join(", ")}
+            </div>`;
+        } else if (incidents.length > 0) {
+            incidentsHtml = `<div style="margin-top:8px;font-size:0.7rem;color:var(--text-dim)">
+                ${incidents.length} incidente${incidents.length>1?'s':''} nos ultimos 30 dias
+                (mais recente: ${escapeHtml(formatRelativeShort(incidents[0].start))}).
+            </div>`;
+        } else {
+            incidentsHtml = `<div style="margin-top:8px;font-size:0.7rem;color:var(--text-dim)">
+                Sem incidentes nos ultimos 30 dias.
+            </div>`;
+        }
+
+        el.innerHTML = `
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+                <span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;background:${headerBg};color:${headerColor};font-size:0.95rem">${headerIcon}</span>
+                <div>
+                    <div style="font-size:0.92rem;font-weight:700;color:${headerColor}">${headerLabel}</div>
+                    <div style="font-size:0.65rem;color:var(--text-dim)">Monitorado por Cloudflare Worker externo &middot; checagem a cada 2min</div>
+                </div>
+            </div>
+            <div style="display:grid;gap:6px">${rows || '<div class="empty-state"><p>Sem componentes configurados.</p></div>'}</div>
+            ${incidentsHtml}`;
+    } catch (e) {
+        el.innerHTML = `<p style="color:var(--text-dim);font-size:0.78rem">
+            Nao foi possivel carregar (${escapeHtml(e.message)}).
+            Veja diretamente em <a href="https://status.cultivee.com.br/" target="_blank" rel="noopener" style="color:var(--primary)">status.cultivee.com.br</a>.
+        </p>`;
     }
 }
 

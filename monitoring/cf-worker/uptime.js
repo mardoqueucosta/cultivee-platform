@@ -77,6 +77,9 @@ export default {
       const snap = await buildStatusSnapshot(env);
       const json = snapshotToJson(snap);
       const cid = url.searchParams.get('c');
+      // Cache 30s — admin/integradores nao precisam de tempo real e isso
+      // protege contra refresh agressivo + bate com TTL da pagina HTML
+      const cacheHeaders = { 'Cache-Control': 'public, max-age=30' };
       if (cid) {
         const comp = json.components.find(c => c.id === cid);
         if (!comp) return jsonResp({ error: 'unknown component' }, 404);
@@ -84,9 +87,9 @@ export default {
           generated_at: json.generated_at,
           ...comp,
           incidents: json.incidents.filter(i => i.component === cid),
-        });
+        }, 200, cacheHeaders);
       }
-      return jsonResp(json);
+      return jsonResp(json, 200, cacheHeaders);
     }
     return await renderStatusPage(env);
   },
@@ -581,10 +584,17 @@ function renderIncident(inc) {
 
 // ====== HELPERS ======
 
-function jsonResp(obj, status = 200) {
+function jsonResp(obj, status = 200, extraHeaders = {}) {
   return new Response(JSON.stringify(obj, null, 2), {
     status,
-    headers: { 'Content-Type': 'application/json; charset=utf-8' },
+    headers: {
+      'Content-Type': 'application/json; charset=utf-8',
+      // Endpoint publico (sem secrets) — libera qualquer origem.
+      // Permite o admin do app.cultivee.com.br consumir direto, alem de outros
+      // monitoramentos externos (Uptime Robot, etc.) que possam aparecer.
+      'Access-Control-Allow-Origin': '*',
+      ...extraHeaders,
+    },
   });
 }
 
