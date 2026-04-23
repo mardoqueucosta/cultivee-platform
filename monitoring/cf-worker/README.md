@@ -1,6 +1,6 @@
 # Cultivee — Uptime Monitor (Cloudflare Worker)
 
-Worker que verifica `https://app.cultivee.com.br/` a cada 2 minutos e
+Worker que verifica `https://app.cultivee.com.br/` a cada 5 minutos e
 envia email se cair. Externo ao servidor — sobrevive a falhas dele.
 
 **Status page publica:** <https://status.cultivee.com.br/>
@@ -16,7 +16,7 @@ Estilo Atlassian Statuspage / status.claude.com:
 ## Arquitetura
 
 ```
-┌──────────────────┐  fetch/2min   ┌──────────────────────┐
+┌──────────────────┐  fetch/5min   ┌──────────────────────┐
 │ Cloudflare Edge  │ ────────────▶ │ app.cultivee.com.br  │
 │ (Worker + Cron)  │ ◀──── 200 ── │ (VPS, container app) │
 └──────┬───────────┘               └──────────────────────┘
@@ -49,13 +49,27 @@ Namespace: `cultivee_status` (id `3c4314b3fd394c6b8af6d31bf44678a2`)
 Bind no Worker: `STATUS_KV`
 
 Chaves:
-- `current:{component_id}` — snapshot atual (TTL 24h)
-- `daily:{component_id}:{YYYY-MM-DD}` — agregado diario (TTL 100 dias)
-- `incident:{component_id}:{start_iso}` — incidentes (TTL 100 dias)
-- `cooldown:{component_id}:{down|up}` — cooldown email 30min
+- `current:{component_id}` — snapshot atual **+ acumulador in-place do dia**
+  (TTL 7d). Carrega `today_checks`, `today_healthy`, `today_total_latency_ms`,
+  `today_max_latency_ms` alem do estado — evita write separado em `daily:{today}`.
+- `daily:{component_id}:{YYYY-MM-DD}` — agregado congelado de um dia passado
+  (TTL 100 dias). **Escrito 1x por dia por componente**, na virada do dia.
+- `incident:{component_id}:{start_iso}` — incidentes (TTL 100 dias).
+- `cooldown:{component_id}:{down|up}` — cooldown email 30min.
 
-Uso esperado: ~720 writes/dia (cron 2min × 2 components × 1 write daily +
-poucos writes em transicoes), bem dentro do free tier de 1.000 writes/dia.
+### Matematica do free tier (1.000 writes/dia)
+
+| Origem | Writes/dia (2 componentes, cron `*/5`) |
+|---|---|
+| `current:` (1 write por check por componente) | 288 × 2 = **576** |
+| `daily:` (1 write por componente na virada do dia) | 1 × 2 = **2** |
+| `incident:` (open/close) | tipicamente 0 |
+| `cooldown:` (1 por email disparado) | tipicamente 0 |
+| **Total esperado** | **~578/dia** (58% do limite free) |
+
+O dia **de hoje** do historico e materializado direto do `current:` pela
+`getDailySeries()` — por isso a barrinha do dia atual aparece "ao vivo" mesmo
+antes da virada do dia.
 
 ## Detecao automatica de incidentes
 
@@ -67,8 +81,9 @@ Editavel em `INCIDENT_OPEN_THRESHOLD` / `INCIDENT_CLOSE_THRESHOLD` no JS.
 
 ## Caracteristicas
 
-- **Cadencia:** 2 minutos (cron `*/2 * * * *`) — 720 execucoes/dia,
-  bem dentro dos 100k requests/dia do free tier.
+- **Cadencia:** 5 minutos (cron `*/5 * * * *`) — 288 execucoes/dia, calibrado
+  pra caber no free tier de KV (1.000 writes/dia). Aumentar pra `*/2` exige
+  upgrade pro Workers Paid ($5/mes, 1M writes/mes).
 - **Cooldown:** 30min entre emails de mesmo estado (sem spam se cair por horas).
 - **Email de recovery:** quando volta, voce recebe segundo email automatico.
 - **Sem dependencia interna:** roda na borda Cloudflare, nao usa o servidor
@@ -190,10 +205,11 @@ Pra mudar o subdomain (ex: pra `monitor.cultivee.com.br`):
 
 | Recurso | Limite free | Uso real esperado |
 |---|---|---|
-| Worker requests | 100k/dia | ~720/dia (cron 2min) |
+| Worker requests | 100k/dia | ~288/dia (cron 5min) |
 | CPU per request | 10ms | Bem abaixo (so fetch + parse) |
 | Cron Triggers | 5 por conta | Usamos 1 |
-| Cache API | Free, sem limite explicito | ~720 reads + ~720 writes/dia |
+| KV reads | 100k/dia | ~288 × 2 comp × 1 read = ~576/dia |
+| KV writes | 1k/dia | ~578/dia (ver tabela "Matematica do free tier" acima) |
 | Mailchannels emails | 1.200/mes | ~5/mes em condicao normal |
 
 ## Remover

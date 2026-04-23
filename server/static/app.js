@@ -3059,7 +3059,7 @@ async function loadAdminPlatformStatus() {
                 <span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;background:${headerBg};color:${headerColor};font-size:0.95rem">${headerIcon}</span>
                 <div>
                     <div style="font-size:0.92rem;font-weight:700;color:${headerColor}">${headerLabel}</div>
-                    <div style="font-size:0.65rem;color:var(--text-dim)">Monitorado por Cloudflare Worker externo &middot; checagem a cada 2min</div>
+                    <div style="font-size:0.65rem;color:var(--text-dim)">Monitorado por Cloudflare Worker externo &middot; checagem a cada 5min</div>
                 </div>
             </div>
             <div style="display:grid;gap:6px">${rows || '<div class="empty-state"><p>Sem componentes configurados.</p></div>'}</div>

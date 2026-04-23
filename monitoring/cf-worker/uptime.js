@@ -9,7 +9,7 @@
  *   - Historico de incidentes auto-detectados
  *
  * Dispara via:
- *   - Cron Trigger (a cada 2 minutos) — checa todos os componentes
+ *   - Cron Trigger (a cada 5 minutos) — checa todos os componentes
  *   - GET /trigger             — manual (com email)
  *   - GET /check               — JSON do snapshot persistido (overall + components + uptime + incidents)
  *   - GET /check?c=app         — JSON apenas do componente "app"
@@ -50,7 +50,9 @@ const INCIDENT_CLOSE_THRESHOLD = 2;      // 2 checks UP consecutivos = fecha inc
 const HISTORY_DAYS_VISUAL = 90;          // barrinhas mostradas
 const KV_TTL_DAILY = 100 * 24 * 3600;    // 100 dias (folga sobre 90)
 const KV_TTL_INCIDENT = 100 * 24 * 3600;
-const KV_TTL_CURRENT = 24 * 3600;        // estado atual TTL 24h
+// TTL 7d — `current:` carrega o acumulador in-place do dia (today_*),
+// precisa sobreviver a eventuais pausas do cron sem perder o streak.
+const KV_TTL_CURRENT = 7 * 24 * 3600;
 
 // ====== ENTRYPOINT ======
 
@@ -107,13 +109,42 @@ export default {
 
 // ====== CORE: 1 ciclo de check + persistencia + alerta ======
 
+// Design de writes (importante pro free tier KV = 1000 writes/dia):
+// - `current:{id}` carrega o acumulador do DIA ATUAL in-place (today_checks,
+//   today_healthy, etc.). 1 write por check (normal). 2 writes no primeiro
+//   check de um dia novo (flush do dia anterior pra daily:YYYY-MM-DD).
+// - `daily:{id}:{YYYY-MM-DD}` so e escrito 1x por componente por dia, na virada.
+// Com cron `*/5`: 288 checks/dia × 2 componentes × 1 write = ~576 writes/dia.
 async function processComponent(comp, env) {
   const result = await checkComponent(comp);
   const ts = new Date();
-  const day = ymd(ts);
+  const today = ymd(ts);
 
-  // 1) atualiza estado atual
   const prev = await readJSON(env.STATUS_KV, `current:${comp.id}`);
+
+  // 1) Se virou o dia, congela o acumulador anterior em `daily:{id}:{prevDay}`
+  //    antes de resetar. Write extra — so acontece 1x por dia por componente.
+  if (prev?.day && prev.day !== today) {
+    await writeJSON(env.STATUS_KV, `daily:${comp.id}:${prev.day}`, {
+      checks: prev.today_checks || 0,
+      healthy: prev.today_healthy || 0,
+      total_latency_ms: prev.today_total_latency_ms || 0,
+      max_latency_ms: prev.today_max_latency_ms || 0,
+    }, KV_TTL_DAILY);
+  }
+
+  // 2) Acumulador do dia atual (reset se virou o dia)
+  const sameDay = prev?.day === today;
+  const today_checks = (sameDay ? (prev.today_checks || 0) : 0) + 1;
+  const today_healthy = (sameDay ? (prev.today_healthy || 0) : 0) + (result.healthy ? 1 : 0);
+  const today_total_latency_ms = (sameDay ? (prev.today_total_latency_ms || 0) : 0)
+    + (result.latency_ms || 0);
+  const today_max_latency_ms = Math.max(
+    sameDay ? (prev.today_max_latency_ms || 0) : 0,
+    result.latency_ms || 0
+  );
+
+  // 3) Streaks + estado
   const fail_streak = result.healthy ? 0 : ((prev?.fail_streak || 0) + 1);
   const ok_streak = result.healthy ? ((prev?.ok_streak || 0) + 1) : 0;
   const current = {
@@ -125,24 +156,16 @@ async function processComponent(comp, env) {
     ok_streak,
     last_down_at: result.healthy ? (prev?.last_down_at || null) : ts.toISOString(),
     last_up_at: result.healthy ? ts.toISOString() : (prev?.last_up_at || null),
+    // Acumulador in-place (evita write separado em daily:{id}:{today})
+    day: today,
+    today_checks,
+    today_healthy,
+    today_total_latency_ms,
+    today_max_latency_ms,
   };
   await writeJSON(env.STATUS_KV, `current:${comp.id}`, current, KV_TTL_CURRENT);
 
-  // 2) atualiza agregado diario (read-modify-write — KV nao tem atomicidade,
-  //    mas como so 1 cron escreve por minuto, sem race)
-  const dailyKey = `daily:${comp.id}:${day}`;
-  const daily = (await readJSON(env.STATUS_KV, dailyKey)) || {
-    checks: 0, healthy: 0, total_latency_ms: 0, max_latency_ms: 0,
-  };
-  daily.checks += 1;
-  if (result.healthy) daily.healthy += 1;
-  if (result.latency_ms) {
-    daily.total_latency_ms += result.latency_ms;
-    if (result.latency_ms > daily.max_latency_ms) daily.max_latency_ms = result.latency_ms;
-  }
-  await writeJSON(env.STATUS_KV, dailyKey, daily, KV_TTL_DAILY);
-
-  // 3) detecta transicoes de incidente
+  // 4) Transicoes de incidente
   const wasHealthy = prev ? prev.healthy : true;  // assume saudavel no boot
   if (wasHealthy && !result.healthy && fail_streak >= INCIDENT_OPEN_THRESHOLD) {
     await openIncident(env, comp, current, result.reason);
@@ -375,12 +398,30 @@ async function getDailySeries(kv, compId, days) {
   if (!kv) return [];
   const keys = [];
   const now = new Date();
+  const today = ymd(now);
   for (let i = days - 1; i >= 0; i--) {
     const d = new Date(now);
     d.setUTCDate(d.getUTCDate() - i);
     keys.push({ day: ymd(d), key: `daily:${compId}:${ymd(d)}` });
   }
-  const values = await Promise.all(keys.map(({ key }) => readJSON(kv, key)));
+  // Dia atual nao tem chave em daily:{today} — esta no acumulador in-place
+  // dentro de current:{id} (today_checks, today_healthy, etc.). So leitura.
+  const current = await readJSON(kv, `current:${compId}`);
+  const values = await Promise.all(
+    keys.map(({ day, key }) => {
+      if (day === today) {
+        // Materializa o dia atual a partir do current: (sem I/O extra)
+        if (!current || current.day !== today) return null;
+        return {
+          checks: current.today_checks || 0,
+          healthy: current.today_healthy || 0,
+          total_latency_ms: current.today_total_latency_ms || 0,
+          max_latency_ms: current.today_max_latency_ms || 0,
+        };
+      }
+      return readJSON(kv, key);
+    })
+  );
   return keys.map(({ day }, i) => {
     const v = values[i];
     if (!v || !v.checks) return { day, status: 'no-data', checks: 0, healthy: 0 };
@@ -504,7 +545,7 @@ function renderHTML({ components, incidents, allOk }) {
 
   <div class="footer">
     Ultima atualizacao: ${escapeHtml(formatBR(new Date().toISOString()))}<br>
-    Verificacoes a cada 2 minutos<br>
+    Verificacoes a cada 5 minutos<br>
     <a href="https://cultivee.com.br" target="_blank" rel="noopener">cultivee.com.br</a> &middot;
     <a href="https://app.cultivee.com.br" target="_blank" rel="noopener">app.cultivee.com.br</a>
   </div>

@@ -12,7 +12,7 @@ CRED="D:/01-projetos-claude/.credentials/cloudflare-cultivee.env"
 WORKER_NAME="cultivee-uptime"
 WORKER_DIR="$(cd "$(dirname "$0")" && pwd)"
 COMPAT_DATE="2024-09-23"
-CRON_SCHEDULE="*/2 * * * *"  # a cada 2 minutos
+CRON_SCHEDULE="*/5 * * * *"  # a cada 5 minutos (~576 writes/dia no free tier KV)
 # KV namespace pra persistir checks/incidents (bindado como STATUS_KV no Worker)
 KV_NAMESPACE_ID="3c4314b3fd394c6b8af6d31bf44678a2"
 KV_BINDING_NAME="STATUS_KV"
