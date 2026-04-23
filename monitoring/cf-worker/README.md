@@ -3,6 +3,9 @@
 Worker que verifica `https://app.cultivee.com.br/` a cada 2 minutos e
 envia email se cair. Externo ao servidor — sobrevive a falhas dele.
 
+**Status page publica:** <https://status.cultivee.com.br/>
+**Endpoint JSON:** <https://status.cultivee.com.br/check>
+
 ## Arquitetura
 
 ```
@@ -88,13 +91,25 @@ E rodar `bash deploy.sh` de novo.
 
 ## Verificar status agora
 
-Forca 1 execucao manual (via API):
-```bash
-bash trigger-now.sh
-```
+3 formas:
 
-Ou ver os ultimos logs:
-- Dashboard CF > Workers & Pages > `cultivee-uptime` > **Logs (live)**
+1. **Status page publica (visual):** <https://status.cultivee.com.br/>
+2. **API JSON:** <https://status.cultivee.com.br/check> -> `{"healthy": true|false, "reason": "..."}`
+3. **Forca fluxo completo (envia email se DOWN):** <https://status.cultivee.com.br/trigger>
+
+Logs em tempo real:
+- Dashboard CF > Workers & Pages > `cultivee-uptime` > **Logs (live)** (retencao 7 dias)
+
+## Custom domain
+
+Configuracao atual (criada via API durante setup):
+- DNS record: `status.cultivee.com.br` CNAME proxied -> `cultivee.workers.dev`
+- Worker Route: `status.cultivee.com.br/*` -> script `cultivee-uptime`
+
+Pra mudar o subdomain (ex: pra `monitor.cultivee.com.br`):
+1. Criar novo DNS record proxied no Cloudflare
+2. Criar nova Worker Route com novo padrao
+3. Opcional: deletar DNS + Route antigos
 
 ## Custo / limites do plano free
 
