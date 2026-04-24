@@ -1120,6 +1120,18 @@ Historico de versoes significativas. Formato: **`vX.Y.Z`** — `feat`/`fix`/`ref
 
 ---
 
+## Historico do projeto — tres fontes
+
+Se precisar entender "o que mudou quando" ou "por que isso esta assim":
+
+1. **[`CHANGELOG.md`](./CHANGELOG.md)** — changelog formal por versao (Keep a Changelog). Atualize aqui **junto com o commit de bump de `APP_VERSION`**.
+2. **[`docs/sessoes/YYYY-MM-DD.md`](./docs/sessoes/)** — log detalhado por rodada de trabalho. Em rodadas longas (varias releases no mesmo dia, decisoes arquiteturais, incidentes operacionais), crie um arquivo novo com: TL;DR, linha do tempo dos commits, decisoes tomadas + alternativas descartadas, erros encontrados + correcoes, licoes aprendidas.
+3. **`git log --oneline`** — fonte tecnica "quem mudou qual arquivo". Use quando os outros nao tem o detalhe.
+
+**Regra operacional pra agentes**: ao abrir um PR / fazer release, atualize `CHANGELOG.md` **na mesma rodada** — e, se foi rodada longa, crie tambem o log de sessao. Nao deixe pra depois — depois nao existe.
+
+---
+
 ## Quando editar este arquivo?
 
 Sempre que adicionar ou modificar:
@@ -1128,8 +1140,11 @@ Sempre que adicionar ou modificar:
 - Novos endpoints importantes (adicionar em "Servidor: API")
 - Mudanca de schema do banco (migracao + comentario da versao)
 - Fluxo critico novo (push, OTA, impersonation, etc.)
+- Convencao operacional nova (ex: `docker compose up --force-recreate` pra re-ler env_file)
 
 **Nao editar pra:**
 - Bug fixes pequenos/pontuais (vai no commit message)
 - Refactors internos que nao mudam interface publica
 - Ajustes de UX que nao mudam contrato da API
+
+> Historico de releases vive em [`CHANGELOG.md`](./CHANGELOG.md), nao aqui. A secao "Changelog" acima e mantida por compatibilidade com sessoes antigas e sera esvaziada quando o `CHANGELOG.md` estiver estabilizado.

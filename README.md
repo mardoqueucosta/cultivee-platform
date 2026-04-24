@@ -333,6 +333,16 @@ A chave esperada é `D:/01-projetos-claude/.credentials/id_rsa` (hardcoded em [`
 **Login retorna 401 mesmo com senha certa após v4.1.26**
 A migração de SHA-256 para bcrypt é **transparente** — acontece no primeiro login bem-sucedido. Se receber 401, conferir email e usar "Esqueci minha senha" para recuperar via email (gera novo hash bcrypt direto). Sem fallback manual necessário.
 
+## Histórico
+
+Três fontes complementares, na ordem do mais público pro mais interno:
+
+- **[`CHANGELOG.md`](./CHANGELOG.md)** — changelog formal por versão (formato [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/)). "O que mudou em cada release." Fonte única pra human-readable.
+- **[`docs/sessoes/`](./docs/sessoes/)** — log detalhado por rodada de trabalho (dia/bloco). "Por que foi feito assim, o que foi tentado e descartado, que incidentes rolaram." Contexto rico pra retomar trabalho depois.
+- **`git log --oneline`** — fonte técnica. "Quem mudou qual arquivo, quando, com que mensagem." Use quando o changelog/sessões não têm o detalhe que você precisa.
+
+**Convenção pros agentes / devs:** ao fazer uma release significativa, atualizar `CHANGELOG.md` junto com o commit de bump de `APP_VERSION`. Em rodadas longas (várias releases no mesmo dia, decisões arquiteturais, incidentes), criar `docs/sessoes/YYYY-MM-DD.md` para capturar o contexto que não cabe no changelog.
+
 ## Licença
 
 © Cultivee — Todos os direitos reservados. Código privado.
