@@ -110,7 +110,8 @@ if [[ -f "$SECRET_FILE" ]]; then
       -H "Content-Type: application/json" \
       --data-binary "@$SECRET_BODY_FILE")
     rm -f "$SECRET_BODY_FILE"
-    if [[ "$HTTP_CODE" != "200" ]]; then
+    # API retorna 200 (update) ou 201 (create). Ambos sao sucesso.
+    if [[ "$HTTP_CODE" != "200" && "$HTTP_CODE" != "201" ]]; then
       echo "  FALHOU (HTTP $HTTP_CODE):" >&2
       cat "$RESP_FILE" >&2; echo >&2
       rm -f "$RESP_FILE"
