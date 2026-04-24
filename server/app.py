@@ -568,6 +568,100 @@ def module_uptime(chip_id):
     })
 
 
+# =====================================================================
+# v4.1.33 — Webhook de incidentes da plataforma (CF Worker → VPS)
+# =====================================================================
+# POST /api/platform-incident — recebido pelo Cloudflare Worker (status
+# page externa) quando abre/fecha um incidente. Autenticacao: HMAC-SHA256
+# sobre "{timestamp}.{body_bytes}" com o secret PLATFORM_INCIDENT_SECRET
+# compartilhado. Anti-replay: timestamp deve estar dentro de 5min do agora.
+#
+# Efeito colateral: upsert em `platform_incidents` + marca retroativa em
+# `module_status_events` (reason='server_down') — quedas dos modulos que
+# coincidem com a janela do incidente sao marcadas e ficam excluidas do
+# calculo de uptime do hardware (a menos que se pergunte o uptime_pct_raw).
+#
+# Se PLATFORM_INCIDENT_SECRET nao estiver no env, o endpoint retorna 401 —
+# feature fica silenciosamente desligada ate que o operador configure.
+
+_INCIDENT_WEBHOOK_MAX_SKEW_SEC = 300  # 5min de tolerancia p/ drift de relogio
+
+
+def _verify_incident_webhook_signature(body_bytes, timestamp_str, signature_hex):
+    """
+    Valida HMAC-SHA256 + anti-replay. Retorna (True, None) se OK,
+    (False, "erro") se invalido.
+    """
+    import hmac
+    import hashlib
+    secret = (os.environ.get("PLATFORM_INCIDENT_SECRET") or "").strip()
+    if not secret:
+        return False, "webhook_disabled"
+    if not timestamp_str or not signature_hex:
+        return False, "missing_headers"
+    try:
+        ts = int(timestamp_str)
+    except (TypeError, ValueError):
+        return False, "bad_timestamp"
+    now = int(datetime.now().timestamp())
+    if abs(now - ts) > _INCIDENT_WEBHOOK_MAX_SKEW_SEC:
+        return False, "timestamp_too_old"
+    payload = f"{ts}.".encode("utf-8") + body_bytes
+    expected = hmac.new(
+        secret.encode("utf-8"), payload, hashlib.sha256
+    ).hexdigest()
+    if not hmac.compare_digest(expected, signature_hex.strip().lower()):
+        return False, "bad_signature"
+    return True, None
+
+
+@app.route("/api/platform-incident", methods=["POST"])
+def platform_incident_webhook():
+    """
+    Webhook do CF Worker. Chamado em open/close de incidentes.
+    Idempotente — re-post com o mesmo webhook_id so atualiza end_at/reason.
+    """
+    raw = request.get_data() or b""
+    sig = request.headers.get("X-Platform-Signature", "")
+    ts = request.headers.get("X-Platform-Timestamp", "")
+    ok, err = _verify_incident_webhook_signature(raw, ts, sig)
+    if not ok:
+        log.warning(f"platform_incident webhook rejected: {err}")
+        return jsonify({"error": err or "unauthorized"}), 401
+
+    try:
+        payload = json.loads(raw.decode("utf-8") or "{}")
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return jsonify({"error": "bad_json"}), 400
+
+    webhook_id = (payload.get("webhook_id") or "").strip()
+    component = (payload.get("component") or "").strip()
+    start_at = (payload.get("start") or "").strip()
+    if not webhook_id or not component or not start_at:
+        return jsonify({"error": "missing_fields"}), 400
+
+    component_name = payload.get("component_name") or None
+    end_at = (payload.get("end") or "").strip() or None
+    reason = payload.get("reason") or None
+
+    status, row = models.upsert_platform_incident(
+        webhook_id=webhook_id,
+        component=component,
+        component_name=component_name,
+        start_at=start_at,
+        end_at=end_at,
+        reason=reason,
+    )
+    affected = models.mark_module_events_as_server_down(start_at, end_at)
+    log.info(
+        f"platform_incident {status} id={row.get('id')} "
+        f"webhook_id={webhook_id} events_marked={affected}"
+    )
+    return jsonify({
+        "status": status,
+        "incident_id": row.get("id"),
+        "events_marked": affected,
+    }), 200
 
 
 # =====================================================================

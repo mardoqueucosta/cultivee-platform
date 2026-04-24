@@ -110,6 +110,10 @@ from .modules import (
     purge_old_status_events,
     MODULE_OFFLINE_THRESHOLD_SEC,
     MODULE_STATUS_RETENTION_DAYS,
+    # Incidentes da plataforma (v4.1.33) — webhook CF Worker
+    upsert_platform_incident,
+    mark_module_events_as_server_down,
+    get_recent_platform_incidents,
 )
 
 # --- Push subscriptions + alert log ---

@@ -494,16 +494,24 @@ def compute_module_status_lazy(chip_id, now=None):
     conn.close()
 
 
-def get_module_uptime_summary(chip_id, days=7, now=None):
+def get_module_uptime_summary(chip_id, days=7, now=None, exclude_server_down=True):
     """
     Agrega uptime do chip nos ultimos N dias.
+
+    v4.1.33: por default filtra eventos offline com reason='server_down' — esses
+    sao quedas causadas pelo proprio servidor Cultivee (registradas retroativamente
+    via webhook do CF Worker). Filtrando, uptime_pct reflete a saude real do
+    hardware/conectividade do modulo. uptime_pct_raw mantem o calculo antigo
+    (inclui tudo) pra referencia.
 
     Retorna dict:
       {
         period_days, period_start, period_end,
-        online_seconds, offline_seconds, total_seconds,
-        uptime_pct, offline_count, longest_offline_seconds,
-        last_offline_at, current_status,
+        online_seconds, offline_seconds, server_down_seconds, total_seconds,
+        uptime_pct, uptime_pct_raw,
+        offline_count, offline_count_raw,
+        longest_offline_seconds, last_offline_at, current_status,
+        exclude_server_down,
       }
     """
     now = now or datetime.now()
@@ -511,14 +519,14 @@ def get_module_uptime_summary(chip_id, days=7, now=None):
     conn = get_db()
     # Busca ultimo evento antes do periodo pra saber estado inicial
     pre = conn.execute(
-        "SELECT status, occurred_at FROM module_status_events "
+        "SELECT status, occurred_at, reason FROM module_status_events "
         "WHERE chip_id = ? AND occurred_at < ? "
         "ORDER BY occurred_at DESC LIMIT 1",
         (chip_id, start.isoformat())
     ).fetchone()
     # Eventos dentro do periodo
     rows = conn.execute(
-        "SELECT status, occurred_at, duration_seconds FROM module_status_events "
+        "SELECT status, occurred_at, duration_seconds, reason FROM module_status_events "
         "WHERE chip_id = ? AND occurred_at >= ? "
         "ORDER BY occurred_at ASC",
         (chip_id, start.isoformat())
@@ -528,29 +536,39 @@ def get_module_uptime_summary(chip_id, days=7, now=None):
     conn.close()
 
     online_sec = 0
-    offline_sec = 0
-    offline_count = 0
+    offline_sec = 0              # offline "real" do modulo (filtrado)
+    server_down_sec = 0          # offline causado pelo servidor
+    offline_count = 0            # conta filtrada
+    offline_count_raw = 0        # conta bruta (inclui server_down)
     longest_offline = 0
     last_offline_at = None
 
     # Estado inicial dentro do periodo
     cur_status = pre["status"] if pre else None
+    cur_reason = pre["reason"] if pre else None
     cur_start = start
 
-    def _accum(status, segment_start, segment_end):
-        nonlocal online_sec, offline_sec, offline_count, longest_offline, last_offline_at
+    def _accum(status, reason, segment_start, segment_end):
+        nonlocal online_sec, offline_sec, server_down_sec, offline_count, offline_count_raw
+        nonlocal longest_offline, last_offline_at
         if segment_end <= segment_start:
             return
         seg = int((segment_end - segment_start).total_seconds())
         if status == "online":
             online_sec += seg
         elif status == "offline":
-            offline_sec += seg
-            offline_count += 1
-            if seg > longest_offline:
-                longest_offline = seg
-            if last_offline_at is None or segment_start > last_offline_at:
-                last_offline_at = segment_start
+            is_server_down = (reason == "server_down")
+            offline_count_raw += 1
+            if is_server_down and exclude_server_down:
+                server_down_sec += seg
+                # Nao conta em offline_count/longest/last_offline_at
+            else:
+                offline_sec += seg
+                offline_count += 1
+                if seg > longest_offline:
+                    longest_offline = seg
+                if last_offline_at is None or segment_start > last_offline_at:
+                    last_offline_at = segment_start
 
     for r in rows:
         try:
@@ -558,15 +576,20 @@ def get_module_uptime_summary(chip_id, days=7, now=None):
         except (ValueError, TypeError):
             continue
         if cur_status is not None:
-            _accum(cur_status, cur_start, evt_at)
+            _accum(cur_status, cur_reason, cur_start, evt_at)
         cur_status = r["status"]
+        cur_reason = r["reason"]
         cur_start = evt_at
 
     if cur_status is not None:
-        _accum(cur_status, cur_start, now)
+        _accum(cur_status, cur_reason, cur_start, now)
 
-    total = online_sec + offline_sec
-    uptime_pct = (100.0 * online_sec / total) if total > 0 else None
+    # Filtrado (padrao): online vs offline "real"
+    total_filt = online_sec + offline_sec
+    uptime_pct = (100.0 * online_sec / total_filt) if total_filt > 0 else None
+    # Raw: inclui server_down no offline total
+    total_raw = online_sec + offline_sec + server_down_sec
+    uptime_pct_raw = (100.0 * online_sec / total_raw) if total_raw > 0 else None
 
     return {
         "period_days": days,
@@ -574,12 +597,16 @@ def get_module_uptime_summary(chip_id, days=7, now=None):
         "period_end": now.isoformat(),
         "online_seconds": online_sec,
         "offline_seconds": offline_sec,
-        "total_seconds": total,
+        "server_down_seconds": server_down_sec,
+        "total_seconds": total_raw,  # mantido = online+offline+server_down (compatibilidade)
         "uptime_pct": round(uptime_pct, 2) if uptime_pct is not None else None,
+        "uptime_pct_raw": round(uptime_pct_raw, 2) if uptime_pct_raw is not None else None,
         "offline_count": offline_count,
+        "offline_count_raw": offline_count_raw,
         "longest_offline_seconds": longest_offline,
         "last_offline_at": last_offline_at.isoformat() if last_offline_at else None,
         "current_status": last["status"] if last else "unknown",
+        "exclude_server_down": bool(exclude_server_down),
     }
 
 
@@ -617,3 +644,90 @@ def _timedelta_days(n):
     """Helper: evita import extra de timedelta no topo do arquivo."""
     from datetime import timedelta
     return timedelta(days=int(n))
+
+
+# =====================================================================
+# Incidentes da plataforma (v4.1.33)
+# =====================================================================
+# Recebidos via webhook do CF Worker (status.cultivee.com.br) em
+# POST /api/platform-incident. Upsert por `webhook_id` + update retroativo
+# em module_status_events pra marcar quedas que foram na verdade do servidor.
+# =====================================================================
+
+def upsert_platform_incident(webhook_id, component, component_name,
+                              start_at, end_at, reason):
+    """
+    Idempotente. Insere ou atualiza (end_at/reason) por webhook_id.
+    Retorna ('inserted' | 'updated', dict_da_linha).
+    """
+    conn = get_db()
+    existing = conn.execute(
+        "SELECT id, start_at, end_at FROM platform_incidents WHERE webhook_id = ?",
+        (webhook_id,)
+    ).fetchone()
+    if existing:
+        conn.execute(
+            "UPDATE platform_incidents SET end_at = ?, reason = COALESCE(?, reason), "
+            "component_name = COALESCE(?, component_name) WHERE webhook_id = ?",
+            (end_at, reason, component_name, webhook_id)
+        )
+        status = "updated"
+    else:
+        conn.execute(
+            "INSERT INTO platform_incidents "
+            "(webhook_id, component, component_name, start_at, end_at, reason) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (webhook_id, component, component_name, start_at, end_at, reason)
+        )
+        status = "inserted"
+    row = conn.execute(
+        "SELECT id, webhook_id, component, component_name, start_at, end_at, reason "
+        "FROM platform_incidents WHERE webhook_id = ?",
+        (webhook_id,)
+    ).fetchone()
+    conn.commit()
+    conn.close()
+    return status, dict(row) if row else {}
+
+
+def mark_module_events_as_server_down(start_at, end_at=None):
+    """
+    Marca eventos offline de QUALQUER modulo que caem dentro da janela
+    [start_at, end_at] como reason='server_down'. Idempotente — so afeta
+    linhas que ainda nao estao marcadas.
+
+    end_at=None (incidente em curso) usa "agora" como limite superior.
+    Retorna numero de linhas afetadas.
+    """
+    if not end_at:
+        end_at = datetime.now().isoformat()
+    conn = get_db()
+    # So pega offline cuja janela esta DENTRO do incidente. Eventos cuja
+    # janela so parcialmente se sobrepoe tambem sao marcados — o visitante
+    # ve o aviso + badge e entende o contexto.
+    cur = conn.execute(
+        "UPDATE module_status_events "
+        "SET reason = 'server_down' "
+        "WHERE status = 'offline' "
+        "  AND occurred_at >= ? AND occurred_at <= ? "
+        "  AND (reason IS NULL OR reason != 'server_down')",
+        (start_at, end_at)
+    )
+    affected = cur.rowcount or 0
+    conn.commit()
+    conn.close()
+    return affected
+
+
+def get_recent_platform_incidents(days=30, limit=100):
+    """Lista incidentes recentes — usado pelo admin pra auditar."""
+    start = (datetime.now() - _timedelta_days(days)).isoformat()
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT id, webhook_id, component, component_name, start_at, end_at, reason, received_at "
+        "FROM platform_incidents WHERE start_at >= ? "
+        "ORDER BY start_at DESC LIMIT ?",
+        (start, int(limit))
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]

@@ -210,12 +210,15 @@ async function openIncident(env, comp, current, reason) {
   const key = `incident:${comp.id}:${start}`;
   const existing = await readJSON(env.STATUS_KV, key);
   if (existing) return;  // ja aberto
-  await writeJSON(env.STATUS_KV, key, {
+  const incident = {
     component: comp.id,
     component_name: comp.name,
     start, end: null, reason,
-  }, KV_TTL_INCIDENT);
+  };
+  await writeJSON(env.STATUS_KV, key, incident, KV_TTL_INCIDENT);
   console.log(`[INCIDENT_OPEN] ${comp.id} reason=${reason}`);
+  // v4.1.33: posta pra VPS pra marcar eventos dos modulos (best-effort)
+  await postIncidentToVPS(env, incident);
 }
 
 async function closeIncident(env, comp, current) {
@@ -230,6 +233,76 @@ async function closeIncident(env, comp, current) {
   openOne.data.end = current.last_up_at || new Date().toISOString();
   await writeJSON(env.STATUS_KV, openOne.key, openOne.data, KV_TTL_INCIDENT);
   console.log(`[INCIDENT_CLOSE] ${comp.id}`);
+  // v4.1.33: posta pra VPS (agora com end preenchido) — mark retroativo acontece la
+  await postIncidentToVPS(env, openOne.data);
+}
+
+// ====== WEBHOOK VPS (v4.1.33) ======
+
+// URL do endpoint da VPS. Sobrescrivivel via env pra permitir dev/local.
+const VPS_WEBHOOK_URL_DEFAULT = 'https://app.cultivee.com.br/api/platform-incident';
+
+/**
+ * Posta o incidente pra VPS. Autentica via HMAC-SHA256 de `{ts}.{body}`.
+ * Best-effort: log de erro se falhar, nao rethrowa pra nao quebrar o ciclo.
+ */
+async function postIncidentToVPS(env, incident) {
+  const secret = env.PLATFORM_INCIDENT_SECRET;
+  if (!secret) {
+    console.log('[WEBHOOK skip] PLATFORM_INCIDENT_SECRET nao configurado');
+    return;
+  }
+  const url = env.VPS_WEBHOOK_URL || VPS_WEBHOOK_URL_DEFAULT;
+  const body = JSON.stringify({
+    webhook_id: `${incident.component}:${incident.start}`,
+    component: incident.component,
+    component_name: incident.component_name,
+    start: incident.start,
+    end: incident.end,
+    reason: incident.reason,
+  });
+  const ts = Math.floor(Date.now() / 1000);
+  const sig = await hmacSha256Hex(secret, `${ts}.${body}`);
+  try {
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Platform-Timestamp': String(ts),
+        'X-Platform-Signature': sig,
+      },
+      body,
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!r.ok) {
+      const txt = await r.text();
+      console.error(`[WEBHOOK fail] ${incident.component} HTTP ${r.status}: ${txt.slice(0, 200)}`);
+      return;
+    }
+    const resp = await r.json();
+    console.log(`[WEBHOOK ok] ${incident.component} ${resp.status} events_marked=${resp.events_marked}`);
+  } catch (e) {
+    console.error(`[WEBHOOK error] ${incident.component}: ${e.message}`);
+  }
+}
+
+/**
+ * HMAC-SHA256 em hex. Usa Web Crypto (disponivel em Workers), pois
+ * `crypto.createHmac` do Node nao existe aqui.
+ */
+async function hmacSha256Hex(secret, message) {
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    'raw',
+    enc.encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+  const sig = await crypto.subtle.sign('HMAC', key, enc.encode(message));
+  return Array.from(new Uint8Array(sig))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
 }
 
 async function listRecentIncidents(env, days = 30) {

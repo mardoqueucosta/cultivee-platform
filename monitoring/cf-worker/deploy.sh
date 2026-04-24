@@ -9,6 +9,10 @@
 set -euo pipefail
 
 CRED="D:/01-projetos-claude/.credentials/cloudflare-cultivee.env"
+# Secret HMAC compartilhado entre Worker e VPS (webhook /api/platform-incident)
+# Gerado com: python -c "import secrets; print(secrets.token_hex(32))"
+# Se nao existir, o provisionamento do secret e pulado (feature fica inativa).
+SECRET_FILE="D:/01-projetos-claude/.credentials/platform-incident-secret.env.tmp"
 WORKER_NAME="cultivee-uptime"
 WORKER_DIR="$(cd "$(dirname "$0")" && pwd)"
 COMPAT_DATE="2024-09-23"
@@ -88,8 +92,43 @@ r=d.get('result') or [];
 [print('  cron:',c) if isinstance(c,str) else print('  cron:',c.get('cron'),'modified_on:',c.get('modified_on')) for c in r]"
 rm -f "$RESP_FILE"
 
+# === 3. Secret PLATFORM_INCIDENT_SECRET (v4.1.33) ===
+# Usado pra HMAC do webhook CF Worker -> VPS (/api/platform-incident).
+# So configura se o arquivo local existir. Idempotente: re-put atualiza.
+if [[ -f "$SECRET_FILE" ]]; then
+  echo ""
+  echo "=== 3. Secret PLATFORM_INCIDENT_SECRET ==="
+  SECRET_VALUE=$(tr -d '\r\n' < "$SECRET_FILE")
+  if [[ -z "$SECRET_VALUE" ]]; then
+    echo "  AVISO: $SECRET_FILE vazio — pulando" >&2
+  else
+    RESP_FILE=".cf-resp.json"
+    SECRET_BODY_FILE=".cf-secret-body.json"
+    python -c "import json; open('$SECRET_BODY_FILE','w').write(json.dumps({'name':'PLATFORM_INCIDENT_SECRET','text':'$SECRET_VALUE','type':'secret_text'}))"
+    HTTP_CODE=$(curl -sS -o "$RESP_FILE" -w "%{http_code}" -X PUT "$API/secrets" \
+      -H "Authorization: Bearer $CF_API_TOKEN" \
+      -H "Content-Type: application/json" \
+      --data-binary "@$SECRET_BODY_FILE")
+    rm -f "$SECRET_BODY_FILE"
+    if [[ "$HTTP_CODE" != "200" ]]; then
+      echo "  FALHOU (HTTP $HTTP_CODE):" >&2
+      cat "$RESP_FILE" >&2; echo >&2
+      rm -f "$RESP_FILE"
+      echo "  (deploy continua — secret pode ser configurado manualmente via dashboard CF)"
+    else
+      python -c "import json;d=json.load(open('$RESP_FILE'));print('  success:',d.get('success'),' name:',(d.get('result') or {}).get('name'))"
+      rm -f "$RESP_FILE"
+    fi
+  fi
+  unset SECRET_VALUE
+else
+  echo ""
+  echo "=== 3. Secret PLATFORM_INCIDENT_SECRET — arquivo nao existe, pulando ==="
+  echo "  (criar $SECRET_FILE com 64 hex chars pra ativar o webhook)"
+fi
+
 echo ""
 echo "=== Pronto ==="
 echo "Dashboard:  https://dash.cloudflare.com/$CF_ACCOUNT_ID/workers/services/view/$WORKER_NAME/production"
-echo "Cron:       $CRON_SCHEDULE  (proxima execucao em ate 2min)"
+echo "Cron:       $CRON_SCHEDULE  (proxima execucao em ate 5min)"
 echo "Logs live:  Dashboard > Workers > $WORKER_NAME > Logs"

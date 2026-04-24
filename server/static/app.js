@@ -641,6 +641,19 @@ async function _renderUptimeBody() {
                 <b style="color:${s.current_status === 'online' ? 'var(--primary)' : '#e74c3c'}">${escapeHtml(s.current_status || 'desconhecido')}</b>
             </div>`;
 
+        // v4.1.33: aviso de exclusao — quando o uptime filtrado diverge do bruto,
+        // mostra quantos eventos foram excluidos e o uptime bruto por transparencia.
+        const rawCount = s.offline_count_raw || 0;
+        const filtCount = s.offline_count || 0;
+        const excluded = Math.max(0, rawCount - filtCount);
+        if (excluded > 0 && s.uptime_pct_raw != null && s.uptime_pct_raw !== s.uptime_pct) {
+            html += `<div style="margin:6px 0 10px;padding:8px 10px;background:rgba(52,152,219,0.08);border:1px solid rgba(52,152,219,0.30);border-radius:8px;font-size:0.72rem;color:var(--text)">
+                <b>${excluded} queda${excluded>1?'s':''} excluida${excluded>1?'s':''}</b>
+                por incidente da plataforma. Uptime bruto (incluindo): <b>${s.uptime_pct_raw}%</b>.
+                <a href="https://status.cultivee.com.br" target="_blank" rel="noopener" style="color:var(--primary);text-decoration:none">Ver incidentes &#8599;</a>
+            </div>`;
+        }
+
         // v4.1.32: cruzamento com incidentes do servidor — se a plataforma esteve down
         // no periodo, quedas do modulo nessas janelas podem ser falsos positivos
         // (o ESP32 nao conseguiu fazer register, mas o problema era do servidor).
@@ -654,14 +667,33 @@ async function _renderUptimeBody() {
             html += '<div style="display:grid;gap:4px;font-size:0.78rem">';
             for (const e of events) {
                 const isOffline = e.status === 'offline';
-                const dot = isOffline
-                    ? '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#e74c3c;margin-right:6px"></span>'
-                    : '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#27ae60;margin-right:6px"></span>';
+                // v4.1.33: eventos marcados como 'server_down' pelo webhook do CF Worker
+                // (quedas causadas pela plataforma, nao pelo modulo) recebem badge cinza
+                // e label "SERVIDOR" em vez de "OFFLINE" vermelho.
+                const isServerDown = isOffline && e.reason === 'server_down';
+                let dotColor, label, labelColor;
+                if (isServerDown) {
+                    dotColor = '#7d8a98';
+                    label = 'SERVIDOR';
+                    labelColor = '#7d8a98';
+                } else if (isOffline) {
+                    dotColor = '#e74c3c';
+                    label = 'OFFLINE';
+                    labelColor = '';
+                } else {
+                    dotColor = '#27ae60';
+                    label = 'online';
+                    labelColor = '';
+                }
+                const dot = `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${dotColor};margin-right:6px"></span>`;
                 const dur = e.duration_seconds != null ? formatHumanDuration(e.duration_seconds) : '<i>em curso</i>';
-                const reason = e.reason ? ` &middot; ${escapeHtml(e.reason)}` : '';
+                // Oculta o reason=server_down no texto (ja esta implicito no label cinza)
+                const reasonTxt = (e.reason && !isServerDown) ? ` &middot; ${escapeHtml(e.reason)}` : '';
                 const rssi = (e.rssi != null && e.status === 'online') ? ` &middot; ${e.rssi} dBm` : '';
-                html += `<div style="padding:6px 8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;display:flex;justify-content:space-between;gap:8px;align-items:center">
-                    <div>${dot}<b>${isOffline ? 'OFFLINE' : 'online'}</b>${reason}${rssi}</div>
+                const bgStyle = isServerDown ? 'background:rgba(125,138,152,0.10);' : 'background:var(--bg);';
+                const titleAttr = isServerDown ? ' title="Queda causada pela plataforma — nao conta no uptime do modulo"' : '';
+                html += `<div style="padding:6px 8px;${bgStyle}border:1px solid var(--border);border-radius:6px;display:flex;justify-content:space-between;gap:8px;align-items:center"${titleAttr}>
+                    <div>${dot}<b${labelColor ? ` style="color:${labelColor}"` : ''}>${label}</b>${reasonTxt}${rssi}</div>
                     <div style="color:var(--text-dim);white-space:nowrap">${escapeHtml(formatRelativeShort(e.occurred_at))} &middot; ${dur}</div>
                 </div>`;
             }

@@ -171,6 +171,26 @@ def init_db():
         );
         CREATE INDEX IF NOT EXISTS idx_msev_chip_time
             ON module_status_events(chip_id, occurred_at);
+
+        -- v4.1.33: incidentes da plataforma (servidor/site) recebidos via webhook
+        -- do CF Worker (status.cultivee.com.br). Usado pra marcar retroativamente
+        -- `module_status_events` com reason='server_down' — quedas que foram na
+        -- verdade do servidor, nao do modulo. O filtro de uptime ignora essas.
+        --
+        -- webhook_id: chave logica (ex: "app:2026-04-24T03:00:00.000Z") que vem
+        -- do Worker; garante idempotencia em re-posts (upsert).
+        CREATE TABLE IF NOT EXISTS platform_incidents (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            webhook_id TEXT NOT NULL UNIQUE,
+            component TEXT NOT NULL,
+            component_name TEXT,
+            start_at TEXT NOT NULL,
+            end_at TEXT,
+            reason TEXT,
+            received_at TEXT DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_pincident_period
+            ON platform_incidents(start_at, end_at);
     """)
 
     # --- Migracoes aditivas (ALTER TABLE IF NOT EXISTS pattern) ---
