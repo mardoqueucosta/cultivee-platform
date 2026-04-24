@@ -246,14 +246,29 @@ Para contexto mais profundo de decisoes arquiteturais (por que foi feito assim, 
 
 ---
 
-## [4.1.9] - [4.1.11] - 2026-04-20
-
-### Adicionado
-- **v4.1.10** — Persistencia de ordem + selecao de modulos no servidor (antes so localStorage). Coluna `users.module_prefs` JSON.
-- **v4.1.9** — Persistencia do botao "Ao Vivo" da camera apos reload (`cam_live_mode` em ctrl_data + sync servidor).
+## [4.1.11] - 2026-04-20
 
 ### Corrigido
-- **v4.1.11** — `PUT /api/user/prefs` salvava `{}` em vez do payload (body era string ja-stringificada).
+- `PUT /api/user/prefs` salvava `{}` em vez do payload — o body era string ja-stringificada mas o helper `api()` so setava `Content-Type` quando body era objeto.
+
+---
+
+## [4.1.10] - 2026-04-20
+
+Nota: **dois bumps de versao no mesmo dia com o mesmo numero**. O commit `b44ed73` bumpou `FIRMWARE_VERSION` do Cam pra 4.1.10 (por `LIVE_MAX_DURATION`); o commit seguinte `8b22c08` bumpou `APP_VERSION` do servidor pra 4.1.10 (por `module_prefs`). O `sync-version.sh` ainda nao existia (chegou em v4.1.26) — por isso os dois ficaram desalinhados por algumas horas.
+
+### Adicionado
+- **Server (`APP_VERSION`)** — Persistencia de ordem + selecao de modulos no servidor (antes so localStorage). Coluna `users.module_prefs` JSON. Migracao automatica dos valores antigos.
+
+### Alterado
+- **Firmware Cam (`FIRMWARE_VERSION`)** — `LIVE_MAX_DURATION` aumentado de 2min pra 10min (stream ao vivo nao auto-encerra tao rapido).
+
+---
+
+## [4.1.9] - 2026-04-20
+
+### Adicionado
+- Persistencia do botao "Ao Vivo" da camera apos reload do browser (`cam_live_mode` em ctrl_data + sync servidor). `mod_cam.h` agora reporta `cam_live_mode` no `register_json`; `bp_cam.py` escreve em `ctrl_data` otimisticamente no `/start-live` e `/stop-live`. Elimina dessincronizacao UI ↔ hardware.
 
 ---
 
@@ -262,7 +277,6 @@ Para contexto mais profundo de decisoes arquiteturais (por que foi feito assim, 
 ### Adicionado
 - Telemetria WiFi: `wifi_last_error`, `wifi_last_connected_ms`, `wifi_disconnect_count`, `WiFi.onEvent()` + `setAutoReconnect(true)`.
 - Cam migrado de particao `no_ota` pra `min_spiffs` — agora suporta OTA remoto.
-- **v4.1.10 (Cam)** — `LIVE_MAX_DURATION` subiu de 2min pra 10min.
 
 ### Corrigido
 - Server auto-deleta `.bin` apos download pelo ESP32 pra evitar loop infinito de OTA (bootstrap novo recebia firmware_url antigo no register).
@@ -313,6 +327,13 @@ Para contexto mais profundo de decisoes arquiteturais (por que foi feito assim, 
 - **Sensor config OV2640** — modal com 11 parametros: WB mode, brilho, contraste, saturacao, compensacao de exposicao, teto de ganho, efeito especial, espelhar, inverter, auto-exposicao, auto-WB. Persistido em ctrl_data, enviado ao ESP32 via `set-camera`.
 - **Camera otimizada em 2 estagios** — init UXGA q4 (buffer grande) + reduz para VGA (uso normal). Flush de 3 frames apos mudanca de resolucao pra AEC estabilizar. Resolucao/qualidade selecionavel pelo usuario.
 - **Layout desktop** — cards lado a lado em telas >= 640px, `max-width: 1100px` pra aproveitar tela grande. Mobile continua em coluna unica.
+
+---
+
+## [3.6.0] - 2026-04-10
+
+### Alterado
+- `bump: v3.6.0 — forca refresh cache PWA` (commit `c2be03b`, 15:12 BRT — ~45min antes do v4.0.0). Bump minimo de `APP_VERSION` pra forcar o Service Worker a invalidar o cache e entregar a UI recem-atualizada. Tipicamente usado quando mudanca so em CSS/JS nao dispara o browser a recarregar o SW sozinho.
 
 ---
 
