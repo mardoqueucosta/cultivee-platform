@@ -381,50 +381,65 @@ Para contexto mais profundo de decisoes arquiteturais (por que foi feito assim, 
 
 ---
 
-## [Pre-split — monorepo cultivee] - 2026-03-20 a 2026-04-08
+## [Pre-split — monorepo cultivee] - 2026-03-20 14:43 BRT a 2026-04-08 19:00 BRT
 
-Historico do repo unificado `mardoqueucosta/cultivee` (tag `v1.0-monorepo`, 48 commits) que continha **site + servidor + firmware** antes do split em dois repos (`cultivee-platform` + `cultivee.com.br`). Listado aqui pra preservar a linha do tempo completa.
+Historico do repo unificado [`mardoqueucosta/cultivee`](https://github.com/mardoqueucosta/cultivee) (tag `v1.0-monorepo` = commit `a3ab34a`, 48 commits) que continha **site + servidor + firmware** antes do split em dois repos (`cultivee-platform` + `cultivee.com.br`). Datas em horario de Brasilia (UTC-3).
 
-### Marcos arquiteturais
+**Observacoes:**
+- Monorepo **nao tem GitHub Releases** formais — so git tags. A tag `v1.0-monorepo` e a unica verdadeiramente pre-split; a tag `v1.1-4reles` (tambem no remote monorepo) foi criada **apos** o split e aponta pra commits que ja vivem no `cultivee-platform` (os primeiros da v3.1.0).
+- Branch `claude/scheduled-image-capture-aVOiL` no monorepo tem 1 commit extra (`df55412`, 2026-03-29) com um implementation plan que nao foi mergeado — nao listado abaixo.
+- Hidratacao rapida: **v1.0 → v1.8.0 todos em 2026-03-21** (uma tarde de iteracao no setup wizard, das 13:40 as 22:58). Versionamento da PWA, nao do firmware.
 
-- **2026-04-08** `a3ab34a` — Snapshot pre-split: estado completo do monorepo no ponto da separacao.
-- **2026-03-30** `36bc243` — Resolucao/qualidade de foto configuravel + thumbnails na galeria.
-- **2026-03-30** `4b06575` — `PLANO-VISAO-GERAL-SOFTWARE.md` (arquitetura modular documentada).
-- **2026-03-29** `7897d6c` — **Refactor grande**: reorganizacao em estrutura modular unificada (`firmware/`, `products/`, `server/`).
-- **2026-03-29** `aa33cda` — **Servidor unificado** Flask + produto `cam` standalone + **registry pattern** na PWA.
-- **2026-03-29** `9bbd294` — Remove produto `hidro-cam` (WROVER fica dedicado a camera).
-- **2026-03-29** `64d2e68` — Captura agendada + galeria de imagens.
-- **2026-03-28** `4c41d57` + `98f5937` — Projeto Hidro-cam: copia do Hidro para ESP32-WROVER-DEV com camera (capture, stream ao vivo, card colapsavel).
-- **2026-03-28** `58ac51f` — Site ganha pagina Aplicativos com cards dos 3 apps.
-- **2026-03-27** `1dcf50c` — firmware-wrover: WiFi hibrido AP+STA, MJPEG stream.
-- **2026-03-27** `9e2f200` — Subdominio `cam.cultivee.com.br` (descontinuado depois).
-- **2026-03-23** `f312aec` — firmware-ctrl: modo AP hibrido, formato data BR, dashboard local atualizado.
-- **2026-03-23** `9b70b9f` — PWA Hidroponia + WiFi manager + polling adaptativo + deploy VPS (primeiro deploy real).
-- **2026-03-22** `4579981` — Adicao do sistema de controle hidroponico (primeiro hardware ctrl — antes era so camera).
+### Marcos arquiteturais (commits significativos, datas ISO + BRT)
 
-### Versoes marcadas no monorepo
+- **2026-04-08 19:00:53** `a3ab34a` — Snapshot pre-split: estado completo do monorepo no ponto da separacao.
+- **2026-03-30 14:29:33** `4b06575` — `PLANO-VISAO-GERAL-SOFTWARE.md` (arquitetura modular documentada).
+- **2026-03-30 06:21:37** `36bc243` — Resolucao/qualidade de foto configuravel + thumbnails na galeria.
+- **2026-03-29 20:52:12** `64d2e68` — Captura agendada + galeria de imagens.
+- **2026-03-29 15:51:15** `9bbd294` — Remove produto `hidro-cam` (WROVER fica dedicado a camera).
+- **2026-03-29 15:42:35** `aa33cda` — **Servidor unificado** Flask + produto `cam` standalone + **registry pattern** na PWA.
+- **2026-03-29 09:47:39** `7897d6c` — **Refactor grande**: reorganizacao em estrutura modular unificada (`firmware/`, `products/`, `server/`).
+- **2026-03-28 10:10:04** `58ac51f` — Site ganha pagina Aplicativos com cards dos 3 apps.
+- **2026-03-28 10:09:42** `98f5937` — Hidro-cam completo: captura, stream ao vivo, card colapsavel.
+- **2026-03-28 03:31:56** `4c41d57` — Projeto Hidro-cam: copia do Hidro pra ESP32-WROVER-DEV com camera (depois descontinuado na refactor de 2026-03-29).
+- **2026-03-27 21:35:22** `9e2f200` — Subdominio `cam.cultivee.com.br` (descontinuado depois).
+- **2026-03-27 21:18:47** `1dcf50c` — firmware-wrover: WiFi hibrido AP+STA, MJPEG stream.
+- **2026-03-23 13:29:27** `f312aec` — firmware-ctrl: modo AP hibrido, formato data BR, dashboard local atualizado.
+- **2026-03-23 07:07:21** `9b70b9f` — PWA Hidroponia + WiFi manager + polling adaptativo + **primeiro deploy VPS real**.
+- **2026-03-22 08:06:54** `4579981` — Adicao do sistema de controle hidroponico (primeiro hardware ctrl — antes era so camera).
 
-- **v1.8.0** - 2026-03-21 — Recording toggle: imagens so salvas quando REC ativo.
-- **v1.7.2** - 2026-03-21 — Spacing ajustado entre navbar, module bar e live section.
-- **v1.7.1** - 2026-03-21 — Module bar compacta: pill shape, menos padding, centralizada.
-- **v1.7.0** - 2026-03-21 — Layout redesenhado: live stream no topo, module bar compacta.
-- **v1.6.0** - 2026-03-21 — Offline module card simplificado com botao direto pra setup.
-- **v1.5.0** - 2026-03-21 — Setup wizard reduzido pra 2 steps + link direto pro portal.
-- **v1.4.0** - 2026-03-21 — Redesign do fluxo de setup: portal interativo + auto-pair.
-- **v1.3.0** - 2026-03-21 — Setup wizard simplificado pra 3 steps, fix info do AP.
-- **v1.2.0** - 2026-03-21 — Fix PWA update: clear caches antes de reload.
-- **v1.1.0** - 2026-03-21 — In-app WiFi setup: scan e configurar ESP32 direto da PWA.
-- **v1.0** - 2026-03-20 `7dc1eda` — Initial monorepo setup (site + server + firmware).
+### Versoes marcadas no monorepo (bump de `APP_VERSION` da PWA)
 
-### Recuperando o historico pre-split
+- **v1.8.0** - 2026-03-21 22:58:25 `5eed4ee` — Recording toggle: imagens so salvas quando REC ativo.
+- **v1.7.2** - 2026-03-21 15:43:06 `0d5632a` — Spacing ajustado entre navbar, module bar e live section.
+- **v1.7.1** - 2026-03-21 15:37:44 `cba635e` — Module bar compacta: pill shape, menos padding, centralizada.
+- **v1.7.0** - 2026-03-21 14:50:00 `aa66306` — Layout redesenhado: live stream no topo, module bar compacta.
+- **v1.6.0** - 2026-03-21 14:38:50 `62fa8eb` — Offline module card simplificado com botao direto pra setup.
+- **v1.5.0** - 2026-03-21 14:28:04 `4b472a5` — Setup wizard reduzido pra 2 steps + link direto pro portal.
+- **v1.4.0** - 2026-03-21 14:18:06 `b5e45af` — Redesign do fluxo de setup: portal interativo + auto-pair.
+- **v1.3.0** - 2026-03-21 14:04:36 `68fdebd` — Setup wizard simplificado pra 3 steps, fix info do AP.
+- **v1.2.0** - 2026-03-21 13:47:34 `3005653` — Fix PWA update: clear caches antes de reload.
+- **v1.1.0** - 2026-03-21 13:44:01 `be840d1` — In-app WiFi setup: scan e configurar ESP32 direto da PWA.
+- **v1.0** - 2026-03-20 14:43:22 `7dc1eda` — Initial monorepo setup (site + server + firmware). **Primeiro commit do projeto.**
 
-Como o split foi feito sem `git subtree` (criamos `cultivee-platform` limpo a partir do monorepo), o historico abaixo **nao esta no repo atual**. Pra acessar:
+### Recuperando o historico pre-split localmente
+
+Como o split foi feito sem `git subtree` (criamos `cultivee-platform` limpo a partir do monorepo), o historico acima **nao esta no repo atual**. Pra acessar:
 
 ```bash
+# Fetch completo (tags + branches) do monorepo original como remote temporario
 git remote add monorepo https://github.com/mardoqueucosta/cultivee.git
-git fetch monorepo tag v1.0-monorepo
-git log v1.0-monorepo --oneline   # 48 commits pre-split
-git show <hash>                     # detalhes de qualquer commit
-# Quando terminar:
+git fetch monorepo --tags "refs/heads/*:refs/remotes/monorepo/*"
+
+# Listar os 48 commits pre-split com data/hora ISO
+git log v1.0-monorepo --reverse --format="%ai | %h | %s"
+
+# Detalhes de qualquer commit
+git show <hash>
+
+# Limpar quando terminar (nao deleta as refs fetchadas localmente, mas remove o remote)
 git remote remove monorepo
+git update-ref -d refs/tags/v1.0-monorepo  # opcional: remove tag local
 ```
+
+**Nota**: o fetch traz ~185 objetos (48 commits da tag + branches). Numero enxuto — nao ocupa espaco significativo mesmo se mantido.
