@@ -309,12 +309,122 @@ Para contexto mais profundo de decisoes arquiteturais (por que foi feito assim, 
 ## [4.0.0] - 2026-04-10
 
 ### Adicionado
-- Galeria com pastas (`gallery.js`): grid, selecao multipla, exclusao em lote, mover entre pastas.
-- Sensor config da camera (brightness, contrast, saturation, AE level, etc.).
-- Layout desktop responsivo com ate 3 colunas.
+- **Galeria com pastas** — `bp_gallery.py` (7 endpoints: pastas, imagens, selecao, exclusao) + `gallery.js` modal com grid 3 colunas, selecao multipla, delete. Upload salva na pasta ativa (`capture_folder` em ctrl_data). Migracao automatica de fotos existentes pra `_sem-pasta`.
+- **Sensor config OV2640** — modal com 11 parametros: WB mode, brilho, contraste, saturacao, compensacao de exposicao, teto de ganho, efeito especial, espelhar, inverter, auto-exposicao, auto-WB. Persistido em ctrl_data, enviado ao ESP32 via `set-camera`.
+- **Camera otimizada em 2 estagios** — init UXGA q4 (buffer grande) + reduz para VGA (uso normal). Flush de 3 frames apos mudanca de resolucao pra AEC estabilizar. Resolucao/qualidade selecionavel pelo usuario.
+- **Layout desktop** — cards lado a lado em telas >= 640px, `max-width: 1100px` pra aproveitar tela grande. Mobile continua em coluna unica.
 
 ---
 
-## Versoes anteriores
+## [3.5.0] - 2026-04-10
 
-Historico pre-v4.0.0 vive no monorepo original (`mardoqueucosta/cultivee` tag `v1.0-monorepo`) — antes do split em `cultivee-platform` + `cultivee.com.br`.
+### Alterado
+- **Camera refatorada pra always-on** (init unico no boot, nunca `esp_camera_deinit()`). DMA estavel, captura instantanea, WiFi estavel com zero falhas DMA.
+- XCLK **20 MHz → 8 MHz** — EMI minima, WiFi ping 35ms (antes 1435ms!).
+- `fb_count` 1 → 2 — double buffering, DMA continuo.
+- `jpeg_quality` init 12 → 10 — buffer maior previne truncamento.
+- 4 frames descartados no boot — auto-exposure/AWB estabiliza.
+
+### Adicionado
+- `docs/guia-otimizacao-esp32-cam.md` — referencia completa de otimizacao da OV2640.
+
+### Notas
+- Historico de tentativas registrado no commit: on-demand (v3.4.0) falhava por DMA instavel com deinit repetido, `captureHighRes` tinha timeout, `send_P` falhava com binarios grandes. Always-on seguindo guia Espressif e a unica estrategia que funciona consistentemente.
+
+---
+
+## [3.4.0] - 2026-04-09
+
+### Alterado
+- **Cam**: XCLK 10 MHz, init SVGA, TX power 8.5 dBm, camera init **apos** WiFi.
+- **Cam**: particao `no_ota` (2.0 MB), `FIRMWARE_VERSION` adicionado.
+- **Hidro**: sync de estados dos reles ao trocar auto/manual na PWA.
+
+### Notas
+- Cam ainda em 60% flash (no_ota USB), Hidro em 62% (min_spiffs OTA).
+- Proximo objetivo naquele momento era init on-demand (abandonado em v3.5.0 apos testar).
+
+---
+
+## [3.3.0] - 2026-04-09
+
+### Adicionado
+- **Web OTA** — pagina `/update` pra atualizar firmware via navegador (upload .bin).
+- `compile.sh` — gera `build/firmware.ino.bin` pronto pra upload OTA.
+- `FIRMWARE_VERSION` em `products/hidro.h` (mostrado na pagina de OTA).
+- Footer do dashboard com links: WiFi | Firmware | versao.
+
+### Alterado
+- Particao firmware: `default (no_ota)` → `min_spiffs` — 1.9 MB por slot (62% usado, antes era 93% — espaco pra OTA).
+- CLAUDE.md atualizado com novos comandos de compilacao.
+
+---
+
+## [3.2.0] - 2026-04-09
+
+### Adicionado
+- **RTC DS3231** como fallback de tempo (I2C GPIO21/22). Mantem hora mesmo sem WiFi/NTP.
+- Seed automatico do RTC com data da compilacao no primeiro boot.
+- Validacao de data do RTC (ignora ano < 2024 — data suja).
+- NTP sincroniza e atualiza RTC automaticamente.
+- Controle de **ventilacao (D18)** e **aeracao (D19)** — agora 4 reles (antes 2).
+- Indicador de fonte de tempo no dashboard (NTP/RTC).
+
+### Alterado
+- WiFi scan: `WIFI_AP_STA` no setup + disconnect antes do scan (corrigia scan travado).
+- Reconexao WiFi nao-bloqueante (60s background).
+- Versionamento unificado em `server/config.py` (fonte unica — antes espalhado em varios lugares).
+
+### Notas
+- GPIO map: `D0=BOOT D2=LED D4=LUZ D5=BOMBA D18=VENT D19=AERA D21=SDA D22=SCL`.
+- Flash em 93% (1.22 MB de 1.31 MB) — particao default ainda, sem espaco pra OTA. Proximo passo: trocar pra `min_spiffs` (aconteceu na v3.3.0).
+
+---
+
+## [Pre-split — monorepo cultivee] - 2026-03-20 a 2026-04-08
+
+Historico do repo unificado `mardoqueucosta/cultivee` (tag `v1.0-monorepo`, 48 commits) que continha **site + servidor + firmware** antes do split em dois repos (`cultivee-platform` + `cultivee.com.br`). Listado aqui pra preservar a linha do tempo completa.
+
+### Marcos arquiteturais
+
+- **2026-04-08** `a3ab34a` — Snapshot pre-split: estado completo do monorepo no ponto da separacao.
+- **2026-03-30** `36bc243` — Resolucao/qualidade de foto configuravel + thumbnails na galeria.
+- **2026-03-30** `4b06575` — `PLANO-VISAO-GERAL-SOFTWARE.md` (arquitetura modular documentada).
+- **2026-03-29** `7897d6c` — **Refactor grande**: reorganizacao em estrutura modular unificada (`firmware/`, `products/`, `server/`).
+- **2026-03-29** `aa33cda` — **Servidor unificado** Flask + produto `cam` standalone + **registry pattern** na PWA.
+- **2026-03-29** `9bbd294` — Remove produto `hidro-cam` (WROVER fica dedicado a camera).
+- **2026-03-29** `64d2e68` — Captura agendada + galeria de imagens.
+- **2026-03-28** `4c41d57` + `98f5937` — Projeto Hidro-cam: copia do Hidro para ESP32-WROVER-DEV com camera (capture, stream ao vivo, card colapsavel).
+- **2026-03-28** `58ac51f` — Site ganha pagina Aplicativos com cards dos 3 apps.
+- **2026-03-27** `1dcf50c` — firmware-wrover: WiFi hibrido AP+STA, MJPEG stream.
+- **2026-03-27** `9e2f200` — Subdominio `cam.cultivee.com.br` (descontinuado depois).
+- **2026-03-23** `f312aec` — firmware-ctrl: modo AP hibrido, formato data BR, dashboard local atualizado.
+- **2026-03-23** `9b70b9f` — PWA Hidroponia + WiFi manager + polling adaptativo + deploy VPS (primeiro deploy real).
+- **2026-03-22** `4579981` — Adicao do sistema de controle hidroponico (primeiro hardware ctrl — antes era so camera).
+
+### Versoes marcadas no monorepo
+
+- **v1.8.0** - 2026-03-21 — Recording toggle: imagens so salvas quando REC ativo.
+- **v1.7.2** - 2026-03-21 — Spacing ajustado entre navbar, module bar e live section.
+- **v1.7.1** - 2026-03-21 — Module bar compacta: pill shape, menos padding, centralizada.
+- **v1.7.0** - 2026-03-21 — Layout redesenhado: live stream no topo, module bar compacta.
+- **v1.6.0** - 2026-03-21 — Offline module card simplificado com botao direto pra setup.
+- **v1.5.0** - 2026-03-21 — Setup wizard reduzido pra 2 steps + link direto pro portal.
+- **v1.4.0** - 2026-03-21 — Redesign do fluxo de setup: portal interativo + auto-pair.
+- **v1.3.0** - 2026-03-21 — Setup wizard simplificado pra 3 steps, fix info do AP.
+- **v1.2.0** - 2026-03-21 — Fix PWA update: clear caches antes de reload.
+- **v1.1.0** - 2026-03-21 — In-app WiFi setup: scan e configurar ESP32 direto da PWA.
+- **v1.0** - 2026-03-20 `7dc1eda` — Initial monorepo setup (site + server + firmware).
+
+### Recuperando o historico pre-split
+
+Como o split foi feito sem `git subtree` (criamos `cultivee-platform` limpo a partir do monorepo), o historico abaixo **nao esta no repo atual**. Pra acessar:
+
+```bash
+git remote add monorepo https://github.com/mardoqueucosta/cultivee.git
+git fetch monorepo tag v1.0-monorepo
+git log v1.0-monorepo --oneline   # 48 commits pre-split
+git show <hash>                     # detalhes de qualquer commit
+# Quando terminar:
+git remote remove monorepo
+```
