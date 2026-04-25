@@ -144,7 +144,10 @@ def _maybe_send_recovery_alert(module):
     last_offline = next((e for e in events if e.get("status") == "offline"), None)
     if not last_offline or not last_offline.get("duration_seconds"):
         return  # nao houve queda fechada
-    if last_offline["duration_seconds"] < OFFLINE_ALERT_THRESHOLD_MIN * 60:
+    # Recovery so vale a pena se a queda foi >= threshold do modulo (ou
+    # default global se nao configurado). Senao gera ruido com glitches curtos.
+    threshold_min = _module_threshold_min(module)
+    if last_offline["duration_seconds"] < threshold_min * 60:
         return  # queda foi curta — nao alerta sobre voltar
 
     if not models.should_send_alert(user_id, chip_id, "module_recovered",
@@ -213,7 +216,8 @@ def _watcher_loop():
     """Loop principal — chamado dentro do thread daemon."""
     log.info("[offline_watcher] thread iniciada "
              f"(intervalo={OFFLINE_CHECK_INTERVAL_SEC}s, "
-             f"threshold P1={OFFLINE_ALERT_THRESHOLD_MIN}min, "
+             f"threshold P1 default={DEFAULT_OFFLINE_THRESHOLD_MIN}min "
+             f"(configuravel por modulo via UI), "
              f"threshold P0={OFFLINE_ALERT_P0_THRESHOLD_MIN}min)")
     # Pequeno delay inicial pra evitar 2 workers competirem na mesma janela
     time.sleep(5)
