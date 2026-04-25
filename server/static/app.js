@@ -2459,9 +2459,8 @@ function hideProfilePanel() {
 async function loadProfile() {
     // v4.1.22: carrega em paralelo — perfil + sessoes
     loadProfileSessions();
-    // v4.1.41: carrega catalogo + historico de alertas + prefs
-    loadAlertCatalog();
-    loadAlertsHistory();
+    // v4.1.43: notificacoes saem do perfil — agora ficam consolidadas no card
+    // de cada modulo (renderNotificationCard). Nao carrega aqui.
     try {
         const p = await api("/api/profile/");
         // Header info (read-only)
@@ -3741,31 +3740,45 @@ async function saveAlertThreshold(chipId, moduleType, value) {
 }
 
 // =====================================================================
-// v4.1.39 — Notificacoes de offline (configuravel por modulo)
+// v4.1.43 — Helper consolidado de Notificacoes (per-modulo + globais + historico)
 // =====================================================================
-// Card "Notificacoes" no dashboard de cada modulo, com:
-//   - Toggle "Alertar quando offline" (default ON)
-//   - Input numerico "Alerta apos N min" (1-1440, default 15)
-// Backend: POST /api/modules/<chip>/notification-prefs
+// Tudo num unico card no dashboard de cada modulo, organizado em 3 sections:
+//   1. ESTE MODULO  (per-modulo): toggle offline + threshold (v4.1.39)
+//   2. GLOBAIS      (per-user): silent_hours + canais por tipo (afeta TODOS os modulos)
+//   3. HISTORICO    (per-user): timeline de alertas com ack inline (collapsed por default)
+//
+// Helper REUSAVEL — pode ser movido pra outro lugar (perfil, header, pagina dedicada)
+// trocando o caller. Mantem o nome `renderNotificationCard` pra back-compat.
+//
+// IDs sao sufixados por chipId pra permitir N cards na tela sem colisao.
 // =====================================================================
 
 function renderNotificationCard(chipId, ctrlData) {
     const cd = ctrlData || {};
-    const enabled = cd.offline_alert_enabled !== false;  // default ON
+    const enabled = cd.offline_alert_enabled !== false;
     const threshold = parseInt(cd.offline_alert_threshold_min) || 15;
     const safeChip = escapeAttr(chipId);
+    const sufx = chipId.replace(/[^a-zA-Z0-9]/g, '');  // sufixo seguro pra IDs
+
+    // Dispara carregamento async dos dados globais (catalogo + silent + historico)
+    // apos a section ser inserida no DOM. Cache de 60s evita re-fetch a cada poll.
+    setTimeout(() => loadCardNotifications(chipId, sufx), 50);
+
     return `<div class="card" style="padding:14px">
         <h2 style="margin:0 0 10px;font-size:0.95rem;display:flex;align-items:center;gap:6px">
             <span>${enabled ? '&#128276;' : '&#128277;'}</span>
-            <span>Notificacoes de offline</span>
+            <span>Notificacoes</span>
         </h2>
+
+        <!-- SECTION 1: ESTE MODULO -->
+        <div style="font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-dim);margin:6px 0 4px">Este modulo</div>
         <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px dashed var(--border)">
-            <span style="font-size:0.85rem">Alertar quando offline</span>
+            <span style="font-size:0.82rem">Alertar quando offline</span>
             <span class="notify-switch ${enabled ? 'on' : ''}" onclick="toggleOfflineAlert('${safeChip}',this)">
                 <span class="notify-slider"></span>
             </span>
         </div>
-        <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0 2px;font-size:0.85rem">
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;font-size:0.82rem">
             <label style="display:flex;align-items:center;gap:6px;color:var(--text-dim)">
                 <span>&#9201; Alertar apos</span>
                 <input type="number" min="1" max="1440" value="${threshold}"
@@ -3773,9 +3786,203 @@ function renderNotificationCard(chipId, ctrlData) {
                     onchange="saveOfflineThreshold('${safeChip}',this.value)">
                 <span>min</span>
             </label>
-            <span style="font-size:0.7rem;color:var(--text-dim)">push + email</span>
         </div>
+
+        <!-- SECTION 2: GLOBAIS (silent_hours + canais por tipo) -->
+        <div style="font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-dim);margin:14px 0 4px">
+            Globais <span style="text-transform:none;font-weight:normal;color:var(--text-dim);font-size:0.65rem">(afeta todos os modulos)</span>
+        </div>
+        <div id="card-silent-${sufx}" style="padding:8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;margin-bottom:8px;font-size:0.78rem">
+            <div class="empty-state"><p style="font-size:0.75rem">Carregando silencio...</p></div>
+        </div>
+        <div id="card-catalog-${sufx}" style="font-size:0.78rem">
+            <div class="empty-state"><p style="font-size:0.75rem">Carregando tipos...</p></div>
+        </div>
+
+        <!-- SECTION 3: HISTORICO (collapsed por default) -->
+        <details style="margin-top:14px">
+            <summary style="cursor:pointer;font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-dim);padding:4px 0">
+                Historico (30 dias)
+            </summary>
+            <div id="card-history-${sufx}" style="margin-top:8px;font-size:0.75rem">
+                <div class="empty-state"><p style="font-size:0.75rem">Carregando historico...</p></div>
+            </div>
+        </details>
     </div>`;
+}
+
+// Cache compartilhado entre todos os cards (TTL 60s — evita N requests por poll)
+const _notifCardCache = { ts: 0, catalog: null, history: null };
+
+async function loadCardNotifications(chipId, sufx) {
+    // Carrega so se cache expirou ou e a primeira vez
+    const now = Date.now();
+    const cacheValid = _notifCardCache.catalog && (now - _notifCardCache.ts) < 60000;
+
+    if (!cacheValid) {
+        try {
+            const [catalogResp, historyResp] = await Promise.all([
+                api('/api/profile/alerts/catalog'),
+                api('/api/profile/alerts/history?days=30'),
+            ]);
+            _notifCardCache.catalog = catalogResp;
+            _notifCardCache.history = historyResp;
+            _notifCardCache.ts = now;
+        } catch (e) {
+            console.warn('Erro ao carregar notificacoes:', e);
+            // Mostra erro nos cards
+            const errEl = document.getElementById(`card-catalog-${sufx}`);
+            if (errEl) errEl.innerHTML = `<p style="color:#e74c3c;font-size:0.75rem">Erro: ${escapeHtml(e.message)}</p>`;
+            return;
+        }
+    }
+
+    _renderCardSilentHours(sufx, _notifCardCache.catalog.silent_hours || {});
+    _renderCardCatalog(sufx, _notifCardCache.catalog.catalog || []);
+    _renderCardHistory(sufx, _notifCardCache.history.alerts || [], _notifCardCache.catalog.catalog || []);
+}
+
+function _renderCardSilentHours(sufx, sh) {
+    const el = document.getElementById(`card-silent-${sufx}`);
+    if (!el) return;
+    const hasWindow = sh.start && sh.end;
+    el.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+            <span style="font-weight:600">&#128564; Janela de silencio</span>
+            <span style="font-size:0.7rem;color:var(--text-dim)">${hasWindow ? `${sh.start} → ${sh.end}` : 'desativada'}</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+            <input type="time" id="sh-start-${sufx}" value="${sh.start || ''}" style="padding:3px 6px;border-radius:4px;border:1px solid var(--border);background:var(--bg-card);color:var(--text);font-size:0.75rem">
+            <span style="font-size:0.7rem">→</span>
+            <input type="time" id="sh-end-${sufx}" value="${sh.end || ''}" style="padding:3px 6px;border-radius:4px;border:1px solid var(--border);background:var(--bg-card);color:var(--text);font-size:0.75rem">
+            <button onclick="saveCardSilentHours('${sufx}')" style="padding:3px 10px;background:var(--primary);color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:0.7rem">Salvar</button>
+            <button onclick="clearCardSilentHours('${sufx}')" style="padding:3px 10px;background:transparent;color:var(--text-dim);border:1px solid var(--border);border-radius:4px;cursor:pointer;font-size:0.7rem">Off</button>
+        </div>`;
+}
+
+function _renderCardCatalog(sufx, items) {
+    const el = document.getElementById(`card-catalog-${sufx}`);
+    if (!el) return;
+    el.innerHTML = items.map(item => {
+        const sev = item.severity_default;
+        const safeType = escapeAttr(item.alert_type);
+        return `
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:5px 8px;background:var(--bg);border:1px solid var(--border);border-radius:5px;margin-bottom:3px;font-size:0.72rem">
+            <div style="display:flex;align-items:center;gap:5px;min-width:0">
+                ${_sevBadge(sev)}
+                <span>${escapeHtml(item.name)}</span>
+            </div>
+            <div style="display:flex;gap:8px;flex-shrink:0">
+                <label style="display:flex;align-items:center;gap:3px;cursor:pointer">
+                    <input type="checkbox" ${item.enabled_push ? 'checked' : ''} onchange="saveCardAlertPref('${safeType}','push',this.checked)">
+                    <span>P</span>
+                </label>
+                <label style="display:flex;align-items:center;gap:3px;cursor:pointer">
+                    <input type="checkbox" ${item.enabled_email ? 'checked' : ''} onchange="saveCardAlertPref('${safeType}','email',this.checked)">
+                    <span>E</span>
+                </label>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+function _renderCardHistory(sufx, alerts, catalog) {
+    const el = document.getElementById(`card-history-${sufx}`);
+    if (!el) return;
+    if (alerts.length === 0) {
+        el.innerHTML = `<p style="color:var(--text-dim);font-size:0.72rem;text-align:center;padding:10px">Sem alertas nos ultimos 30 dias.</p>`;
+        return;
+    }
+    const nameMap = {};
+    catalog.forEach(c => { nameMap[c.alert_type] = c.name; });
+    el.innerHTML = alerts.slice(0, 20).map(a => {
+        const sev = a.severity || 'P1';
+        const name = nameMap[a.alert_type] || a.alert_type;
+        const when = formatRelativeShort(a.sent_at);
+        const isAcked = !!a.ack_at;
+        const ackHtml = isAcked
+            ? `<span style="font-size:0.65rem;color:var(--text-dim)">&#10003;</span>`
+            : `<button onclick="ackCardAlert(${a.id})" style="background:transparent;color:var(--primary);border:1px solid var(--border);border-radius:3px;padding:1px 6px;font-size:0.65rem;cursor:pointer">&#10003;</button>`;
+        return `
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:4px 6px;background:var(--bg);border:1px solid var(--border);border-radius:4px;margin-bottom:2px;${isAcked ? 'opacity:0.55' : ''}">
+            <div style="display:flex;align-items:center;gap:5px;min-width:0">
+                ${_sevBadge(sev)}
+                <div style="min-width:0">
+                    <div style="font-weight:600">${escapeHtml(name)}</div>
+                    <div style="color:var(--text-dim);font-size:0.65rem">${escapeHtml(a.chip_id)} &middot; ${escapeHtml(when)}</div>
+                </div>
+            </div>
+            ${ackHtml}
+        </div>`;
+    }).join('');
+}
+
+// --- Handlers (invalida cache + reload todos os cards visiveis) ---
+
+function _invalidateAndReloadAll() {
+    _notifCardCache.ts = 0;
+    // Reload todos os cards visiveis
+    document.querySelectorAll('[id^="card-catalog-"]').forEach(el => {
+        const sufx = el.id.replace('card-catalog-', '');
+        loadCardNotificationsBySufx(sufx);
+    });
+}
+
+async function loadCardNotificationsBySufx(sufx) {
+    // Helper pra reload sem precisar do chipId — usa o cache global
+    const cards = document.querySelectorAll(`#card-catalog-${sufx}`);
+    if (!cards.length) return;
+    try {
+        const [catalogResp, historyResp] = await Promise.all([
+            api('/api/profile/alerts/catalog'),
+            api('/api/profile/alerts/history?days=30'),
+        ]);
+        _notifCardCache.catalog = catalogResp;
+        _notifCardCache.history = historyResp;
+        _notifCardCache.ts = Date.now();
+        _renderCardSilentHours(sufx, catalogResp.silent_hours || {});
+        _renderCardCatalog(sufx, catalogResp.catalog || []);
+        _renderCardHistory(sufx, historyResp.alerts || [], catalogResp.catalog || []);
+    } catch (e) {
+        console.warn('reload card:', e);
+    }
+}
+
+async function saveCardSilentHours(sufx) {
+    const start = document.getElementById(`sh-start-${sufx}`).value;
+    const end = document.getElementById(`sh-end-${sufx}`).value;
+    if (!start || !end) { alert('Preencha ambas as horas, ou clique em Off'); return; }
+    try {
+        await api('/api/profile/alert-silent-hours', { method: 'PUT', body: { start, end } });
+        _invalidateAndReloadAll();
+    } catch (e) { alert('Erro: ' + e.message); }
+}
+
+async function clearCardSilentHours(sufx) {
+    try {
+        await api('/api/profile/alert-silent-hours', { method: 'PUT', body: { start: '', end: '' } });
+        _invalidateAndReloadAll();
+    } catch (e) { alert('Erro: ' + e.message); }
+}
+
+async function saveCardAlertPref(alertType, channel, enabled) {
+    try {
+        const body = {};
+        if (channel === 'push') body.enabled_push = enabled;
+        if (channel === 'email') body.enabled_email = enabled;
+        await api(`/api/profile/alert-prefs/${encodeURIComponent(alertType)}`, { method: 'PUT', body });
+        // Nao invalida cache — toggle ja reflete no DOM otimistamente
+    } catch (e) {
+        console.error('Erro ao salvar pref:', e);
+        _invalidateAndReloadAll();  // recarrega pra reverter UI
+    }
+}
+
+async function ackCardAlert(alertId) {
+    try {
+        await api(`/api/profile/alerts/${alertId}/ack`, { method: 'POST' });
+        _invalidateAndReloadAll();  // re-renderiza todos os cards (alerta vira ackd em todos)
+    } catch (e) { alert('Erro ao marcar: ' + e.message); }
 }
 
 async function toggleOfflineAlert(chipId, el) {
@@ -3911,149 +4118,9 @@ function _formatCooldown(sec) {
     return `${Math.round(h/24)}d`;
 }
 
-async function loadAlertCatalog() {
-    const el = document.getElementById('alert-catalog-list');
-    if (!el) return;
-    try {
-        const data = await api('/api/profile/alerts/catalog');
-        // Atualiza tambem a janela de silencio
-        const sh = data.silent_hours || {};
-        const startInput = document.getElementById('silent-hours-start');
-        const endInput = document.getElementById('silent-hours-end');
-        const status = document.getElementById('silent-hours-status');
-        if (sh.start && sh.end) {
-            startInput.value = sh.start;
-            endInput.value = sh.end;
-            if (status) status.textContent = `ativa: ${sh.start} → ${sh.end}`;
-        } else {
-            startInput.value = '';
-            endInput.value = '';
-            if (status) status.textContent = 'desativada';
-        }
-        // Renderiza catalogo
-        el.innerHTML = (data.catalog || []).map(item => {
-            const sev = item.severity_default;
-            const cd = _formatCooldown(item.cooldown_sec);
-            const safeType = escapeAttr(item.alert_type);
-            return `
-            <div style="padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:8px;margin-bottom:6px">
-                <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:6px">
-                    <div style="display:flex;align-items:center;gap:8px;min-width:0">
-                        ${_sevBadge(sev)}
-                        <span style="font-size:0.85rem;font-weight:600">${escapeHtml(item.name)}</span>
-                    </div>
-                    <span style="font-size:0.65rem;color:var(--text-dim);white-space:nowrap">cooldown ${escapeHtml(cd)}</span>
-                </div>
-                <div style="display:flex;gap:14px;font-size:0.75rem;color:var(--text-dim)">
-                    <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
-                        <input type="checkbox" ${item.enabled_push ? 'checked' : ''}
-                            onchange="saveAlertPref('${safeType}','push',this.checked)">
-                        <span>&#128241; Push</span>
-                    </label>
-                    <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
-                        <input type="checkbox" ${item.enabled_email ? 'checked' : ''}
-                            onchange="saveAlertPref('${safeType}','email',this.checked)">
-                        <span>&#9993; Email</span>
-                    </label>
-                </div>
-            </div>`;
-        }).join('');
-    } catch (e) {
-        el.innerHTML = `<p style="color:#e74c3c;font-size:0.8rem">Erro: ${escapeHtml(e.message)}</p>`;
-    }
-}
-
-async function saveAlertPref(alertType, channel, enabled) {
-    try {
-        const body = {};
-        if (channel === 'push') body.enabled_push = enabled;
-        if (channel === 'email') body.enabled_email = enabled;
-        await api(`/api/profile/alert-prefs/${encodeURIComponent(alertType)}`, {
-            method: 'PUT',
-            body
-        });
-    } catch (e) {
-        console.error('Erro ao salvar pref:', e);
-        // Recarrega pra reverter UI
-        loadAlertCatalog();
-    }
-}
-
-async function saveSilentHours() {
-    const start = document.getElementById('silent-hours-start').value;
-    const end = document.getElementById('silent-hours-end').value;
-    if (!start || !end) {
-        alert('Preencha hora de inicio E fim, ou clique em Desativar.');
-        return;
-    }
-    try {
-        await api('/api/profile/alert-silent-hours', {
-            method: 'PUT',
-            body: { start, end }
-        });
-        loadAlertCatalog();  // recarrega pra mostrar status atualizado
-    } catch (e) {
-        alert('Erro ao salvar: ' + e.message);
-    }
-}
-
-async function clearSilentHours() {
-    try {
-        await api('/api/profile/alert-silent-hours', {
-            method: 'PUT',
-            body: { start: '', end: '' }
-        });
-        loadAlertCatalog();
-    } catch (e) {
-        alert('Erro: ' + e.message);
-    }
-}
-
-async function loadAlertsHistory() {
-    const el = document.getElementById('alert-history-list');
-    if (!el) return;
-    try {
-        const data = await api('/api/profile/alerts/history?days=30');
-        const alerts = data.alerts || [];
-        if (alerts.length === 0) {
-            el.innerHTML = `<div class="empty-state"><p style="font-size:0.8rem;color:var(--text-dim)">Nenhum alerta nos ultimos 30 dias.</p></div>`;
-            return;
-        }
-        // Resolve nome amigavel via catalogo carregado (cache curto)
-        const catalogResp = await api('/api/profile/alerts/catalog');
-        const nameMap = {};
-        (catalogResp.catalog || []).forEach(c => { nameMap[c.alert_type] = c.name; });
-
-        el.innerHTML = alerts.map(a => {
-            const sev = a.severity || 'P1';
-            const name = nameMap[a.alert_type] || a.alert_type;
-            const when = formatRelativeShort(a.sent_at);
-            const isAcked = !!a.ack_at;
-            const ackHtml = isAcked
-                ? `<span style="font-size:0.7rem;color:var(--text-dim)">&#10003; visto</span>`
-                : `<button onclick="ackAlert(${a.id})" style="background:transparent;color:var(--primary);border:1px solid var(--border);border-radius:4px;padding:2px 8px;font-size:0.7rem;cursor:pointer">Marcar como visto</button>`;
-            return `
-            <div style="padding:8px 10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;margin-bottom:4px;display:flex;justify-content:space-between;align-items:center;gap:10px;${isAcked ? 'opacity:0.6' : ''}">
-                <div style="display:flex;align-items:center;gap:8px;min-width:0">
-                    ${_sevBadge(sev)}
-                    <div style="min-width:0">
-                        <div style="font-size:0.8rem;font-weight:600">${escapeHtml(name)}</div>
-                        <div style="font-size:0.68rem;color:var(--text-dim)">${escapeHtml(a.chip_id)} &middot; ${escapeHtml(when)}</div>
-                    </div>
-                </div>
-                ${ackHtml}
-            </div>`;
-        }).join('');
-    } catch (e) {
-        el.innerHTML = `<p style="color:#e74c3c;font-size:0.8rem">Erro: ${escapeHtml(e.message)}</p>`;
-    }
-}
-
-async function ackAlert(alertId) {
-    try {
-        await api(`/api/profile/alerts/${alertId}/ack`, { method: 'POST' });
-        loadAlertsHistory();  // recarrega pra mostrar como visto
-    } catch (e) {
-        alert('Erro ao marcar: ' + e.message);
-    }
-}
+// v4.1.43: removidas as funcoes loadAlertCatalog/loadAlertsHistory/saveAlertPref/
+// saveSilentHours/clearSilentHours/ackAlert — eram da v4.1.41 (perfil), agora
+// substituidas pelos handlers do card consolidado: loadCardNotifications +
+// _renderCardSilentHours/_renderCardCatalog/_renderCardHistory + saveCardSilentHours/
+// clearCardSilentHours/saveCardAlertPref/ackCardAlert (definidos perto de
+// renderNotificationCard).

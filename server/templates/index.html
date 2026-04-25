@@ -392,48 +392,9 @@
                 </div>
 
                 <!-- Zona de perigo -->
-                <!-- v4.1.41: notificacoes (catalogo + historico + prefs) -->
-                <div class="card" style="margin:10px" id="profile-notifications-card">
-                    <h3 style="margin:0 0 4px;font-size:0.95rem;display:flex;align-items:center;gap:6px">
-                        <span>&#128276;</span>
-                        <span>Notificacoes de alertas</span>
-                    </h3>
-                    <p style="color:var(--text-dim);font-size:0.75rem;margin:0 0 12px">
-                        Veja tipos de alerta que o sistema detecta automaticamente, configure canais por tipo
-                        e janela de silencio. Alertas P0 (emergencia) sempre passam mesmo no silencio.
-                    </p>
-
-                    <!-- Janela de silencio -->
-                    <div style="padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:8px;margin-bottom:12px">
-                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-                            <span style="font-size:0.82rem;font-weight:600">&#128564; Janela de silencio</span>
-                            <span id="silent-hours-status" style="font-size:0.7rem;color:var(--text-dim)">desativada</span>
-                        </div>
-                        <div style="display:flex;align-items:center;gap:8px;font-size:0.8rem">
-                            <span>De</span>
-                            <input type="time" id="silent-hours-start" style="padding:4px 6px;border-radius:4px;border:1px solid var(--border);background:var(--bg-card);color:var(--text)">
-                            <span>ate</span>
-                            <input type="time" id="silent-hours-end" style="padding:4px 6px;border-radius:4px;border:1px solid var(--border);background:var(--bg-card);color:var(--text)">
-                            <button onclick="saveSilentHours()" style="padding:5px 12px;background:var(--primary);color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:0.75rem">Salvar</button>
-                            <button onclick="clearSilentHours()" style="padding:5px 12px;background:transparent;color:var(--text-dim);border:1px solid var(--border);border-radius:4px;cursor:pointer;font-size:0.75rem">Desativar</button>
-                        </div>
-                    </div>
-
-                    <!-- Catalogo de tipos -->
-                    <div style="font-size:0.78rem;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-dim);margin:12px 0 6px">Tipos de alerta</div>
-                    <div id="alert-catalog-list">
-                        <div class="empty-state"><p>Carregando...</p></div>
-                    </div>
-
-                    <!-- Historico -->
-                    <div style="display:flex;justify-content:space-between;align-items:center;margin:14px 0 6px">
-                        <div style="font-size:0.78rem;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-dim)">Historico (30 dias)</div>
-                        <button onclick="loadAlertsHistory()" style="background:transparent;color:var(--text-dim);border:1px solid var(--border);border-radius:4px;padding:3px 8px;font-size:0.7rem;cursor:pointer">&#8635; Atualizar</button>
-                    </div>
-                    <div id="alert-history-list">
-                        <div class="empty-state"><p>Carregando...</p></div>
-                    </div>
-                </div>
+                <!-- v4.1.43: notificacoes consolidadas no card de cada modulo
+                     (era aqui no perfil em v4.1.41, mas faz mais sentido no contexto
+                     do modulo). Helper renderNotificationCard em static/app.js. -->
 
                 <div class="card" style="margin:10px;border:1px solid rgba(231,76,60,0.4)">
                     <h3 style="margin:0 0 6px;font-size:0.95rem;color:#e74c3c">Zona de perigo</h3>
