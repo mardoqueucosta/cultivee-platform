@@ -285,9 +285,6 @@ void registerOnServer() {
   json += "\"rssi\":" + String(WiFi.RSSI()) + ",";
   json += "\"uptime\":" + String(millis() / 1000) + ",";
   json += "\"free_heap\":" + String(ESP.getFreeHeap()) + ",";
-  // v4.1.35: reporta firmware_version no register pra admin/dashboard auditarem
-  // qual versao esta rodando (sem precisar abrir /update do ESP32 na rede local)
-  json += "\"firmware_version\":\"" + String(FIRMWARE_VERSION) + "\",";
 
   // Capabilities — lista de modulos ativos (permite server/PWA adaptar UI)
   json += "\"capabilities\":[";
@@ -338,6 +335,11 @@ void registerOnServer() {
   // pode parecer OK mas o piso ja estar perto do limite).
   extern size_t minFreeHeap;
   json += ",\"min_free_heap\":" + String((unsigned long)minFreeHeap);
+
+  // v4.1.35: firmware_version DENTRO do ctrl_data (servidor armazena ctrl_data
+  // como blob JSON e nao guarda campos extras na raiz do request). Admin
+  // passa a ver versao em GET /api/admin/modules sem precisar abrir /update.
+  json += ",\"firmware_version\":\"" + String(FIRMWARE_VERSION) + "\"";
 
   json += "}}";
 
