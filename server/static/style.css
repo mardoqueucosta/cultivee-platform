@@ -228,10 +228,15 @@ main { max-width: 1400px; margin: 0 auto; padding: 0 0.75rem; }
        o flex-grow esticava ele pra ocupar a largura toda. Visualmente quebrado.
        Grid auto-fill mantem colunas vazias na linha incompleta, items mantem
        o tamanho natural alinhados a esquerda. */
+    /* v4.1.42: barra de selecao usa o MESMO grid do dashboard pra alinhar
+       larguras visualmente — antes usava minmax(250px) + gap menor, ficavam
+       5 colunas estreitas em cima e 4 mais largas embaixo. Agora ambos
+       seguem (300px, 1fr) + gap 1rem, garantindo que cada card de selecao
+       fique alinhado verticalmente com o card de dashboard correspondente. */
     .modules-list {
         display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-        gap: 0.5rem;
+        grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+        gap: 1rem;
     }
     #module-content {
         display: grid;
