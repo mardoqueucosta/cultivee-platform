@@ -531,6 +531,17 @@ function renderHTML({ components, incidents, allOk }) {
     ? 'Todos os servicos da Cultivee estao respondendo normalmente.'
     : 'Detectamos um ou mais componentes com problema. Veja detalhes abaixo.';
 
+  // Favicon SVG inline (sem fetch externo). Cor reflete o status:
+  //   verde Cultivee (#27ae60) quando tudo ok, vermelho (#e74c3c) em incidente.
+  // O '#' precisa ser URL-encoded como '%23' dentro do data URL.
+  const faviconColor = allOk ? '%2327ae60' : '%23e74c3c';
+  const favicon =
+    `data:image/svg+xml;utf8,` +
+    `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'>` +
+    `<rect width='100' height='100' rx='22' fill='${faviconColor}'/>` +
+    `<text x='50' y='75' font-family='sans-serif' font-size='72' font-weight='900' ` +
+    `fill='%23fff' text-anchor='middle'>C</text></svg>`;
+
   const componentsHTML = components.map(renderComponent).join('');
   const incidentsHTML = incidents.length > 0
     ? incidents.map(renderIncident).join('')
@@ -542,6 +553,9 @@ function renderHTML({ components, incidents, allOk }) {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex">
+<link rel="icon" type="image/svg+xml" href="${favicon}">
+<link rel="apple-touch-icon" href="${favicon}">
+<meta name="theme-color" content="${headerColor}">
 <title>Status Cultivee${allOk ? '' : ' — Indisponivel'}</title>
 <style>
   *{margin:0;padding:0;box-sizing:border-box}
