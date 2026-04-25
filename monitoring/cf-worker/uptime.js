@@ -50,6 +50,15 @@ const INCIDENT_CLOSE_THRESHOLD = 2;      // 2 checks UP consecutivos = fecha inc
 const HISTORY_DAYS_VISUAL = 90;          // barrinhas mostradas
 const KV_TTL_DAILY = 100 * 24 * 3600;    // 100 dias (folga sobre 90)
 const KV_TTL_INCIDENT = 100 * 24 * 3600;
+
+// v4.1.51: bug do detector de incidentes corrigido em 2026-04-25 ~22h UTC.
+// Antes dessa data, openIncident() nunca disparava (condicao impossivel),
+// entao quedas reais afetavam o uptime mas nao apareciam na lista. A nota
+// abaixo informa visitantes desse gap. Auto-desativa 30 dias apos o fix
+// (ate la, qualquer queda anterior cai fora da janela de 30d e o gap fica
+// implicito). Nao precisa redeploy pra remover.
+const INCIDENT_DETECTOR_FIXED_AT = '2026-04-25T22:00:00Z';
+const INCIDENT_DETECTOR_NOTE_TTL_MS = 30 * 24 * 3600 * 1000;
 // TTL 7d — `current:` carrega o acumulador in-place do dia (today_*),
 // precisa sobreviver a eventuais pausas do cron sem perder o streak.
 const KV_TTL_CURRENT = 7 * 24 * 3600;
@@ -560,6 +569,8 @@ function renderHTML({ components, incidents, allOk }) {
   const incidentsHTML = incidents.length > 0
     ? incidents.map(renderIncident).join('')
     : '<div class="empty">Nenhum incidente nos ultimos 30 dias.</div>';
+  // Nota informativa sobre o gap historico (auto-desativa apos 30d do fix)
+  const detectorNoteHTML = renderDetectorFixNote();
 
   return `<!DOCTYPE html>
 <html lang="pt-BR">
@@ -615,6 +626,9 @@ function renderHTML({ components, incidents, allOk }) {
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.55}}
   .incident-meta{font-size:0.75rem;color:#7d8a98;line-height:1.5}
   .empty{background:#1a2530;border:1px dashed #2a3946;border-radius:10px;padding:18px;text-align:center;color:#7d8a98;font-size:0.85rem}
+  .detector-note{background:rgba(52,152,219,0.08);border:1px solid rgba(52,152,219,0.25);border-radius:8px;padding:10px 12px;margin-bottom:10px;font-size:0.78rem;color:#9cb3c7;line-height:1.5;display:flex;gap:8px;align-items:flex-start}
+  .detector-note-icon{flex-shrink:0;color:#3498db;font-weight:700;font-size:0.95rem;line-height:1.3}
+  .detector-note b{color:#bcd0e0}
   .footer{margin-top:32px;font-size:0.72rem;color:#5a6878;text-align:center;line-height:1.6}
   .footer a{color:#7d8a98;text-decoration:none}.footer a:hover{color:#27ae60}
   @media (max-width: 540px){
@@ -642,6 +656,7 @@ function renderHTML({ components, incidents, allOk }) {
   ${componentsHTML}
 
   <div class="section-title">Incidentes (ultimos 30 dias)</div>
+  ${detectorNoteHTML}
   <div class="incidents">${incidentsHTML}</div>
 
   <div class="footer">
@@ -721,6 +736,29 @@ function renderIncident(inc) {
       Inicio: ${escapeHtml(startBR)}${endBR ? ` &middot; Fim: ${escapeHtml(endBR)}` : ''} &middot; Duracao: <b>${escapeHtml(dur)}</b>
       ${inc.reason ? `<br>Motivo: ${escapeHtml(inc.reason)}` : ''}
     </div>
+  </div>`;
+}
+
+// v4.1.51: nota informativa sobre o gap historico de incidentes.
+// O detector tinha bug que NUNCA disparava — quedas reais afetavam o uptime
+// (calculado via daily: accumulator) mas nao apareciam na lista. A nota
+// avisa o visitante. Auto-desativa apos `INCIDENT_DETECTOR_NOTE_TTL_MS` do
+// fix — depois disso, qualquer queda anterior ao fix ja saiu da janela de
+// 30d e o gap fica implicito.
+function renderDetectorFixNote() {
+  const fixedAt = new Date(INCIDENT_DETECTOR_FIXED_AT).getTime();
+  const expiresAt = fixedAt + INCIDENT_DETECTOR_NOTE_TTL_MS;
+  if (Date.now() > expiresAt) return '';
+  const fixedAtBR = formatBR(INCIDENT_DETECTOR_FIXED_AT);
+  return `
+  <div class="detector-note">
+    <span class="detector-note-icon">&#9432;</span>
+    <span>
+      <b>Detector de incidentes corrigido em ${escapeHtml(fixedAtBR)}.</b>
+      Quedas anteriores a essa data afetam o calculo de uptime mas podem
+      nao constar nesta lista (bug latente fazia o detector nunca abrir
+      incidentes). Quedas posteriores sao registradas normalmente.
+    </span>
   </div>`;
 }
 
