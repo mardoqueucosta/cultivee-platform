@@ -62,6 +62,8 @@ def register_module(chip_id, short_id, module_type="hidro", ip="", ssid="", rssi
             "cam_ae_level", "cam_gainceiling", "cam_special_effect",
             "cam_hmirror", "cam_vflip", "cam_exposure_ctrl", "cam_whitebal",
             "low_since", "last_activity", "alert_threshold_min",
+            # v4.1.39: preferencias do alerta de offline (configuravel por modulo)
+            "offline_alert_enabled", "offline_alert_threshold_min",
         )
         for k in server_keys:
             if k in existing_data:

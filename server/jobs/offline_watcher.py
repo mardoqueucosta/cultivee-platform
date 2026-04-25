@@ -25,13 +25,46 @@ import models
 
 log = logging.getLogger(__name__)
 
-# Configuracao (constantes — futura UI por usuario)
-OFFLINE_CHECK_INTERVAL_SEC = 60          # ciclo a cada 1min
-OFFLINE_ALERT_THRESHOLD_MIN = 60         # alerta P1 se offline >= 60min
-OFFLINE_ALERT_P0_THRESHOLD_MIN = 24 * 60 # escala pra P0 se >= 24h
-COOLDOWN_OFFLINE_P1_SEC = 4 * 3600       # 4h entre alertas P1 do mesmo modulo
-COOLDOWN_OFFLINE_P0_SEC = 12 * 3600      # 12h entre alertas P0
-COOLDOWN_RECOVERY_SEC = 3600             # 1h entre alertas de recovery
+# Configuracao
+OFFLINE_CHECK_INTERVAL_SEC = 60                # ciclo a cada 1min
+DEFAULT_OFFLINE_THRESHOLD_MIN = 15             # default global (era 60 em v4.1.38)
+OFFLINE_ALERT_P0_THRESHOLD_MIN = 24 * 60       # escala pra P0 se >= 24h, mesmo se threshold for menor
+COOLDOWN_OFFLINE_P1_SEC = 4 * 3600             # 4h entre alertas P1 do mesmo modulo
+COOLDOWN_OFFLINE_P0_SEC = 12 * 3600            # 12h entre alertas P0
+COOLDOWN_RECOVERY_SEC = 3600                   # 1h entre alertas de recovery
+
+
+def _module_threshold_min(module):
+    """
+    v4.1.39: threshold pode ser configurado por modulo via
+    POST /api/modules/<chip>/notification-prefs.
+    Lido de ctrl_data.offline_alert_threshold_min, fallback ao default global.
+    """
+    import json as _json
+    try:
+        cd = _json.loads(module.get("ctrl_data") or "{}")
+    except (ValueError, TypeError):
+        cd = {}
+    val = cd.get("offline_alert_threshold_min")
+    if val is None:
+        return DEFAULT_OFFLINE_THRESHOLD_MIN
+    try:
+        return max(1, min(1440, int(val)))
+    except (TypeError, ValueError):
+        return DEFAULT_OFFLINE_THRESHOLD_MIN
+
+
+def _module_alert_enabled(module):
+    """v4.1.39: dono pode desativar alerta por modulo (default: ativo)."""
+    import json as _json
+    try:
+        cd = _json.loads(module.get("ctrl_data") or "{}")
+    except (ValueError, TypeError):
+        cd = {}
+    val = cd.get("offline_alert_enabled")
+    if val is None:
+        return True  # default ON pra modulos novos
+    return bool(val)
 
 
 def _human_min(minutes):
@@ -62,6 +95,8 @@ def _maybe_send_offline_alert(module, age_min):
     chip_id = module["chip_id"]
     if not user_id:
         return  # nao pareado — sem dono pra alertar
+    if not _module_alert_enabled(module):
+        return  # dono desativou alerta de offline pra esse modulo
 
     severity = "P0" if age_min >= OFFLINE_ALERT_P0_THRESHOLD_MIN else "P1"
     cooldown = COOLDOWN_OFFLINE_P0_SEC if severity == "P0" else COOLDOWN_OFFLINE_P1_SEC
@@ -162,7 +197,9 @@ def _check_modules():
 
             if cur_status == "offline":
                 age_min = _calc_offline_age_min(summary)
-                if age_min >= OFFLINE_ALERT_THRESHOLD_MIN:
+                # v4.1.39: threshold por modulo (configuravel via UI). Default 15min.
+                threshold = _module_threshold_min(m)
+                if age_min >= threshold:
                     _maybe_send_offline_alert(m, age_min)
             elif cur_status == "online":
                 # Pode ter acabado de voltar — verifica se a queda anterior

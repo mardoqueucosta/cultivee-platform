@@ -577,6 +577,43 @@ def module_uptime(chip_id):
     })
 
 
+@app.route("/api/modules/<chip_id>/notification-prefs", methods=["POST"])
+@require_auth
+def module_notification_prefs(chip_id):
+    """
+    v4.1.39: configura alerta de offline por modulo.
+    Body (todos opcionais — atualiza so o que for enviado):
+      offline_alert_enabled: bool
+      offline_alert_threshold_min: int (1..1440 = 1min a 24h)
+    Auth: dono do modulo OU admin (require_auth + check de ownership inline).
+    """
+    module = models.get_module_by_chip_id(chip_id)
+    if not module:
+        return jsonify({"error": "Modulo nao encontrado"}), 404
+    is_admin = (request.user.get("role") == "admin")
+    is_owner = module.get("user_id") == request.user["id"]
+    if not (is_admin or is_owner):
+        return jsonify({"error": "Modulo nao encontrado"}), 404
+
+    data = request.get_json(silent=True) or {}
+    updates = {}
+    if "offline_alert_enabled" in data:
+        updates["offline_alert_enabled"] = bool(data["offline_alert_enabled"])
+    if "offline_alert_threshold_min" in data:
+        try:
+            v = int(data["offline_alert_threshold_min"])
+        except (TypeError, ValueError):
+            return jsonify({"error": "offline_alert_threshold_min invalido"}), 400
+        # Range: 1min a 24h. Cobre desde monitoramento critico ate bench permanente.
+        updates["offline_alert_threshold_min"] = max(1, min(1440, v))
+
+    if not updates:
+        return jsonify({"error": "Nada pra atualizar"}), 400
+
+    models.update_ctrl_data(chip_id, updates)
+    return jsonify({"ok": True, "updated": updates})
+
+
 # =====================================================================
 # v4.1.33 — Webhook de incidentes da plataforma (CF Worker → VPS)
 # =====================================================================

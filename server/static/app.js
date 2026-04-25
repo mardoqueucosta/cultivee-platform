@@ -1421,6 +1421,7 @@ function renderDashboard(container, chipId, moduleType, data) {
         ${ambientHtml}
         ${reservoirHtml}
         ${extrasHtml}
+        ${renderNotificationCard(chipId, data)}
         ${renderWifiTelemetry(data, chipId, data && data.name)}`;
 }
 
@@ -1761,6 +1762,7 @@ function renderModule_cam(container, mod) {
                 </div>
             </div>
         </div>
+        ${renderNotificationCard(chipId, mod.ctrl_data || {})}
         ${renderWifiTelemetry({ ...(mod.ctrl_data || {}), rssi: mod.rssi, uptime: mod.uptime }, mod.chip_id, mod.name)}`;
 
     if (cam_captureOpen && !cam_imageUrl && camReady) cam_loadLast(chipId, moduleType);
@@ -3733,6 +3735,73 @@ async function saveAlertThreshold(chipId, moduleType, value) {
             body: { alert_threshold_min: min }
         });
     } catch (e) { console.error('Erro ao salvar threshold:', e); }
+}
+
+// =====================================================================
+// v4.1.39 — Notificacoes de offline (configuravel por modulo)
+// =====================================================================
+// Card "Notificacoes" no dashboard de cada modulo, com:
+//   - Toggle "Alertar quando offline" (default ON)
+//   - Input numerico "Alerta apos N min" (1-1440, default 15)
+// Backend: POST /api/modules/<chip>/notification-prefs
+// =====================================================================
+
+function renderNotificationCard(chipId, ctrlData) {
+    const cd = ctrlData || {};
+    const enabled = cd.offline_alert_enabled !== false;  // default ON
+    const threshold = parseInt(cd.offline_alert_threshold_min) || 15;
+    const safeChip = escapeAttr(chipId);
+    return `<div class="card" style="padding:14px">
+        <h2 style="margin:0 0 10px;font-size:0.95rem;display:flex;align-items:center;gap:6px">
+            <span>${enabled ? '&#128276;' : '&#128277;'}</span>
+            <span>Notificacoes de offline</span>
+        </h2>
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px dashed var(--border)">
+            <span style="font-size:0.85rem">Alertar quando offline</span>
+            <span class="notify-switch ${enabled ? 'on' : ''}" onclick="toggleOfflineAlert('${safeChip}',this)">
+                <span class="notify-slider"></span>
+            </span>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0 2px;font-size:0.85rem">
+            <label style="display:flex;align-items:center;gap:6px;color:var(--text-dim)">
+                <span>&#9201; Alertar apos</span>
+                <input type="number" min="1" max="1440" value="${threshold}"
+                    style="width:70px;padding:4px 6px;border-radius:4px;border:1px solid var(--border);background:var(--bg);color:var(--text);text-align:center"
+                    onchange="saveOfflineThreshold('${safeChip}',this.value)">
+                <span>min</span>
+            </label>
+            <span style="font-size:0.7rem;color:var(--text-dim)">push + email</span>
+        </div>
+    </div>`;
+}
+
+async function toggleOfflineAlert(chipId, el) {
+    const willEnable = !el.classList.contains('on');
+    // Atualizacao otimista da UI
+    el.classList.toggle('on', willEnable);
+    const icon = el.closest('.card')?.querySelector('h2 span:first-child');
+    if (icon) icon.innerHTML = willEnable ? '&#128276;' : '&#128277;';
+    try {
+        await api(`/api/modules/${encodeURIComponent(chipId)}/notification-prefs`, {
+            method: 'POST',
+            body: { offline_alert_enabled: willEnable }
+        });
+    } catch (e) {
+        console.error('Erro ao salvar pref offline:', e);
+        // Reverte UI em caso de erro
+        el.classList.toggle('on', !willEnable);
+        if (icon) icon.innerHTML = !willEnable ? '&#128276;' : '&#128277;';
+    }
+}
+
+async function saveOfflineThreshold(chipId, value) {
+    const min = Math.max(1, Math.min(1440, parseInt(value) || 15));
+    try {
+        await api(`/api/modules/${encodeURIComponent(chipId)}/notification-prefs`, {
+            method: 'POST',
+            body: { offline_alert_threshold_min: min }
+        });
+    } catch (e) { console.error('Erro ao salvar threshold offline:', e); }
 }
 
 async function togglePushNotifications(el) {
