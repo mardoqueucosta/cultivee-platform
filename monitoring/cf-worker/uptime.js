@@ -166,11 +166,25 @@ async function processComponent(comp, env) {
   await writeJSON(env.STATUS_KV, `current:${comp.id}`, current, KV_TTL_CURRENT);
 
   // 4) Transicoes de incidente
-  const wasHealthy = prev ? prev.healthy : true;  // assume saudavel no boot
-  if (wasHealthy && !result.healthy && fail_streak >= INCIDENT_OPEN_THRESHOLD) {
+  //
+  // BUG corrigido (rodada 2026-04-25): a versao anterior usava
+  //   `wasHealthy && !result.healthy && fail_streak >= INCIDENT_OPEN_THRESHOLD`
+  // que NUNCA disparava. Trace: no 1o check de falha, `wasHealthy=true` mas
+  // `fail_streak=1` (< 2). No 2o check de falha, `fail_streak=2` mas
+  // `wasHealthy=false` (porque o `prev.healthy` ja virou false no ciclo
+  // anterior). Resultado: nenhum incidente foi aberto desde o deploy
+  // inicial do worker, mesmo com quedas reais (uptime caia mas a lista
+  // de incidentes ficava vazia — visivel na pagina status.cultivee.com.br).
+  //
+  // Fix: detectar a TRANSICAO via `prev_streak < threshold && new_streak
+  // >= threshold` — disparado exatamente uma vez quando o contador cruza
+  // o threshold de baixo pra cima. Independe do flag `healthy` anterior.
+  const prevFails = prev?.fail_streak || 0;
+  const prevOks = prev?.ok_streak || 0;
+  if (!result.healthy && prevFails < INCIDENT_OPEN_THRESHOLD && fail_streak >= INCIDENT_OPEN_THRESHOLD) {
     await openIncident(env, comp, current, result.reason);
     await sendAlertWithCooldown(env, comp, 'down', result.reason);
-  } else if (!wasHealthy && result.healthy && ok_streak >= INCIDENT_CLOSE_THRESHOLD) {
+  } else if (result.healthy && prevOks < INCIDENT_CLOSE_THRESHOLD && ok_streak >= INCIDENT_CLOSE_THRESHOLD) {
     await closeIncident(env, comp, current);
     await sendAlertWithCooldown(env, comp, 'up', null);
   }

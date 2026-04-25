@@ -10,6 +10,35 @@ Para contexto mais profundo de decisoes arquiteturais (por que foi feito assim, 
 
 ## [Nao lancado]
 
+## [4.1.51] - 2026-04-25
+
+### Corrigido (CRITICAL — bug latente desde o deploy do Worker)
+- **Worker de monitoring `status.cultivee.com.br` NUNCA abria incidentes**
+  (`monitoring/cf-worker/uptime.js` linhas 169-176). A condicao era:
+  ```js
+  if (wasHealthy && !result.healthy && fail_streak >= INCIDENT_OPEN_THRESHOLD)
+  ```
+  Trace: no 1o check de falha, `wasHealthy=true` mas `fail_streak=1` (< 2,
+  threshold). No 2o check de falha, `fail_streak=2` mas `wasHealthy=false`
+  (porque `prev.healthy` virou false no ciclo anterior). Resultado: **nenhum
+  incidente foi aberto desde o deploy inicial do Worker** — o uptime caia
+  corretamente (calculado via `daily:` acumulado, independente de incidents)
+  mas a lista de "INCIDENTES" ficava sempre vazia.
+- Sintoma visivel: pagina mostrava `App Cultivee 99.49%` mas
+  "Nenhum incidente nos ultimos 30 dias" simultaneamente.
+- Fix: detectar a TRANSICAO via `prevFails < THRESHOLD && fail_streak
+  >= THRESHOLD`. Dispara exatamente uma vez quando o contador cruza o
+  threshold. Mesma logica espelhada pra closeIncident.
+- Roll-out: deploy via `bash monitoring/cf-worker/deploy.sh`. Validado
+  com `/trigger` — proximo cron (`*/5min`) ja usa logica nova.
+
+### Nao corrigido (escopo posterior)
+- Quedas historicas (visiveis em `last_down_at` dos componentes) nao foram
+  reconstituidas como incidentes sinteticos. Worker nao tem dados granulares
+  pra inferir start/end de quedas passadas (so guarda o ultimo
+  `last_down_at`/`last_up_at`). Quedas futuras serao registradas
+  corretamente; o gap historico fica visivel apenas no calculo de uptime.
+
 ## [4.1.50] - 2026-04-25
 
 ### Corrigido
