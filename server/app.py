@@ -204,11 +204,27 @@ def save_user_prefs():
 @app.route("/api/modules/register", methods=["POST"])
 def register_module():
     """ESP32 chama ao conectar para se registrar."""
-    data = request.get_json()
+    # v4.1.46 DEBUG: loga body cru de chips especificos pra investigar
+    # truncamento (Farm reporta tudo MENOS min_free_heap + firmware_version
+    # que sao os ultimos 2 campos do ctrl_data — sintoma classico de overflow).
+    _raw_body = request.get_data()
+    data = request.get_json(silent=True)
     if not data:
+        log.warning(f"register_module bad JSON: body={_raw_body[:300]!r}")
         return jsonify({"error": "JSON invalido"}), 400
 
     chip_id = data.get("chip_id", "")
+    if chip_id == "348257088304":  # Hidro-Farm — debug temporario
+        log.info(f"[REG-FARM-DEBUG] body_size={len(_raw_body)}B "
+                 f"ctrl_data_keys={sorted((data.get('ctrl_data') or {}).keys())}")
+        # Loga raw bytes ao redor da posicao onde deveria ter min_free_heap
+        body_str = _raw_body.decode('utf-8', errors='replace')
+        for needle in ('"min_free_heap"', '"firmware_version"', '"wifi_disconnect_count"'):
+            idx = body_str.find(needle)
+            if idx == -1:
+                log.info(f"[REG-FARM-DEBUG] NAO TEM {needle} no body cru")
+            else:
+                log.info(f"[REG-FARM-DEBUG] {needle} em pos={idx} ate fim={body_str[idx:idx+80]!r}")
     short_id = data.get("short_id", "")
     # v4.1.28: "ctrl" legado -> "hidro" normalizado. Ambos sao aceitos.
     module_type = data.get("type", "hidro")
