@@ -100,7 +100,7 @@ function onSubmit(){
 </form>
 <div style='margin-top:16px;padding-top:16px;border-top:1px solid #eee'>
 <a href='/skip-wifi' style='display:block;padding:12px;background:#f8f9fa;color:#666;border:1px solid #ddd;border-radius:10px;font-size:0.9rem;font-weight:600;text-decoration:none;text-align:center;transition:all 0.2s'>Usar sem WiFi</a>
-<p style='color:#aaa;font-size:0.75rem;margin-top:6px'>Controle local via rede )rawliteral" + String(AP_SSID) + R"rawliteral(</p>
+<p style='color:#aaa;font-size:0.75rem;margin-top:6px'>Controle local via rede )rawliteral" + dynamicApSsid + R"rawliteral(</p>
 </div>
 <div class='loading' id='loading'>
 <div class='spinner'></div>

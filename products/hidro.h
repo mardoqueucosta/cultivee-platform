@@ -8,7 +8,7 @@
 #define PRODUCT_HIDRO_H
 
 // ===== VERSAO =====
-#define FIRMWARE_VERSION   "4.1.31"
+#define FIRMWARE_VERSION   "4.1.34"
 
 // ===== MODULOS ATIVOS =====
 #define MOD_HIDRO

@@ -13,6 +13,14 @@ unsigned long wifiLastConnectedMs = 0;  // millis() da ultima vez que STA ficou 
 int wifiDisconnectCount   = 0;   // quantas quedas desde o boot
 bool wifiAutoReconnectSet = false;  // guard pra so chamar setAutoReconnect 1x
 
+// ===================== IDENTIDADE UNICA (v4.1.34) =====================
+// AP SSID e mDNS name ganham sufixo de 6 hex chars do MAC (ultimos do chipId)
+// pra evitar colisao quando 2 modulos do mesmo produto estao na mesma rede.
+// Inicializadas em setup() apos chipId ser computado.
+//   Ex: AP "Cultivee-Hidro-A7DBCC" e mDNS "cultivee-hidro-a7dbcc.local"
+String dynamicApSsid;     // SSID do AP em modo SETUP/OFFLINE (uppercase)
+String dynamicMdnsName;   // hostname mDNS (lowercase — convencao)
+
 // Traduz status do driver em rotulo de erro legivel
 String wifiStatusToError(wl_status_t s) {
   switch (s) {
@@ -89,14 +97,17 @@ void clearWiFiCredentials() {
 }
 
 void startAP() {
-  WiFi.softAP(AP_SSID, NULL, 6, 0, 4);  // Canal 6, sem senha, max 4 clientes
+  // v4.1.34: usa SSID dinamico (com sufixo MAC) — fallback ao SSID estatico
+  // se ainda nao foi inicializado (improvavel, mas defensivo)
+  const char* ssid = dynamicApSsid.length() > 0 ? dynamicApSsid.c_str() : AP_SSID;
+  WiFi.softAP(ssid, NULL, 6, 0, 4);  // Canal 6, sem senha, max 4 clientes
   delay(100);
   esp_wifi_set_ps(WIFI_PS_NONE);  // Desabilita power saving — melhora latencia
   #ifdef MOD_CAM
   WiFi.setTxPower(WIFI_POWER_8_5dBm);  // WROVER: TX mais baixo = AP mais estavel
   #endif
   dnsServer.start(53, "*", WiFi.softAPIP());
-  Serial.printf("AP ativo: %s IP: %s\n", AP_SSID, WiFi.softAPIP().toString().c_str());
+  Serial.printf("AP ativo: %s IP: %s\n", ssid, WiFi.softAPIP().toString().c_str());
 }
 
 bool connectWiFi() {
@@ -261,7 +272,9 @@ void tryReconnectWiFi() {
     wifiLastConnectedMs = millis();
     Serial.printf("Reconectado! IP: %s\n", WiFi.localIP().toString().c_str());
     if (!ntpSynced) setupNTP();
-    if (MDNS.begin(MDNS_NAME)) {
+    // v4.1.34: usa mDNS dinamico (com sufixo MAC) — fallback ao estatico
+    const char* mdns = dynamicMdnsName.length() > 0 ? dynamicMdnsName.c_str() : MDNS_NAME;
+    if (MDNS.begin(mdns)) {
       MDNS.addService("http", "tcp", 80);
     }
     return;

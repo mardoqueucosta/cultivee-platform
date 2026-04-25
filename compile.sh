@@ -1,8 +1,9 @@
 #!/bin/bash
 # Compilar firmware Cultivee com OTA (min_spiffs)
 # Uso: bash compile.sh [upload]
-#   bash compile.sh          → só compila, gera .bin em build/
-#   bash compile.sh upload   → compila e grava via USB (COM7)
+#   bash compile.sh                       → só compila, gera .bin em build/
+#   bash compile.sh upload                → compila e grava via USB (default COM7)
+#   PORT=COM17 bash compile.sh upload    → grava em outra porta (segundo HIDRO, etc.)
 
 set -e
 
@@ -10,7 +11,7 @@ ARDUINO_CLI="C:/Users/user/arduino-cli/arduino-cli.exe"
 FQBN="esp32:esp32:esp32doit-devkit-v1"
 FIRMWARE_DIR="$(cd "$(dirname "$0")" && pwd)/firmware"
 BUILD_DIR="$(cd "$(dirname "$0")" && pwd)/build"
-PORT="COM7"
+PORT="${PORT:-COM7}"  # aceita override via env: PORT=COM17 bash compile.sh upload
 
 echo "=== Compilando Cultivee Hidro ==="
 

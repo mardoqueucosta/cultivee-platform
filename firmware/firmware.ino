@@ -382,8 +382,19 @@ void setup() {
   chipId = String(macStr);
   shortId = chipId.substring(chipId.length() - 4);
 
+  // v4.1.34: identidade unica do AP/mDNS — sufixo de 6 hex chars do MAC.
+  // Evita colisao quando 2 modulos do mesmo produto estao na mesma rede
+  // (ex: 2 HIDROs em casa pra bench test). Vivem em core_wifi.h.
+  String macSuffix = chipId.substring(chipId.length() - 6);    // ex: "A7DBCC"
+  String macSuffixLower = macSuffix;
+  macSuffixLower.toLowerCase();
+  dynamicApSsid   = String(AP_SSID)   + "-" + macSuffix;       // "Cultivee-Hidro-A7DBCC"
+  dynamicMdnsName = String(MDNS_NAME) + "-" + macSuffixLower;  // "cultivee-hidro-a7dbcc"
+
   Serial.println("\n=== " + String(PRODUCT_NAME) + " ===");
   Serial.printf("Chip ID: %s (%s)\n", chipId.c_str(), shortId.c_str());
+  Serial.printf("AP SSID: %s | mDNS: %s.local\n",
+    dynamicApSsid.c_str(), dynamicMdnsName.c_str());
 
   // WiFi — registra callback de eventos ANTES de begin() pra capturar GOT_IP/DISCONNECTED
   // (v4.1.8: detecta queda em ~1s em vez de esperar 60s do retry)
@@ -394,8 +405,8 @@ void setup() {
     if (connectWiFi()) {
       currentMode = MODE_CONNECTED;
       setupNTP();
-      if (MDNS.begin(MDNS_NAME)) {
-        Serial.printf("mDNS: %s.local\n", MDNS_NAME);
+      if (MDNS.begin(dynamicMdnsName.c_str())) {
+        Serial.printf("mDNS: %s.local\n", dynamicMdnsName.c_str());
         MDNS.addService("http", "tcp", 80);
       }
     } else {
