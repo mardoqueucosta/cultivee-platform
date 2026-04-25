@@ -925,7 +925,12 @@ function renderModuleList() {
 
     let html = ordered.map((m, i) => {
         const rawName = m.name && m.name !== DEFAULT_NAME ? m.name : '';
-        const name = rawName || getModuleLabel(m) || m.type || 'Modulo';
+        // v4.1.35: quando nao ha nome customizado, anexa os ultimos 4 chars do
+        // chip_id ao label pra desambiguar modulos do mesmo tipo (2 HIDROs, etc.)
+        // Se o user nomear ("Estufa Sala"), respeitamos e nao adicionamos sufixo.
+        const baseLabel = getModuleLabel(m) || m.type || 'Modulo';
+        const chipSuffix = m.chip_id ? m.chip_id.slice(-4) : '';
+        const name = rawName || (chipSuffix ? `${baseLabel} · ${chipSuffix}` : baseLabel);
         const isSelected = selected.includes(m.chip_id);
         const online = m.online;
         const caps = m.capabilities || [];
