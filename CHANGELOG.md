@@ -10,6 +10,22 @@ Para contexto mais profundo de decisoes arquiteturais (por que foi feito assim, 
 
 ## [Nao lancado]
 
+## [4.1.48] - 2026-04-25
+
+### Mudado
+- **Largura maxima do dashboard de 1400px → 1600px** (`server/static/style.css`).
+  Atualizado em 3 lugares: `main`, `#module-content` (grid de cards) e `.module-bar`
+  (barra de selecao). Em telas widescreen (1920×1080+) reduz o espaco escuro nas
+  laterais; com `grid-template-columns: repeat(auto-fill, minmax(300px, 1fr))`,
+  agora cabem **5 cards** por linha em viewports >=1568px (antes 4). Em telas
+  menores que 1600px o comportamento continua identico.
+- Bump `APP_VERSION` em `server/config.py` (invalida cache do Service Worker).
+
+### Nao alterado
+- Dashboard offline do firmware (`mod_*.h`) — serve um unico modulo no IP local
+  do ESP32, sem `<main>` nem `#module-content` com multiplos cards. Regra de sync
+  online/offline nao se aplica.
+
 ## [4.1.47] - 2026-04-25
 
 ### Corrigido (CRITICAL latente — afetava silenciosamente Hidro-Farm)
