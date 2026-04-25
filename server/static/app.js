@@ -818,6 +818,20 @@ function hasCap(mod, cap) {
     return (mod.capabilities || []).includes(cap);
 }
 
+// v4.1.37: nome de exibicao consistente entre barra de selecao e card expandido.
+// Se o user nomeou ("Estufa Sala"), respeita. Senao, label + sufixo chip_id pra
+// desambiguar modulos do mesmo capability (ex: 2 HIDROs aparecem
+// "Controle Hidro · DBCC" e "Controle Hidro · 7000" em ambos os lugares).
+function getDisplayName(chipId) {
+    const m = modules.find(x => x.chip_id === chipId);
+    if (!m) return chipId;
+    const rawName = m.name && m.name !== DEFAULT_NAME ? m.name : '';
+    if (rawName) return rawName;
+    const baseLabel = getModuleLabel(m) || m.type || 'Modulo';
+    const suffix = chipId ? chipId.slice(-4) : '';
+    return suffix ? `${baseLabel} · ${suffix}` : baseLabel;
+}
+
 function getModuleLabel(mod) {
     const caps = mod.capabilities || [];
     for (const cap of caps) {
@@ -924,13 +938,10 @@ function renderModuleList() {
     }
 
     let html = ordered.map((m, i) => {
-        const rawName = m.name && m.name !== DEFAULT_NAME ? m.name : '';
-        // v4.1.35: quando nao ha nome customizado, anexa os ultimos 4 chars do
-        // chip_id ao label pra desambiguar modulos do mesmo tipo (2 HIDROs, etc.)
-        // Se o user nomear ("Estufa Sala"), respeitamos e nao adicionamos sufixo.
-        const baseLabel = getModuleLabel(m) || m.type || 'Modulo';
-        const chipSuffix = m.chip_id ? m.chip_id.slice(-4) : '';
-        const name = rawName || (chipSuffix ? `${baseLabel} · ${chipSuffix}` : baseLabel);
+        // v4.1.37: usa helper getDisplayName pra ser consistente com o header
+        // do card expandido (renderHidroCardHeader). Logica: nome custom se
+        // houver, senao label + sufixo chip_id.
+        const name = getDisplayName(m.chip_id);
         const isSelected = selected.includes(m.chip_id);
         const online = m.online;
         const caps = m.capabilities || [];
@@ -1128,9 +1139,10 @@ function renderDashboard(container, chipId, moduleType, data) {
     // Salva estado por chipId — cada modulo tem seu proprio localState isolado.
     localStates[chipId] = { ...data };
 
-    // Label do modulo pra exibir dentro do card (ex: "Controle Hidro", "Controle Farm")
-    const _cap = moduleType === 'ctrl' ? 'hidro' : moduleType;
-    const _moduleLabel = moduleRenderers[_cap]?.label || moduleType;
+    // v4.1.37: nome de exibicao via helper compartilhado — consistente com a
+    // barra de selecao. Inclui sufixo chip_id quando user nao nomeou
+    // (ex: "Controle Hidro · DBCC" em vez de so "Controle Hidro").
+    const _moduleLabel = getDisplayName(chipId);
 
     const cycleDay = data.cycle_day || 0;
     const phase = data.phase || "---";
@@ -1630,7 +1642,7 @@ function renderModule_cam(container, mod) {
             <!-- Header Camera (mesma classe dos outros modulos) -->
             <div class="module-inline-title" style="margin:0;padding:14px;border-bottom:1px solid var(--border, hsl(210,15%,20%))">
                 <span class="mch-dot" style="background:${statusColor};box-shadow:0 0 6px ${statusColor}40"></span>
-                <b>Câmera</b>
+                <b>${escapeHtml(getDisplayName(chipId))}</b>
             </div>
 
             <!-- Dropdown: Captura -->
