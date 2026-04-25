@@ -77,6 +77,11 @@ from .users import (
     # module prefs (UI state)
     get_user_module_prefs,
     save_user_module_prefs,
+    # alert prefs + silent hours (v4.1.41)
+    get_user_alert_prefs,
+    set_user_alert_pref,
+    get_user_silent_hours,
+    set_user_silent_hours,
 )
 
 # --- Modules + groups + capture config ---

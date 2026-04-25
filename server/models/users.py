@@ -767,3 +767,98 @@ def save_user_module_prefs(user_id, prefs):
     )
     conn.commit()
     conn.close()
+
+
+# =====================================================================
+# v4.1.41 — Preferencias de alerta (canais por tipo + silent hours)
+# =====================================================================
+# user_alert_prefs: linha por (user_id, alert_type) com canais opt-in/out.
+# Linhas ausentes = defaults (push ON + email ON) — frontend so cria
+# linha quando user mexe no toggle.
+#
+# users.alert_silent_hours_*: janela global (HH:MM). P0 sempre ignora.
+# =====================================================================
+
+def get_user_alert_prefs(user_id):
+    """
+    Retorna dict {alert_type: {enabled_push, enabled_email}} pra prefs
+    EXISTENTES no banco. Tipos sem linha sao tratados como default ON
+    pelo caller (helper `_user_wants_channel` em notifications.py).
+    """
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT alert_type, enabled_push, enabled_email FROM user_alert_prefs "
+        "WHERE user_id = ?", (user_id,)
+    ).fetchall()
+    conn.close()
+    return {
+        r["alert_type"]: {
+            "enabled_push": bool(r["enabled_push"]),
+            "enabled_email": bool(r["enabled_email"]),
+        }
+        for r in rows
+    }
+
+
+def set_user_alert_pref(user_id, alert_type, enabled_push=None, enabled_email=None):
+    """
+    Upsert da pref pra esse (user_id, alert_type). So atualiza canais
+    explicitamente passados — outros mantidos.
+    """
+    conn = get_db()
+    existing = conn.execute(
+        "SELECT enabled_push, enabled_email FROM user_alert_prefs "
+        "WHERE user_id = ? AND alert_type = ?",
+        (user_id, alert_type)
+    ).fetchone()
+    if existing:
+        push = int(enabled_push) if enabled_push is not None else existing["enabled_push"]
+        email = int(enabled_email) if enabled_email is not None else existing["enabled_email"]
+        conn.execute(
+            "UPDATE user_alert_prefs SET enabled_push = ?, enabled_email = ?, "
+            "updated_at = datetime('now') WHERE user_id = ? AND alert_type = ?",
+            (push, email, user_id, alert_type)
+        )
+    else:
+        # Defaults pra campo nao passado: ON (1)
+        push = int(enabled_push) if enabled_push is not None else 1
+        email = int(enabled_email) if enabled_email is not None else 1
+        conn.execute(
+            "INSERT INTO user_alert_prefs (user_id, alert_type, enabled_push, enabled_email) "
+            "VALUES (?, ?, ?, ?)",
+            (user_id, alert_type, push, email)
+        )
+    conn.commit()
+    conn.close()
+
+
+def get_user_silent_hours(user_id):
+    """Retorna (start, end) ou (None, None) se nao configurado."""
+    conn = get_db()
+    row = conn.execute(
+        "SELECT alert_silent_hours_start, alert_silent_hours_end FROM users WHERE id = ?",
+        (user_id,)
+    ).fetchone()
+    conn.close()
+    if not row:
+        return (None, None)
+    return (row["alert_silent_hours_start"], row["alert_silent_hours_end"])
+
+
+def set_user_silent_hours(user_id, start, end):
+    """
+    Salva janela de silencio. start/end no formato HH:MM, ou None pra desativar.
+    Validacao basica — frontend formata.
+    """
+    if start == "" or start is None:
+        start = None
+    if end == "" or end is None:
+        end = None
+    conn = get_db()
+    conn.execute(
+        "UPDATE users SET alert_silent_hours_start = ?, alert_silent_hours_end = ? "
+        "WHERE id = ?",
+        (start, end, user_id)
+    )
+    conn.commit()
+    conn.close()

@@ -86,6 +86,48 @@ def get_alert_meta(alert_type):
     })
 
 
+def _user_wants_channel(user_id, alert_type, channel):
+    """
+    v4.1.41: respeitar prefs do user. Se nao ha pref pra esse tipo, default ON.
+    channel: 'push' ou 'email'.
+    """
+    import models as _m
+    prefs = _m.get_user_alert_prefs(user_id)
+    p = prefs.get(alert_type)
+    if not p:
+        return True  # nenhuma pref = default ON
+    if channel == "push":
+        return p.get("enabled_push", True)
+    if channel == "email":
+        return p.get("enabled_email", True)
+    return True
+
+
+def _is_in_silent_hours(user_id, severity):
+    """
+    v4.1.41: True se estamos na janela de silencio do user E severidade != P0.
+    P0 e emergencia — sempre passa, ate de madrugada.
+    Janela suporta atravessar meia-noite (ex: 22:00 → 07:00).
+    """
+    if severity == "P0":
+        return False  # emergencia ignora silencio
+    import models as _m
+    start_str, end_str = _m.get_user_silent_hours(user_id)
+    if not start_str or not end_str:
+        return False  # nao configurado
+    try:
+        from datetime import datetime
+        # Compara so HH:MM do horario local atual
+        now = datetime.now().strftime("%H:%M")
+        # Janela normal (start < end, mesmo dia): 09:00 → 18:00
+        if start_str < end_str:
+            return start_str <= now < end_str
+        # Janela cruzando meia-noite: 22:00 → 07:00
+        return now >= start_str or now < end_str
+    except Exception:
+        return False
+
+
 class AlertManager:
     """Verifica condicoes de alerta e envia notificacoes."""
 
@@ -346,7 +388,11 @@ class AlertManager:
 
     def _send_alert(self, user_id, chip_id, alert_type, payload, severity=None):
         """
-        Envia notificacao via todos os canais disponiveis.
+        Envia notificacao respeitando prefs do user (v4.1.41):
+        - Silent hours: bloqueia tudo (exceto P0)
+        - Pref por canal (push/email): pode desligar canal especifico
+        - Cooldown: ja checado pelo caller via should_send_alert antes de chamar
+        - Sempre loga em alert_log mesmo quando canal e bloqueado (timeline)
 
         v4.1.40: severity opcional. Se None, usa o default do ALERT_CATALOG.
         """
@@ -356,37 +402,45 @@ class AlertManager:
         meta = get_alert_meta(alert_type)
         sev = severity or meta.get("severity_default", "P1")
 
-        # 1. Push PWA
-        subscriptions = models.get_push_subscriptions(user_id)
+        # v4.1.41: silent hours global — bloqueia ambos canais (exceto P0)
+        silent = _is_in_silent_hours(user_id, sev)
+
+        # 1. Push PWA — respeita pref por tipo + silent hours
         push_sent = 0
-        for sub in subscriptions:
-            try:
-                _send_web_push(sub, payload)
-                push_sent += 1
-            except Exception as e:
-                log.warning(f"Push falhou ({sub['endpoint'][:50]}...): {e}")
-                # Subscription expirada ou invalida — remove
-                models.delete_push_subscription_by_endpoint(sub["endpoint"])
+        if not silent and _user_wants_channel(user_id, alert_type, "push"):
+            subscriptions = models.get_push_subscriptions(user_id)
+            for sub in subscriptions:
+                try:
+                    _send_web_push(sub, payload)
+                    push_sent += 1
+                except Exception as e:
+                    log.warning(f"Push falhou ({sub['endpoint'][:50]}...): {e}")
+                    # Subscription expirada ou invalida — remove
+                    models.delete_push_subscription_by_endpoint(sub["endpoint"])
 
         # 2. Email (usa notification_email se existir, senao email de login)
-        user = models.get_user_by_id(user_id)
         email_sent = False
-        to_email = None
-        if user:
-            try:
-                to_email = user["notification_email"] or user["email"]
-            except (IndexError, KeyError):
-                to_email = user["email"]
-        if to_email:
-            try:
-                _send_email_alert(to_email, payload)
-                email_sent = True
-            except Exception as e:
-                log.warning(f"Email falhou ({user['email']}): {e}")
+        if not silent and _user_wants_channel(user_id, alert_type, "email"):
+            user = models.get_user_by_id(user_id)
+            to_email = None
+            if user:
+                try:
+                    to_email = user["notification_email"] or user["email"]
+                except (IndexError, KeyError):
+                    to_email = user["email"]
+            if to_email:
+                try:
+                    _send_email_alert(to_email, payload)
+                    email_sent = True
+                except Exception as e:
+                    log.warning(f"Email falhou ({to_email}): {e}")
 
-        # Loga o alerta com severidade — usado em filtros + timeline futura
+        # Loga sempre — mesmo quando bloqueado por silent_hours/pref. User ainda
+        # ve no historico que o alerta DISPAROU (so nao foi entregue por canal).
         models.log_alert(user_id, chip_id, alert_type, severity=sev)
-        log.info(f"ALERTA [{sev}] [{alert_type}] chip={chip_id}: push={push_sent} email={email_sent}")
+        suffix = " [SILENCIADO]" if silent else ""
+        log.info(f"ALERTA [{sev}] [{alert_type}] chip={chip_id}: "
+                 f"push={push_sent} email={email_sent}{suffix}")
 
 
 def _send_web_push(subscription, payload):

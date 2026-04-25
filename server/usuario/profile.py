@@ -481,3 +481,122 @@ def lookup_cep(cep):
         "state": data.get("uf", ""),
         "complement": data.get("complemento", ""),
     })
+
+# =====================================================================
+# v4.1.41 — Endpoints de notificacoes (catalogo + historico + ack + prefs)
+# =====================================================================
+# Visualizacao + controle das notificacoes pelo proprio usuario.
+# Todos exigem auth (proprio user). Admin nao usa esses — tem visao
+# global em /api/admin se for o caso (futuro).
+# =====================================================================
+
+@profile_bp.route("/alerts/catalog", methods=["GET"])
+@_require_auth
+def alerts_catalog():
+    """Retorna catalogo de tipos de alerta + pref do user pra cada um."""
+    from notifications import ALERT_CATALOG
+    user_prefs = models.get_user_alert_prefs(request.user["id"])
+    items = []
+    for alert_type, meta in ALERT_CATALOG.items():
+        pref = user_prefs.get(alert_type, {"enabled_push": True, "enabled_email": True})
+        items.append({
+            "alert_type": alert_type,
+            "name": meta["name"],
+            "severity_default": meta["severity_default"],
+            "cooldown_sec": meta["cooldown_sec"],
+            "enabled_push": pref["enabled_push"],
+            "enabled_email": pref["enabled_email"],
+        })
+    start, end = models.get_user_silent_hours(request.user["id"])
+    return jsonify({
+        "catalog": items,
+        "silent_hours": {"start": start, "end": end},
+    })
+
+
+@profile_bp.route("/alerts/history", methods=["GET"])
+@_require_auth
+def alerts_history():
+    """Lista alertas recebidos pelo user nos ultimos N dias (default 30, max 90)."""
+    from datetime import datetime, timedelta
+    try:
+        days = int(request.args.get("days", 30))
+    except (TypeError, ValueError):
+        days = 30
+    days = max(1, min(90, days))
+    cutoff = (datetime.now() - timedelta(days=days)).isoformat()
+    from models.db import get_db
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT id, chip_id, alert_type, severity, sent_at, ack_at "
+        "FROM alert_log WHERE user_id = ? AND sent_at >= ? "
+        "ORDER BY sent_at DESC LIMIT 200",
+        (request.user["id"], cutoff)
+    ).fetchall()
+    conn.close()
+    return jsonify({"alerts": [dict(r) for r in rows]})
+
+
+@profile_bp.route("/alerts/<int:alert_id>/ack", methods=["POST"])
+@_require_auth
+def alerts_ack(alert_id):
+    """Marca alerta como visto. Idempotente (re-ack so atualiza timestamp)."""
+    from datetime import datetime
+    from models.db import get_db
+    conn = get_db()
+    # Verifica que o alerta pertence ao user (anti-tampering)
+    row = conn.execute(
+        "SELECT id FROM alert_log WHERE id = ? AND user_id = ?",
+        (alert_id, request.user["id"])
+    ).fetchone()
+    if not row:
+        conn.close()
+        return jsonify({"error": "Alerta nao encontrado"}), 404
+    conn.execute(
+        "UPDATE alert_log SET ack_at = ?, ack_by = ? WHERE id = ?",
+        (datetime.now().isoformat(), request.user["id"], alert_id)
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
+@profile_bp.route("/alert-prefs/<alert_type>", methods=["PUT"])
+@_require_auth
+def update_alert_pref(alert_type):
+    """Atualiza pref de canal (push/email) pra um tipo de alerta."""
+    from notifications import ALERT_CATALOG
+    if alert_type not in ALERT_CATALOG:
+        return jsonify({"error": "Tipo de alerta desconhecido"}), 400
+    data = request.get_json(silent=True) or {}
+    push = data.get("enabled_push")
+    email = data.get("enabled_email")
+    if push is None and email is None:
+        return jsonify({"error": "Nada pra atualizar"}), 400
+    models.set_user_alert_pref(
+        request.user["id"], alert_type,
+        enabled_push=bool(push) if push is not None else None,
+        enabled_email=bool(email) if email is not None else None,
+    )
+    return jsonify({"ok": True})
+
+
+@profile_bp.route("/alert-silent-hours", methods=["PUT"])
+@_require_auth
+def update_silent_hours():
+    """Atualiza janela de silencio global. Body: {start, end} no formato HH:MM. None pra desativar."""
+    data = request.get_json(silent=True) or {}
+    start = data.get("start")
+    end = data.get("end")
+    # Validacao: se um e dado, ambos precisam ser. Senao desativa.
+    if (start and not end) or (end and not start):
+        return jsonify({"error": "Forneca start E end, ou ambos vazios pra desativar"}), 400
+    # Valida formato HH:MM se nao-vazio
+    import re
+    if start and not re.match(r"^\d{2}:\d{2}$", start):
+        return jsonify({"error": "start deve ser HH:MM"}), 400
+    if end and not re.match(r"^\d{2}:\d{2}$", end):
+        return jsonify({"error": "end deve ser HH:MM"}), 400
+    models.set_user_silent_hours(request.user["id"], start or None, end or None)
+    return jsonify({"ok": True, "start": start or None, "end": end or None})
+

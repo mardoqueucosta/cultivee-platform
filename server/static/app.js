@@ -2459,6 +2459,9 @@ function hideProfilePanel() {
 async function loadProfile() {
     // v4.1.22: carrega em paralelo — perfil + sessoes
     loadProfileSessions();
+    // v4.1.41: carrega catalogo + historico de alertas + prefs
+    loadAlertCatalog();
+    loadAlertsHistory();
     try {
         const p = await api("/api/profile/");
         // Header info (read-only)
@@ -3884,3 +3887,173 @@ function doAppUpdate() {
 }
 function dismissUpdate() { const b = document.getElementById('update-banner'); if (b) b.remove(); }
 document.addEventListener("keydown", e => { if (e.key === "Escape") closePairModal(); });
+
+// =====================================================================
+// v4.1.41 — Notificacoes (catalogo + historico + prefs + silent hours)
+// =====================================================================
+
+const SEV_META = {
+    P0: { color: '#e74c3c', label: 'P0', icon: '&#128293;' },  // emergencia
+    P1: { color: '#e67e22', label: 'P1', icon: '&#9888;' },     // alta
+    P2: { color: '#f1c40f', label: 'P2', icon: '&#9888;' },     // media
+    P3: { color: '#3498db', label: 'P3', icon: '&#8505;' },     // info
+};
+
+function _sevBadge(sev) {
+    const m = SEV_META[sev] || SEV_META.P2;
+    return `<span style="display:inline-block;padding:2px 6px;border-radius:4px;background:${m.color}22;color:${m.color};font-size:0.65rem;font-weight:700;letter-spacing:0.04em">${m.label}</span>`;
+}
+
+function _formatCooldown(sec) {
+    if (sec < 3600) return `${Math.round(sec/60)}min`;
+    const h = Math.round(sec/3600);
+    if (h < 24) return `${h}h`;
+    return `${Math.round(h/24)}d`;
+}
+
+async function loadAlertCatalog() {
+    const el = document.getElementById('alert-catalog-list');
+    if (!el) return;
+    try {
+        const data = await api('/api/profile/alerts/catalog');
+        // Atualiza tambem a janela de silencio
+        const sh = data.silent_hours || {};
+        const startInput = document.getElementById('silent-hours-start');
+        const endInput = document.getElementById('silent-hours-end');
+        const status = document.getElementById('silent-hours-status');
+        if (sh.start && sh.end) {
+            startInput.value = sh.start;
+            endInput.value = sh.end;
+            if (status) status.textContent = `ativa: ${sh.start} → ${sh.end}`;
+        } else {
+            startInput.value = '';
+            endInput.value = '';
+            if (status) status.textContent = 'desativada';
+        }
+        // Renderiza catalogo
+        el.innerHTML = (data.catalog || []).map(item => {
+            const sev = item.severity_default;
+            const cd = _formatCooldown(item.cooldown_sec);
+            const safeType = escapeAttr(item.alert_type);
+            return `
+            <div style="padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:8px;margin-bottom:6px">
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:6px">
+                    <div style="display:flex;align-items:center;gap:8px;min-width:0">
+                        ${_sevBadge(sev)}
+                        <span style="font-size:0.85rem;font-weight:600">${escapeHtml(item.name)}</span>
+                    </div>
+                    <span style="font-size:0.65rem;color:var(--text-dim);white-space:nowrap">cooldown ${escapeHtml(cd)}</span>
+                </div>
+                <div style="display:flex;gap:14px;font-size:0.75rem;color:var(--text-dim)">
+                    <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
+                        <input type="checkbox" ${item.enabled_push ? 'checked' : ''}
+                            onchange="saveAlertPref('${safeType}','push',this.checked)">
+                        <span>&#128241; Push</span>
+                    </label>
+                    <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
+                        <input type="checkbox" ${item.enabled_email ? 'checked' : ''}
+                            onchange="saveAlertPref('${safeType}','email',this.checked)">
+                        <span>&#9993; Email</span>
+                    </label>
+                </div>
+            </div>`;
+        }).join('');
+    } catch (e) {
+        el.innerHTML = `<p style="color:#e74c3c;font-size:0.8rem">Erro: ${escapeHtml(e.message)}</p>`;
+    }
+}
+
+async function saveAlertPref(alertType, channel, enabled) {
+    try {
+        const body = {};
+        if (channel === 'push') body.enabled_push = enabled;
+        if (channel === 'email') body.enabled_email = enabled;
+        await api(`/api/profile/alert-prefs/${encodeURIComponent(alertType)}`, {
+            method: 'PUT',
+            body
+        });
+    } catch (e) {
+        console.error('Erro ao salvar pref:', e);
+        // Recarrega pra reverter UI
+        loadAlertCatalog();
+    }
+}
+
+async function saveSilentHours() {
+    const start = document.getElementById('silent-hours-start').value;
+    const end = document.getElementById('silent-hours-end').value;
+    if (!start || !end) {
+        alert('Preencha hora de inicio E fim, ou clique em Desativar.');
+        return;
+    }
+    try {
+        await api('/api/profile/alert-silent-hours', {
+            method: 'PUT',
+            body: { start, end }
+        });
+        loadAlertCatalog();  // recarrega pra mostrar status atualizado
+    } catch (e) {
+        alert('Erro ao salvar: ' + e.message);
+    }
+}
+
+async function clearSilentHours() {
+    try {
+        await api('/api/profile/alert-silent-hours', {
+            method: 'PUT',
+            body: { start: '', end: '' }
+        });
+        loadAlertCatalog();
+    } catch (e) {
+        alert('Erro: ' + e.message);
+    }
+}
+
+async function loadAlertsHistory() {
+    const el = document.getElementById('alert-history-list');
+    if (!el) return;
+    try {
+        const data = await api('/api/profile/alerts/history?days=30');
+        const alerts = data.alerts || [];
+        if (alerts.length === 0) {
+            el.innerHTML = `<div class="empty-state"><p style="font-size:0.8rem;color:var(--text-dim)">Nenhum alerta nos ultimos 30 dias.</p></div>`;
+            return;
+        }
+        // Resolve nome amigavel via catalogo carregado (cache curto)
+        const catalogResp = await api('/api/profile/alerts/catalog');
+        const nameMap = {};
+        (catalogResp.catalog || []).forEach(c => { nameMap[c.alert_type] = c.name; });
+
+        el.innerHTML = alerts.map(a => {
+            const sev = a.severity || 'P1';
+            const name = nameMap[a.alert_type] || a.alert_type;
+            const when = formatRelativeShort(a.sent_at);
+            const isAcked = !!a.ack_at;
+            const ackHtml = isAcked
+                ? `<span style="font-size:0.7rem;color:var(--text-dim)">&#10003; visto</span>`
+                : `<button onclick="ackAlert(${a.id})" style="background:transparent;color:var(--primary);border:1px solid var(--border);border-radius:4px;padding:2px 8px;font-size:0.7rem;cursor:pointer">Marcar como visto</button>`;
+            return `
+            <div style="padding:8px 10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;margin-bottom:4px;display:flex;justify-content:space-between;align-items:center;gap:10px;${isAcked ? 'opacity:0.6' : ''}">
+                <div style="display:flex;align-items:center;gap:8px;min-width:0">
+                    ${_sevBadge(sev)}
+                    <div style="min-width:0">
+                        <div style="font-size:0.8rem;font-weight:600">${escapeHtml(name)}</div>
+                        <div style="font-size:0.68rem;color:var(--text-dim)">${escapeHtml(a.chip_id)} &middot; ${escapeHtml(when)}</div>
+                    </div>
+                </div>
+                ${ackHtml}
+            </div>`;
+        }).join('');
+    } catch (e) {
+        el.innerHTML = `<p style="color:#e74c3c;font-size:0.8rem">Erro: ${escapeHtml(e.message)}</p>`;
+    }
+}
+
+async function ackAlert(alertId) {
+    try {
+        await api(`/api/profile/alerts/${alertId}/ack`, { method: 'POST' });
+        loadAlertsHistory();  // recarrega pra mostrar como visto
+    } catch (e) {
+        alert('Erro ao marcar: ' + e.message);
+    }
+}

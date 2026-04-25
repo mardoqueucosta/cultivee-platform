@@ -336,6 +336,32 @@ def init_db():
     except Exception:
         conn.execute("ALTER TABLE users ADD COLUMN email_2fa_enabled INTEGER DEFAULT 0")
 
+    # Migracao v4.1.41: preferencias de alerta por usuario.
+    # Tabela `user_alert_prefs`: opt-in/out por (alert_type, canal). Linhas
+    # ausentes = defaults (push ON + email ON). Frontend cria linha so quando
+    # user mexer no toggle.
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS user_alert_prefs (
+            user_id INTEGER NOT NULL,
+            alert_type TEXT NOT NULL,
+            enabled_push INTEGER DEFAULT 1,
+            enabled_email INTEGER DEFAULT 1,
+            updated_at TEXT DEFAULT (datetime('now')),
+            PRIMARY KEY (user_id, alert_type)
+        );
+    """)
+    # Janela de silencio global por user (NAO por tipo — simplifica e bate com
+    # use case real: "nao me incomode a noite"). Severidade P0 ignora silent
+    # hours (emergencia sempre passa).
+    for col, ddl in [
+        ("alert_silent_hours_start", "ALTER TABLE users ADD COLUMN alert_silent_hours_start TEXT"),
+        ("alert_silent_hours_end", "ALTER TABLE users ADD COLUMN alert_silent_hours_end TEXT"),
+    ]:
+        try:
+            conn.execute(f"SELECT {col} FROM users LIMIT 0")
+        except Exception:
+            conn.execute(ddl)
+
     # Migracao v4.1.40: alert_log ganha severity (P0-P3) + ack_at/ack_by.
     # severity default 'P1' pra back-compat. ack_at/ack_by vazios — preenchidos
     # quando user marcar alerta como visto (Bloco C, futuro).
