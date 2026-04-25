@@ -276,7 +276,16 @@ void registerOnServer() {
   http.addHeader("Content-Type", "application/json");
   http.setTimeout(5000);
 
-  String json = "{";
+  // v4.1.47: reserva 3kB upfront pra evitar reallocacoes do String += String.
+  // Sintoma sem isso (descoberto via debug v4.1.46): Hidro-Farm com 3 fases
+  // gera phasesJson ~1.5kB, e o += em ~30 lugares fragmentava o heap. Quando
+  // chegava na linha do min_free_heap (perto do fim), String() falhava
+  // silenciosamente e os ultimos 2 campos (min_free_heap, firmware_version)
+  // simplesmente NAO eram adicionados ao JSON. Servidor recebia truncado.
+  // Hidro/Cam tem JSON menor, por isso nao manifestaram o bug.
+  String json;
+  json.reserve(3000);
+  json += "{";
   json += "\"chip_id\":\"" + chipId + "\",";
   json += "\"short_id\":\"" + shortId + "\",";
   json += "\"type\":\"" + String(MODULE_TYPE) + "\",";
