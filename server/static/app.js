@@ -3817,8 +3817,12 @@ function renderNotificationCard(chipId, ctrlData) {
         </div>
         <div id="card-catalog-${sufx}" style="font-size:0.78rem">${catalogHtml}</div>
 
-        <!-- SECTION 3: HISTORICO (collapsed por default — todos os modulos) -->
-        <details style="margin-top:14px">
+        <!-- SECTION 3: HISTORICO (collapsed por default — todos os modulos)
+             v4.1.55: estado open/closed persistido em localStorage por chipId.
+             Sem isso, o re-render do dashboard a cada ~5s (poll) volta o
+             <details> pro default (fechado), parecendo que abre e fecha
+             sozinho quando o user clica. -->
+        <details ${_isHistoryOpen(chipId) ? 'open' : ''} ontoggle="_setHistoryOpen('${safeChip}', this.open)" style="margin-top:14px">
             <summary style="cursor:pointer;font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-dim);padding:4px 0">
                 Historico (30 dias)
             </summary>
@@ -3827,6 +3831,24 @@ function renderNotificationCard(chipId, ctrlData) {
 
         <!-- v4.1.52: Janela de silencio saiu daqui pro menu do usuario -->
     </div>`;
+}
+
+// v4.1.55: helpers pra persistir estado de <details> do historico per-chip.
+// Sobrevive a re-renders (poll do dashboard a cada ~5s) E a reloads do
+// navegador. Usar localStorage com chave per-chip pra que cada modulo tenha
+// seu proprio estado (user pode preferir ver historico expandido so do
+// modulo problematico).
+function _isHistoryOpen(chipId) {
+    try {
+        return localStorage.getItem(`notif-history-open-${chipId}`) === '1';
+    } catch (e) { return false; }  // localStorage pode falhar em modo privado
+}
+
+function _setHistoryOpen(chipId, isOpen) {
+    try {
+        if (isOpen) localStorage.setItem(`notif-history-open-${chipId}`, '1');
+        else localStorage.removeItem(`notif-history-open-${chipId}`);
+    } catch (e) { /* ignora */ }
 }
 
 // v4.1.52: cache split em 2:

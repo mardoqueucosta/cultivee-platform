@@ -10,6 +10,22 @@ Para contexto mais profundo de decisoes arquiteturais (por que foi feito assim, 
 
 ## [Nao lancado]
 
+## [4.1.55] - 2026-04-25
+
+### Corrigido
+- **`<details>` "Historico (30 dias)" abria e fechava sozinho** ao clicar.
+  Causa: o re-render do dashboard a cada ~5s (poll do ESP32) reescreve
+  `container.innerHTML` e o `<details>` e recriado com estado default
+  (fechado) — usuario clicava, abria, mas no proximo poll voltava a
+  fechar. Mesma raiz do flash visual da v4.1.50, mas afetando estado
+  DOM transient (open/closed) que nao vem do servidor nem do cache.
+- Fix: persiste o estado de `<details>` do historico em `localStorage`
+  com chave `notif-history-open-<chipId>` (per-chip — user pode preferir
+  expandido so no modulo problematico). 2 helpers novos: `_isHistoryOpen`
+  e `_setHistoryOpen`. Template usa `<details ${_isHistoryOpen(chipId)
+  ? 'open' : ''} ontoggle="_setHistoryOpen(chipId, this.open)">`.
+  Sobrevive a re-renders E a reloads do navegador.
+
 ## [4.1.54] - 2026-04-25
 
 ### Corrigido (HOTFIX 2 da v4.1.52)
