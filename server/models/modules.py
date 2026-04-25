@@ -731,3 +731,47 @@ def get_recent_platform_incidents(days=30, limit=100):
     ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+# =====================================================================
+# Offline watcher lock (v4.1.38)
+# =====================================================================
+# Lock distribuido pra garantir que so 1 worker do Gunicorn rode o ciclo
+# do offline_watcher por intervalo. UPDATE atomico no SQLite — quem vencer
+# ganha o ciclo, os outros workers fazem skip.
+# =====================================================================
+
+def try_acquire_offline_watcher_lock(min_interval_sec=60):
+    """
+    Retorna True se este processo deve executar o ciclo agora (lider).
+    Usa UPDATE atomico no SQLite. Se outro worker rodou ha menos de
+    min_interval_sec, retorna False.
+    """
+    from datetime import timedelta
+    conn = get_db()
+    now_dt = datetime.now()
+    cutoff_dt = now_dt - timedelta(seconds=int(min_interval_sec))
+    now_iso = now_dt.isoformat()
+    cutoff_iso = cutoff_dt.isoformat()
+    # Garante a linha singleton (id=1) existe
+    conn.execute(
+        "INSERT OR IGNORE INTO offline_watcher_state (id, last_run) VALUES (1, ?)",
+        ("1970-01-01T00:00:00",)
+    )
+    # UPDATE atomico — so vence se o ultimo run foi antes do cutoff
+    cur = conn.execute(
+        "UPDATE offline_watcher_state SET last_run = ? WHERE id = 1 AND last_run < ?",
+        (now_iso, cutoff_iso)
+    )
+    won = (cur.rowcount or 0) > 0
+    conn.commit()
+    conn.close()
+    return won
+
+
+def _get_last_status_event_public(chip_id):
+    """Wrapper publico de _get_last_status_event pra uso em jobs externos."""
+    conn = get_db()
+    row = _get_last_status_event(conn, chip_id)
+    conn.close()
+    return dict(row) if row else None

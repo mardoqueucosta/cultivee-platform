@@ -54,6 +54,15 @@ log.info(f"Banco de dados inicializado ({PRODUCT_NAME})")
 # (usado em register_module; ver comentario la embaixo)
 _REGISTER_COUNTER = 0
 
+# v4.1.38: thread de background pra detectar modulos offline > threshold
+# e disparar alerta proativo (push + email). Lock distribuido no banco
+# garante que so 1 worker do Gunicorn execute o ciclo por intervalo.
+try:
+    from jobs.offline_watcher import start as _start_offline_watcher
+    _start_offline_watcher()
+except Exception as e:
+    log.error(f"falhou start offline_watcher: {e}", exc_info=True)
+
 
 # =====================================================================
 # Auth helpers (exportados para blueprints)

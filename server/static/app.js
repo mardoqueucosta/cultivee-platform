@@ -686,7 +686,17 @@ async function _renderUptimeBody() {
                     labelColor = '';
                 }
                 const dot = `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${dotColor};margin-right:6px"></span>`;
-                const dur = e.duration_seconds != null ? formatHumanDuration(e.duration_seconds) : '<i>em curso</i>';
+                // v4.1.38: pra eventos em curso (sem duration_seconds), calcula
+                // now - occurred_at pra mostrar quanto tempo ja passou. Antes so
+                // mostrava "<i>em curso</i>" sem o tempo decorrido.
+                let dur;
+                if (e.duration_seconds != null) {
+                    dur = formatHumanDuration(e.duration_seconds);
+                } else {
+                    const startedMs = new Date(e.occurred_at).getTime();
+                    const elapsedSec = Math.max(0, Math.floor((Date.now() - startedMs) / 1000));
+                    dur = `<i>em curso &middot; ${escapeHtml(formatHumanDuration(elapsedSec))}</i>`;
+                }
                 // Oculta o reason=server_down no texto (ja esta implicito no label cinza)
                 const reasonTxt = (e.reason && !isServerDown) ? ` &middot; ${escapeHtml(e.reason)}` : '';
                 const rssi = (e.rssi != null && e.status === 'online') ? ` &middot; ${e.rssi} dBm` : '';
@@ -803,10 +813,21 @@ async function loadInlineUptime(chipId, spanId, isAdmin) {
     try {
         const data = await loadUptimeData(chipId, 7, isAdmin);
         const s = data.summary || {};
-        const badge = renderUptimeBadge(s);
-        const drops = s.offline_count || 0;
-        const dropsTxt = drops === 0 ? 'sem quedas' : `${drops} queda${drops > 1 ? 's' : ''}`;
-        const html = `Uptime 7d: ${badge} &middot; ${dropsTxt}`;
+        let html;
+        // v4.1.38: se modulo esta offline AGORA, destaca em vermelho com tempo
+        // decorrido em vez de mostrar "Uptime 7d: X%". Mais util operacionalmente
+        // — admin/dono ve o estado critico imediatamente sem precisar abrir modal.
+        if (s.current_status === 'offline' && s.last_offline_at) {
+            const startedMs = new Date(s.last_offline_at).getTime();
+            const elapsedSec = Math.max(0, Math.floor((Date.now() - startedMs) / 1000));
+            const elapsedTxt = formatHumanDuration(elapsedSec);
+            html = `<span style="color:#e74c3c;font-weight:700">&#9711; Offline ha ${escapeHtml(elapsedTxt)}</span>`;
+        } else {
+            const badge = renderUptimeBadge(s);
+            const drops = s.offline_count || 0;
+            const dropsTxt = drops === 0 ? 'sem quedas' : `${drops} queda${drops > 1 ? 's' : ''}`;
+            html = `Uptime 7d: ${badge} &middot; ${dropsTxt}`;
+        }
         _uptimeInlineCache[chipId] = { ts: Date.now(), html };
         span.innerHTML = html;
     } catch (e) {

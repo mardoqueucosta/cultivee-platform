@@ -114,6 +114,9 @@ from .modules import (
     upsert_platform_incident,
     mark_module_events_as_server_down,
     get_recent_platform_incidents,
+    # Offline watcher lock + helper de evento (v4.1.38)
+    try_acquire_offline_watcher_lock,
+    _get_last_status_event_public,
 )
 
 # --- Push subscriptions + alert log ---

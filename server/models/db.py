@@ -191,6 +191,15 @@ def init_db():
         );
         CREATE INDEX IF NOT EXISTS idx_pincident_period
             ON platform_incidents(start_at, end_at);
+
+        -- v4.1.38: lock singleton pra offline_watcher (thread de background).
+        -- Garante que so 1 worker do Gunicorn execute o ciclo por intervalo,
+        -- evitando duplicacao de checks/alertas. UPDATE atomico em
+        -- try_acquire_offline_watcher_lock decide o "lider" do ciclo.
+        CREATE TABLE IF NOT EXISTS offline_watcher_state (
+            id INTEGER PRIMARY KEY,    -- sempre 1 (singleton)
+            last_run TEXT NOT NULL
+        );
     """)
 
     # --- Migracoes aditivas (ALTER TABLE IF NOT EXISTS pattern) ---
