@@ -10,6 +10,56 @@ Para contexto mais profundo de decisoes arquiteturais (por que foi feito assim, 
 
 ## [Nao lancado]
 
+## [4.1.39] - 2026-04-25
+
+### Adicionado
+- Alerta de offline agora **configuravel por modulo** via UI. Card novo "Notificacoes de offline" no dashboard de cada modulo (Hidro, Hidro-Farm e Cam), com:
+  - Toggle "Alertar quando offline" (default ON pra modulos novos)
+  - Input "Alertar apos N min" (range 1-1440 = 1min a 24h)
+- Endpoint `POST /api/modules/<chip>/notification-prefs` (auth: dono ou admin). Body opcional: `{offline_alert_enabled?: bool, offline_alert_threshold_min?: int}`. Valida int 1-1440.
+- `models/modules.py`: 2 campos novos em `server_keys` — `offline_alert_enabled`, `offline_alert_threshold_min`. Protege merge do ESP32 (so servidor escreve via endpoint).
+- `static/app.js`: helper `renderNotificationCard(chipId, ctrlData)` reusavel entre Hidro/Hidro-Farm/Cam, mais `toggleOfflineAlert` + `saveOfflineThreshold` com atualizacao otimista da UI + revert em caso de erro.
+
+### Alterado
+- `jobs/offline_watcher.py`: default global `OFFLINE_ALERT_THRESHOLD_MIN` 60min → `DEFAULT_OFFLINE_THRESHOLD_MIN` 15min. Por modulo, le `ctrl_data.offline_alert_threshold_min` (fallback ao default). Skip do alerta se `offline_alert_enabled === false`.
+- Padrao visual do novo card replica o do alerta de nivel do reservatorio (toggle + input numerico) — consistencia.
+- Cam ganha alerta de offline pela primeira vez (antes nem tinha card de notificacoes — so HIDRO/Farm tinham via reservatorio).
+
+### Corrigido (commit `facff77`)
+- **Bug que cometi nesta mesma release** (entre commit principal `cb9ddbb` e fix): renomeei `OFFLINE_ALERT_THRESHOLD_MIN` → `DEFAULT_OFFLINE_THRESHOLD_MIN` mas esqueci 2 referencias:
+  1. Log de startup do `_watcher_loop` — `NameError` imediato, thread crashou. Sistema ficou SEM detecao automatica de offline por ~25min (modulos continuaram registrando normal, mas nenhum alerta seria disparado).
+  2. `_maybe_send_recovery_alert` — comparacao com constante inexistente, recovery alert nao disparava (silenciosamente).
+- Fix usa `DEFAULT_OFFLINE_THRESHOLD_MIN` (log) e `_module_threshold_min(module)` (recovery — passa a respeitar config por modulo tambem).
+
+### Notas operacionais
+- Pra modulos pareados antes do upgrade, os campos novos sao **fallback ao default** (15min, ON) — nao precisa rodar migration nem POST manual. Quem quiser ajustar, abre o modulo no app e mexe.
+- Padrao do bug recorrente: 4o caso seguido de "refatorei nome de simbolo sem grep por todas as ocorrencias". Documentado novamente em `docs/sessoes/2026-04-25.md` — proxima rodada DEVE rodar `grep -n PATTERN file` antes de commitar refator de constante/funcao.
+
+---
+
+## [4.1.38] - 2026-04-25
+
+### Adicionado
+- **Alerta proativo "modulo offline ha X min"** — thread daemon em `server/jobs/offline_watcher.py` roda a cada 60s. Pra cada modulo pareado:
+  - Se offline >= 60min (default desta versao — alterado pra 15min na v4.1.39): dispara alerta P1 (push + email) via `AlertManager._send_alert` existente.
+  - Se >= 24h: escala pra P0 (cooldown maior pra evitar spam — 12h).
+  - Se voltou apos queda longa: alerta de recovery ("voltou apos Xmin").
+- Lock distribuido — nova tabela `offline_watcher_state` (singleton id=1) + helper `try_acquire_offline_watcher_lock(min_interval_sec)`. UPDATE atomico no SQLite garante que so 1 worker do Gunicorn (de 2) execute o ciclo por intervalo.
+- Cooldowns no `alert_log`:
+  - `module_offline` P1: 4h
+  - `module_offline` P0: 12h
+  - `module_recovered`: 1h
+- Iniciado em `app.py` apos init_db. Falha silenciosa se import quebrar (nao trava startup do servidor).
+
+### Alterado
+- Modal de uptime: evento offline ainda em aberto (sem `duration_seconds`) agora mostra "OFFLINE · em curso · 45min" (calcula `now - occurred_at`) em vez de so "em curso" sem o tempo.
+- `loadInlineUptime`: quando modulo esta offline AGORA, substitui a linha "Uptime 7d: 99% · sem quedas" por `🔴 Offline ha 45min` em vermelho. Visivel imediatamente no card sem precisar abrir modal. Cache 60s mantido.
+
+### Validacao em producao
+- Primeiro alerta real disparado em 10:14:26 BRT — CAM (`704CAAF7C630`) ficou 72min offline antes do deploy. Thread detectou no primeiro ciclo, push entregue pra 7 endpoints + email pro `mardo.abc@gmail.com`. Deduplicacao via `alert_log` funcionou apesar dos 2 workers (sem alerta duplicado). 8 push subs antigas (410 Gone) foram removidas automaticamente pelo handler existente.
+
+---
+
 ## [4.1.37] - 2026-04-25
 
 ### Alterado

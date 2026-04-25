@@ -42,6 +42,20 @@ base64 -w0 build/firmware.ino.bin | ssh ... "
 ```
 Servidor detecta no proximo poll do ESP32 e serve. Anti-loop ja built-in (auto-deleta `.bin` apos download — fix da v4.1.8).
 
+### Background jobs em `server/jobs/` (v4.1.38+)
+Threads daemon iniciadas no startup do `app.py`. Cada job e responsavel pelo proprio loop + sleep + tratamento de erros (nao quebra o app se falhar). Iniciado **uma vez por worker do Gunicorn** — pra evitar duplicacao de trabalho, usar lock distribuido no banco (UPDATE atomico).
+
+Exemplo atual:
+- `jobs/offline_watcher.py` — verifica modulos offline > threshold (default 15min, v4.1.39) e dispara alerta proativo (push + email). Lock via `models.try_acquire_offline_watcher_lock(min_interval_sec)` na tabela `offline_watcher_state` (singleton id=1).
+
+### Refator de simbolo — checklist obrigatorio (lecao da rodada 2026-04-25)
+Antes de commitar qualquer rename/refator de constante, classe ou funcao:
+```bash
+grep -rn "NOME_ANTIGO" server/ firmware/ products/ static/ templates/ | grep -v "\.git"
+# Se sobrar — corrigir TODAS antes do commit. Senao, NameError silencioso em runtime.
+```
+**4 bugs consecutivos na rodada 2026-04-25** seguiram esse padrao. Bug mais grave: `OFFLINE_ALERT_THRESHOLD_MIN` renomeada na v4.1.39 com 2 ocorrencias esquecidas → thread offline_watcher crashou no startup, sistema sem alerta automatico por ~25min.
+
 ---
 
 ## Visao Geral
@@ -55,7 +69,7 @@ Plataforma IoT para cultivo inteligente. Arquitetura modular:
 Hardware especializado: cada ESP32 faz uma coisa so.
 Composicao por software: o app mostra os modulos que o usuario adicionar.
 
-Versao ativa: **v4.1.37** (backend/PWA) — definida como fonte unica em [`server/config.py:24`](./server/config.py) (`APP_VERSION`).
+Versao ativa: **v4.1.39** (backend/PWA) — definida como fonte unica em [`server/config.py:24`](./server/config.py) (`APP_VERSION`).
 
 Firmware: **v4.1.26** em todos os produtos — sincronizado automaticamente via [`sync-version.sh`](./sync-version.sh) em [`products/hidro.h:11`](./products/hidro.h), [`products/hidro-farm.h:16`](./products/hidro-farm.h) e [`products/cam.h:11`](./products/cam.h) (`FIRMWARE_VERSION`). Rode `bash sync-version.sh --write` antes de recompilar.
 
