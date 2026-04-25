@@ -3882,27 +3882,38 @@ function _renderCardSilentHours(sufx, sh) {
 function _renderCardCatalog(sufx, items) {
     const el = document.getElementById(`card-catalog-${sufx}`);
     if (!el) return;
-    el.innerHTML = items.map(item => {
+    // v4.1.45: header explicativo + texto completo nos toggles (eram "P"/"E"
+    // — opaco demais, ninguem advinha sem ver o codigo). Agora "Push"/"Email"
+    // com icones, e o header explica que sao canais de entrega do alerta.
+    const header = `
+        <div style="font-size:0.7rem;color:var(--text-dim);margin:0 2px 6px;line-height:1.4">
+            Marque por onde quer <b>receber</b> cada tipo de alerta:
+            <b>&#128241; Push</b> (notificacao no celular/browser) e/ou
+            <b>&#9993; Email</b>. Desmarcar desliga o canal so pra esse tipo
+            (cooldown e demais regras continuam valendo).
+        </div>`;
+    const rows = items.map(item => {
         const sev = item.severity_default;
         const safeType = escapeAttr(item.alert_type);
         return `
-        <div style="display:flex;justify-content:space-between;align-items:center;padding:5px 8px;background:var(--bg);border:1px solid var(--border);border-radius:5px;margin-bottom:3px;font-size:0.72rem">
-            <div style="display:flex;align-items:center;gap:5px;min-width:0">
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 8px;background:var(--bg);border:1px solid var(--border);border-radius:5px;margin-bottom:3px;font-size:0.72rem;gap:8px;flex-wrap:wrap">
+            <div style="display:flex;align-items:center;gap:5px;min-width:0;flex:1 1 auto">
                 ${_sevBadge(sev)}
                 <span>${escapeHtml(item.name)}</span>
             </div>
-            <div style="display:flex;gap:8px;flex-shrink:0">
-                <label style="display:flex;align-items:center;gap:3px;cursor:pointer">
+            <div style="display:flex;gap:10px;flex-shrink:0">
+                <label style="display:flex;align-items:center;gap:4px;cursor:pointer" title="Push: notificacao no celular/browser via Service Worker">
                     <input type="checkbox" ${item.enabled_push ? 'checked' : ''} onchange="saveCardAlertPref('${safeType}','push',this.checked)">
-                    <span>P</span>
+                    <span>&#128241; Push</span>
                 </label>
-                <label style="display:flex;align-items:center;gap:3px;cursor:pointer">
+                <label style="display:flex;align-items:center;gap:4px;cursor:pointer" title="Email: enviado pra seu notification_email (ou email de login se vazio)">
                     <input type="checkbox" ${item.enabled_email ? 'checked' : ''} onchange="saveCardAlertPref('${safeType}','email',this.checked)">
-                    <span>E</span>
+                    <span>&#9993; Email</span>
                 </label>
             </div>
         </div>`;
     }).join('');
+    el.innerHTML = header + rows;
 }
 
 function _renderCardHistory(sufx, alerts, catalog) {
