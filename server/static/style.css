@@ -222,29 +222,24 @@ main { max-width: 1400px; margin: 0 auto; padding: 0 0.75rem; }
 }
 
 @media (min-width: 640px) {
+    /* v4.1.36: troca flex por CSS Grid em ambos os containers de modulos.
+       O Flex anterior usava `flex: 1 1 33%` com flex-grow=1 — quando havia
+       um item sozinho na ultima linha (ex: 4 modulos em layout de 3 colunas),
+       o flex-grow esticava ele pra ocupar a largura toda. Visualmente quebrado.
+       Grid auto-fill mantem colunas vazias na linha incompleta, items mantem
+       o tamanho natural alinhados a esquerda. */
     .modules-list {
-        flex-direction: row;
-        flex-wrap: wrap;
-    }
-    /* Ate 3 cards por linha no desktop. Responsivo: com min-width 250px,
-       cai naturalmente para 2 colunas em telas medias e 1 no mobile. */
-    .modules-list > * {
-        flex: 1 1 calc(33.333% - 0.67rem);
-        min-width: 250px;
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+        gap: 0.5rem;
     }
     #module-content {
-        display: flex;
-        flex-wrap: wrap;
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
         gap: 1rem;
         max-width: 1400px;
         margin: 0 auto;
         padding: 0 1rem;
-    }
-    /* Dashboard dos modulos selecionados: ate 3 por linha tambem.
-       Min-width 300px garante que cards cheios (fases, controles) nao fiquem apertados. */
-    #module-content > * {
-        flex: 1 1 calc(33.333% - 0.67rem);
-        min-width: 300px;
     }
     .module-bar {
         max-width: 1400px;
