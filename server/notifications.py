@@ -29,12 +29,17 @@ _alert_timers = {}
 
 
 # =====================================================================
-# v4.1.40 — Catalogo de tipos de alerta (P0-P3)
+# v4.1.52 — Catalogo de alertas POR MODULO (universal + por produto)
 # =====================================================================
-# Catalogo INLINE em vez de tabela `alert_definitions` — mais simples,
-# mesma utilidade pra MVP. Cada tipo tem severidade default e cooldown
-# proprio. AlertManager._send_alert usa esses defaults se severity nao
-# for passado explicitamente.
+# Refator do catalogo global anterior (v4.1.40 ALERT_CATALOG). Motivacao:
+# os modulos foram pensados pra serem totalmente independentes — interface
+# e router/storage, nao "decisor". O catalogo unificado contradizia isso:
+# user com so Camera via alertas de "level_low" que jamais disparariam.
+#
+# Solucao: cada modulo carrega o seu catalogo proprio = UNIVERSAIS (todo
+# modulo tem) + ESPECIFICOS DO PRODUTO (declarados aqui por module_type).
+# Adicionar produto novo = adicionar entry em PRODUCT_ALERTS, sem mexer
+# em endpoint, UI, ou banco.
 #
 # Severidades:
 #   P0 — emergencia (acao imediata): vazamento, modulo critico offline >24h
@@ -43,16 +48,14 @@ _alert_timers = {}
 #   P3 — info (registro): recovery, atualizacao aplicada
 # =====================================================================
 
-ALERT_CATALOG = {
-    "level_low": {
-        "name": "Reservatorio vazio",
-        "severity_default": "P1",
-        "cooldown_sec": 3600,        # 1h — ja era o padrao
-    },
+# Alertas que TODO modulo tem — derivados de campos universais (offline
+# detection no servidor, min_free_heap/wifi_disconnect_count reportados
+# por todo firmware desde v4.1.8/v4.1.26).
+UNIVERSAL_ALERTS = {
     "module_offline": {
         "name": "Modulo offline",
         "severity_default": "P1",
-        "cooldown_sec": 4 * 3600,    # 4h pra P1; offline_watcher escala P0=12h se >24h
+        "cooldown_sec": 4 * 3600,    # offline_watcher escala P0=12h se >24h
     },
     "module_recovered": {
         "name": "Modulo voltou online",
@@ -62,37 +65,87 @@ ALERT_CATALOG = {
     "low_heap_warning": {
         "name": "Memoria baixa no modulo",
         "severity_default": "P2",
-        "cooldown_sec": 24 * 3600,   # alerta no maximo 1x/dia — vazamento e gradual
-    },
-    "sensor_invalid": {
-        "name": "Sensor com leitura invalida",
-        "severity_default": "P2",
-        "cooldown_sec": 12 * 3600,   # 2x/dia max
+        "cooldown_sec": 24 * 3600,   # alerta no maximo 1x/dia
     },
     "wifi_disconnect_burst": {
         "name": "WiFi instavel (varias quedas)",
         "severity_default": "P2",
-        "cooldown_sec": 6 * 3600,    # 4x/dia max
+        "cooldown_sec": 6 * 3600,
+    },
+}
+
+# Alertas especificos por module_type. Adicionar produto novo aqui +
+# implementar a deteccao em AlertManager (se nao for o servidor que detecta).
+# Nome do alerta DEVE ser unico globalmente — mesmo que aplicavel a varios
+# produtos (ex: sensor_invalid existe em hidro e hidro-farm).
+PRODUCT_ALERTS = {
+    "hidro": {
+        # Hidro tem RTC + 4 reles. RTC desync e um sinal valido — adia
+        # ate o firmware reportar `rtc_offline` ou similar.
+    },
+    "hidro-farm": {
+        "level_low": {
+            "name": "Reservatorio vazio",
+            "severity_default": "P1",
+            "cooldown_sec": 3600,
+        },
+        "sensor_invalid": {
+            "name": "Sensor DHT11 com leitura invalida",
+            "severity_default": "P2",
+            "cooldown_sec": 12 * 3600,
+        },
+        # v4.1.53 vai adicionar: dht_temperature_high/low,
+        # dht_humidity_extreme, reservoir_fill_stuck
+    },
+    "cam": {
+        # v4.1.54 vai adicionar: cam_capture_failed, cam_dark_frame,
+        # cam_init_failed
     },
 }
 
 
-def get_alert_meta(alert_type):
-    """Retorna metadata do tipo de alerta. Fallback defensivo se desconhecido."""
-    return ALERT_CATALOG.get(alert_type, {
+def get_alerts_for_module(module_type):
+    """
+    Retorna catalogo aplicavel a UM modulo: universais + especificos do
+    produto. Funcao pura — sem knowledge cruzado entre modulos.
+    """
+    return {**UNIVERSAL_ALERTS, **PRODUCT_ALERTS.get(module_type, {})}
+
+
+def get_alert_meta(alert_type, module_type=None):
+    """
+    Retorna metadata do alerta. Se module_type for passado, busca primeiro
+    no catalogo do modulo (precedencia: produto > universal). Fallback
+    defensivo se desconhecido.
+
+    Mantida assinatura compativel — module_type e opcional. Sem ele, busca
+    nos universais e em todos os produtos (primeiro match vence — ok porque
+    nomes sao unicos globalmente por design).
+    """
+    if module_type:
+        catalog = get_alerts_for_module(module_type)
+        if alert_type in catalog:
+            return catalog[alert_type]
+    # Fallback: procura globalmente (universal + todos produtos)
+    if alert_type in UNIVERSAL_ALERTS:
+        return UNIVERSAL_ALERTS[alert_type]
+    for product_catalog in PRODUCT_ALERTS.values():
+        if alert_type in product_catalog:
+            return product_catalog[alert_type]
+    return {
         "name": alert_type,
         "severity_default": "P2",
         "cooldown_sec": 3600,
-    })
+    }
 
 
-def _user_wants_channel(user_id, alert_type, channel):
+def _user_wants_channel(user_id, chip_id, alert_type, channel):
     """
-    v4.1.41: respeitar prefs do user. Se nao ha pref pra esse tipo, default ON.
-    channel: 'push' ou 'email'.
+    v4.1.52: prefs agora per-modulo. Se nao ha pref pra esse (chip, type),
+    default ON. channel: 'push' ou 'email'.
     """
     import models as _m
-    prefs = _m.get_user_alert_prefs(user_id)
+    prefs = _m.get_module_alert_prefs(user_id, chip_id)
     p = prefs.get(alert_type)
     if not p:
         return True  # nenhuma pref = default ON
@@ -388,26 +441,31 @@ class AlertManager:
 
     def _send_alert(self, user_id, chip_id, alert_type, payload, severity=None):
         """
-        Envia notificacao respeitando prefs do user (v4.1.41):
-        - Silent hours: bloqueia tudo (exceto P0)
-        - Pref por canal (push/email): pode desligar canal especifico
+        Envia notificacao respeitando prefs do user:
+        - Silent hours: bloqueia tudo (exceto P0) — GLOBAL por user
+        - Pref por canal (push/email): per-modulo desde v4.1.52
         - Cooldown: ja checado pelo caller via should_send_alert antes de chamar
         - Sempre loga em alert_log mesmo quando canal e bloqueado (timeline)
 
-        v4.1.40: severity opcional. Se None, usa o default do ALERT_CATALOG.
+        v4.1.52: prefs migraram de (user, type) pra (user, chip, type).
+        v4.1.40: severity opcional. Se None, usa default do catalogo do modulo.
         """
         import models
 
-        # Resolve severity (parametro > catalogo > fallback "P1")
-        meta = get_alert_meta(alert_type)
+        # Resolve severity. Tenta usar module_type pra contextualizar (precedencia
+        # PRODUCT_ALERTS > UNIVERSAL_ALERTS — relevante caso um produto futuro
+        # sobrescreva severidade default de um alerta universal).
+        mod = models.get_module_by_chip_id(chip_id)
+        module_type = mod["type"] if mod else None
+        meta = get_alert_meta(alert_type, module_type=module_type)
         sev = severity or meta.get("severity_default", "P1")
 
-        # v4.1.41: silent hours global — bloqueia ambos canais (exceto P0)
+        # Silent hours continua GLOBAL (propriedade do user, nao do modulo)
         silent = _is_in_silent_hours(user_id, sev)
 
-        # 1. Push PWA — respeita pref por tipo + silent hours
+        # 1. Push PWA — respeita pref per-modulo + silent hours
         push_sent = 0
-        if not silent and _user_wants_channel(user_id, alert_type, "push"):
+        if not silent and _user_wants_channel(user_id, chip_id, alert_type, "push"):
             subscriptions = models.get_push_subscriptions(user_id)
             for sub in subscriptions:
                 try:
@@ -420,7 +478,7 @@ class AlertManager:
 
         # 2. Email (usa notification_email se existir, senao email de login)
         email_sent = False
-        if not silent and _user_wants_channel(user_id, alert_type, "email"):
+        if not silent and _user_wants_channel(user_id, chip_id, alert_type, "email"):
             user = models.get_user_by_id(user_id)
             to_email = None
             if user:

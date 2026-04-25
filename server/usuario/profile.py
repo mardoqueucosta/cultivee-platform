@@ -490,28 +490,13 @@ def lookup_cep(cep):
 # global em /api/admin se for o caso (futuro).
 # =====================================================================
 
-@profile_bp.route("/alerts/catalog", methods=["GET"])
-@_require_auth
-def alerts_catalog():
-    """Retorna catalogo de tipos de alerta + pref do user pra cada um."""
-    from notifications import ALERT_CATALOG
-    user_prefs = models.get_user_alert_prefs(request.user["id"])
-    items = []
-    for alert_type, meta in ALERT_CATALOG.items():
-        pref = user_prefs.get(alert_type, {"enabled_push": True, "enabled_email": True})
-        items.append({
-            "alert_type": alert_type,
-            "name": meta["name"],
-            "severity_default": meta["severity_default"],
-            "cooldown_sec": meta["cooldown_sec"],
-            "enabled_push": pref["enabled_push"],
-            "enabled_email": pref["enabled_email"],
-        })
-    start, end = models.get_user_silent_hours(request.user["id"])
-    return jsonify({
-        "catalog": items,
-        "silent_hours": {"start": start, "end": end},
-    })
+# v4.1.52: removido GET /alerts/catalog. Catalogo e POR MODULO agora —
+# ver GET /api/modules/<chip_id>/alerts/catalog em app.py.
+
+
+# v4.1.52: removido endpoint antigo de silent_hours embutido no catalogo.
+# Silent hours continua GLOBAL (PUT /alert-silent-hours abaixo) e e
+# consumido pelo menu do usuario, nao mais pelo card do modulo.
 
 
 @profile_bp.route("/alerts/history", methods=["GET"])
@@ -561,24 +546,17 @@ def alerts_ack(alert_id):
     return jsonify({"ok": True})
 
 
-@profile_bp.route("/alert-prefs/<alert_type>", methods=["PUT"])
+# v4.1.52: removido PUT /alert-prefs/<alert_type>. Prefs sao POR MODULO
+# agora — ver PUT /api/modules/<chip_id>/alert-prefs/<alert_type> em app.py.
+
+
+@profile_bp.route("/alert-silent-hours", methods=["GET"])
 @_require_auth
-def update_alert_pref(alert_type):
-    """Atualiza pref de canal (push/email) pra um tipo de alerta."""
-    from notifications import ALERT_CATALOG
-    if alert_type not in ALERT_CATALOG:
-        return jsonify({"error": "Tipo de alerta desconhecido"}), 400
-    data = request.get_json(silent=True) or {}
-    push = data.get("enabled_push")
-    email = data.get("enabled_email")
-    if push is None and email is None:
-        return jsonify({"error": "Nada pra atualizar"}), 400
-    models.set_user_alert_pref(
-        request.user["id"], alert_type,
-        enabled_push=bool(push) if push is not None else None,
-        enabled_email=bool(email) if email is not None else None,
-    )
-    return jsonify({"ok": True})
+def get_silent_hours():
+    """v4.1.52: endpoint dedicado pra GET (antes vinha junto do catalogo).
+    Usado pelo modal de Janela de Silencio no menu do usuario."""
+    start, end = models.get_user_silent_hours(request.user["id"])
+    return jsonify({"start": start, "end": end})
 
 
 @profile_bp.route("/alert-silent-hours", methods=["PUT"])

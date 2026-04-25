@@ -770,25 +770,32 @@ def save_user_module_prefs(user_id, prefs):
 
 
 # =====================================================================
-# v4.1.41 — Preferencias de alerta (canais por tipo + silent hours)
+# v4.1.52 — Preferencias de alerta por (user, MODULO, type)
 # =====================================================================
-# user_alert_prefs: linha por (user_id, alert_type) com canais opt-in/out.
+# Substitui as antigas user_alert_prefs (chave por user+type, sem
+# granularidade per-modulo). Agora cada modulo do user tem sua propria
+# config — alinha com a filosofia "modulos sao entidades isoladas,
+# servidor e router/storage" e suporta cenarios reais como "silenciar
+# o Farm da varanda mas manter o Farm da estufa".
+#
 # Linhas ausentes = defaults (push ON + email ON) — frontend so cria
 # linha quando user mexe no toggle.
 #
-# users.alert_silent_hours_*: janela global (HH:MM). P0 sempre ignora.
+# users.alert_silent_hours_*: janela GLOBAL (propriedade do user, nao
+# do modulo). P0 sempre ignora.
 # =====================================================================
 
-def get_user_alert_prefs(user_id):
+def get_module_alert_prefs(user_id, chip_id):
     """
     Retorna dict {alert_type: {enabled_push, enabled_email}} pra prefs
-    EXISTENTES no banco. Tipos sem linha sao tratados como default ON
-    pelo caller (helper `_user_wants_channel` em notifications.py).
+    EXISTENTES no banco DESSE modulo. Tipos sem linha sao tratados como
+    default ON pelo caller (`_user_wants_channel` em notifications.py).
     """
     conn = get_db()
     rows = conn.execute(
-        "SELECT alert_type, enabled_push, enabled_email FROM user_alert_prefs "
-        "WHERE user_id = ?", (user_id,)
+        "SELECT alert_type, enabled_push, enabled_email FROM module_alert_prefs "
+        "WHERE user_id = ? AND chip_id = ?",
+        (user_id, chip_id)
     ).fetchall()
     conn.close()
     return {
@@ -800,33 +807,35 @@ def get_user_alert_prefs(user_id):
     }
 
 
-def set_user_alert_pref(user_id, alert_type, enabled_push=None, enabled_email=None):
+def set_module_alert_pref(user_id, chip_id, alert_type, enabled_push=None, enabled_email=None):
     """
-    Upsert da pref pra esse (user_id, alert_type). So atualiza canais
+    Upsert da pref pra (user_id, chip_id, alert_type). So atualiza canais
     explicitamente passados — outros mantidos.
     """
     conn = get_db()
     existing = conn.execute(
-        "SELECT enabled_push, enabled_email FROM user_alert_prefs "
-        "WHERE user_id = ? AND alert_type = ?",
-        (user_id, alert_type)
+        "SELECT enabled_push, enabled_email FROM module_alert_prefs "
+        "WHERE user_id = ? AND chip_id = ? AND alert_type = ?",
+        (user_id, chip_id, alert_type)
     ).fetchone()
     if existing:
         push = int(enabled_push) if enabled_push is not None else existing["enabled_push"]
         email = int(enabled_email) if enabled_email is not None else existing["enabled_email"]
         conn.execute(
-            "UPDATE user_alert_prefs SET enabled_push = ?, enabled_email = ?, "
-            "updated_at = datetime('now') WHERE user_id = ? AND alert_type = ?",
-            (push, email, user_id, alert_type)
+            "UPDATE module_alert_prefs SET enabled_push = ?, enabled_email = ?, "
+            "updated_at = datetime('now') "
+            "WHERE user_id = ? AND chip_id = ? AND alert_type = ?",
+            (push, email, user_id, chip_id, alert_type)
         )
     else:
         # Defaults pra campo nao passado: ON (1)
         push = int(enabled_push) if enabled_push is not None else 1
         email = int(enabled_email) if enabled_email is not None else 1
         conn.execute(
-            "INSERT INTO user_alert_prefs (user_id, alert_type, enabled_push, enabled_email) "
-            "VALUES (?, ?, ?, ?)",
-            (user_id, alert_type, push, email)
+            "INSERT INTO module_alert_prefs "
+            "(user_id, chip_id, alert_type, enabled_push, enabled_email) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (user_id, chip_id, alert_type, push, email)
         )
     conn.commit()
     conn.close()

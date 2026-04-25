@@ -336,19 +336,34 @@ def init_db():
     except Exception:
         conn.execute("ALTER TABLE users ADD COLUMN email_2fa_enabled INTEGER DEFAULT 0")
 
-    # Migracao v4.1.41: preferencias de alerta por usuario.
-    # Tabela `user_alert_prefs`: opt-in/out por (alert_type, canal). Linhas
-    # ausentes = defaults (push ON + email ON). Frontend cria linha so quando
-    # user mexer no toggle.
+    # Migracao v4.1.41 → v4.1.52: preferencias de alerta por (user, MODULO, type).
+    #
+    # ANTES (v4.1.41): tabela `user_alert_prefs` com PK (user_id, alert_type).
+    # Pref aplicava a TODOS os modulos do user — sem granularidade per-modulo.
+    #
+    # DEPOIS (v4.1.52): tabela `module_alert_prefs` com PK (user_id, chip_id,
+    # alert_type). Cada modulo tem sua config independente — alinha com a
+    # filosofia "modulos sao entidades isoladas, servidor e router/storage".
+    #
+    # Linhas ausentes = defaults (push ON + email ON). Frontend cria linha
+    # so quando user mexe no toggle. Ao deletar modulo (unpair), as prefs
+    # daquele chip podem ficar orfas — proxima migracao limpa, ou ressurge
+    # se chip voltar.
+    #
+    # User disse "estamos testando ainda — pode remover" → drop direto da
+    # tabela antiga sem replicar dados. Defaults novos (push+email ON) cobrem
+    # qualquer ressurgimento.
     conn.executescript("""
-        CREATE TABLE IF NOT EXISTS user_alert_prefs (
+        CREATE TABLE IF NOT EXISTS module_alert_prefs (
             user_id INTEGER NOT NULL,
+            chip_id TEXT NOT NULL,
             alert_type TEXT NOT NULL,
             enabled_push INTEGER DEFAULT 1,
             enabled_email INTEGER DEFAULT 1,
             updated_at TEXT DEFAULT (datetime('now')),
-            PRIMARY KEY (user_id, alert_type)
+            PRIMARY KEY (user_id, chip_id, alert_type)
         );
+        DROP TABLE IF EXISTS user_alert_prefs;
     """)
     # Janela de silencio global por user (NAO por tipo — simplifica e bate com
     # use case real: "nao me incomode a noite"). Severidade P0 ignora silent

@@ -3760,24 +3760,31 @@ function renderNotificationCard(chipId, ctrlData) {
     const safeChip = escapeAttr(chipId);
     const sufx = chipId.replace(/[^a-zA-Z0-9]/g, '');  // sufixo seguro pra IDs
 
-    // v4.1.50: anti-flash. loadCtrlStatus polla a cada ~5s e o key inclui
-    // temperature/humidity (DHT11) — entao renderDashboard reescreve o
-    // container.innerHTML (e o card de notificacoes junto) toda vez que a temp
-    // varia. Antes, isso destruia o catalog ja carregado, mostrava placeholder
-    // por 50ms ate o setTimeout repintar do cache. Agora: se cache valido,
-    // renderiza HTML completo direto. Sem cache, mantem placeholder + carrega.
-    const cacheValid = _notifCardCache.catalog && (Date.now() - _notifCardCache.ts) < 60000;
-    let catalogHtml, silentHtml, historyHtml;
+    // v4.1.52: catalogo + prefs agora sao POR MODULO. Cache vira per-chip.
+    // Janela de silencio saiu daqui (foi pro menu do usuario, e propriedade
+    // global). Historico continua global (a tela mostra alertas de TODOS os
+    // modulos do user de uma vez — separar por modulo seria menos util).
+    //
+    // Anti-flash (v4.1.50): se cache valido pra esse chip, renderiza HTML
+    // completo direto. Sem cache, placeholder + dispara fetch async.
+    const cache = _notifCardCacheByChip[chipId];
+    const cacheValid = cache && cache.catalog && (Date.now() - cache.ts) < 60000;
+    const historyCacheValid = _notifHistoryCache.alerts && (Date.now() - _notifHistoryCache.ts) < 60000;
+
+    let catalogHtml, historyHtml;
     if (cacheValid) {
-        catalogHtml = _buildCatalogHtml(_notifCardCache.catalog.catalog || []);
-        silentHtml = _buildSilentHtml(_notifCardCache.catalog.silent_hours || {}, sufx);
-        historyHtml = _buildHistoryHtml(_notifCardCache.history.alerts || [], _notifCardCache.catalog.catalog || []);
+        catalogHtml = _buildCatalogHtml(cache.catalog.catalog || [], chipId);
     } else {
         catalogHtml = `<div class="empty-state"><p style="font-size:0.75rem">Carregando tipos...</p></div>`;
-        silentHtml = `<div class="empty-state"><p style="font-size:0.75rem">Carregando silencio...</p></div>`;
+        setTimeout(() => loadCardCatalog(chipId, sufx), 50);
+    }
+    if (historyCacheValid) {
+        // historico precisa do catalogo PRA ESSE CHIP pra mapear nome
+        const cat = cache && cache.catalog ? cache.catalog.catalog : [];
+        historyHtml = _buildHistoryHtml(_notifHistoryCache.alerts || [], cat);
+    } else {
         historyHtml = `<div class="empty-state"><p style="font-size:0.75rem">Carregando historico...</p></div>`;
-        // Dispara fetch async pra preencher cache (so a 1a vez ou apos TTL expirar)
-        setTimeout(() => loadCardNotifications(chipId, sufx), 50);
+        setTimeout(() => loadCardHistory(chipId, sufx), 50);
     }
 
     return `<div class="card" style="padding:14px">
@@ -3786,8 +3793,8 @@ function renderNotificationCard(chipId, ctrlData) {
             <span>Notificacoes</span>
         </h2>
 
-        <!-- SECTION 1: ESTE MODULO -->
-        <div style="font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-dim);margin:6px 0 4px">Este modulo</div>
+        <!-- SECTION 1: OFFLINE ALERT (este modulo) -->
+        <div style="font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-dim);margin:6px 0 4px">Alerta de offline</div>
         <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px dashed var(--border)">
             <span style="font-size:0.82rem">Alertar quando offline</span>
             <span class="notify-switch ${enabled ? 'on' : ''}" onclick="toggleOfflineAlert('${safeChip}',this)">
@@ -3804,13 +3811,13 @@ function renderNotificationCard(chipId, ctrlData) {
             </label>
         </div>
 
-        <!-- SECTION 2: TIPOS GLOBAIS (canais por tipo de alerta) -->
+        <!-- SECTION 2: TIPOS DE ALERTA (deste modulo — universal + especificos) -->
         <div style="font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-dim);margin:14px 0 4px">
-            Tipos de alerta <span style="text-transform:none;font-weight:normal;color:var(--text-dim);font-size:0.65rem">(globais — afeta todos os modulos)</span>
+            Tipos de alerta <span style="text-transform:none;font-weight:normal;color:var(--text-dim);font-size:0.65rem">(deste modulo)</span>
         </div>
         <div id="card-catalog-${sufx}" style="font-size:0.78rem">${catalogHtml}</div>
 
-        <!-- SECTION 3: HISTORICO (collapsed por default) -->
+        <!-- SECTION 3: HISTORICO (collapsed por default — todos os modulos) -->
         <details style="margin-top:14px">
             <summary style="cursor:pointer;font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-dim);padding:4px 0">
                 Historico (30 dias)
@@ -3818,102 +3825,78 @@ function renderNotificationCard(chipId, ctrlData) {
             <div id="card-history-${sufx}" style="margin-top:8px;font-size:0.75rem">${historyHtml}</div>
         </details>
 
-        <!-- SECTION 4: JANELA DE SILENCIO (no fim, com explicacao) -->
-        <details style="margin-top:14px">
-            <summary style="cursor:pointer;font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-dim);padding:4px 0">
-                &#128564; Janela de silencio
-            </summary>
-            <div style="margin-top:8px;font-size:0.72rem;color:var(--text-dim);line-height:1.5;padding:0 4px 8px">
-                Pausa as notificacoes em uma faixa de horario, util quando voce sabe que <b>nao podera reagir agora</b> ou esta <b>fazendo manutencao</b>:
-                <ul style="margin:6px 0 6px 18px;padding:0">
-                    <li>Madrugada (alerta P1 pode esperar a manha — voce vai tratar de manha mesmo)</li>
-                    <li>Reuniao com cliente (celular tocando atrapalha)</li>
-                    <li>Bench / teste (mexer nos modulos sem ser bombardeado)</li>
-                    <li>Viagem / ferias curta (alguem mais cuida)</li>
-                </ul>
-                <div style="padding:6px 8px;background:rgba(231,76,60,0.08);border:1px solid rgba(231,76,60,0.25);border-radius:4px;margin-top:6px;color:var(--text)">
-                    &#9888; <b>Alertas P0 (emergencia) sempre passam</b>, mesmo na janela de silencio. Isso garante que falhas criticas (vazamento, modulo offline >24h) nao sao perdidas.
-                </div>
-            </div>
-            <div id="card-silent-${sufx}" style="padding:8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;margin-top:8px;font-size:0.78rem">${silentHtml}</div>
-        </details>
+        <!-- v4.1.52: Janela de silencio saiu daqui pro menu do usuario -->
     </div>`;
 }
 
-// Cache compartilhado entre todos os cards (TTL 60s — evita N requests por poll)
-const _notifCardCache = { ts: 0, catalog: null, history: null };
+// v4.1.52: cache split em 2:
+//  - _notifCardCacheByChip[chipId] — catalogo do modulo (per-chip, varia)
+//  - _notifHistoryCache — historico (continua global, pega alertas de todos
+//    os modulos do user; basta 1 fetch independente do numero de cards)
+// Ambos com TTL 60s pra evitar N requests por poll do dashboard.
+const _notifCardCacheByChip = {};
+const _notifHistoryCache = { ts: 0, alerts: null };
 
-async function loadCardNotifications(chipId, sufx) {
-    // Carrega so se cache expirou ou e a primeira vez
+async function loadCardCatalog(chipId, sufx) {
     const now = Date.now();
-    const cacheValid = _notifCardCache.catalog && (now - _notifCardCache.ts) < 60000;
-
-    if (!cacheValid) {
-        try {
-            const [catalogResp, historyResp] = await Promise.all([
-                api('/api/profile/alerts/catalog'),
-                api('/api/profile/alerts/history?days=30'),
-            ]);
-            _notifCardCache.catalog = catalogResp;
-            _notifCardCache.history = historyResp;
-            _notifCardCache.ts = now;
-        } catch (e) {
-            console.warn('Erro ao carregar notificacoes:', e);
-            // Mostra erro nos cards
-            const errEl = document.getElementById(`card-catalog-${sufx}`);
-            if (errEl) errEl.innerHTML = `<p style="color:#e74c3c;font-size:0.75rem">Erro: ${escapeHtml(e.message)}</p>`;
-            return;
-        }
+    const cache = _notifCardCacheByChip[chipId];
+    if (cache && cache.catalog && (now - cache.ts) < 60000) {
+        // Cache valido — re-renderiza sem fetch
+        _renderCardCatalog(sufx, cache.catalog.catalog || [], chipId);
+        return;
     }
-
-    _renderCardSilentHours(sufx, _notifCardCache.catalog.silent_hours || {});
-    _renderCardCatalog(sufx, _notifCardCache.catalog.catalog || []);
-    _renderCardHistory(sufx, _notifCardCache.history.alerts || [], _notifCardCache.catalog.catalog || []);
+    try {
+        const resp = await api(`/api/modules/${encodeURIComponent(chipId)}/alerts/catalog`);
+        _notifCardCacheByChip[chipId] = { ts: now, catalog: resp };
+        _renderCardCatalog(sufx, resp.catalog || [], chipId);
+    } catch (e) {
+        console.warn(`Erro ao carregar catalogo de ${chipId}:`, e);
+        const errEl = document.getElementById(`card-catalog-${sufx}`);
+        if (errEl) errEl.innerHTML = `<p style="color:#e74c3c;font-size:0.75rem">Erro: ${escapeHtml(e.message)}</p>`;
+    }
 }
 
-// v4.1.50: builders puros (retornam string) — usados tanto pelo
-// renderNotificationCard (renderiza inline quando cache valido) quanto pelos
-// _renderCardXxx (escrevem em el.innerHTML apos fetch). Evita duplicacao.
-function _buildSilentHtml(sh, sufx) {
-    const hasWindow = sh.start && sh.end;
-    return `
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-            <span style="font-weight:600">&#128564; Janela de silencio</span>
-            <span style="font-size:0.7rem;color:var(--text-dim)">${hasWindow ? `${sh.start} → ${sh.end}` : 'desativada'}</span>
-        </div>
-        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-            <input type="time" id="sh-start-${sufx}" value="${sh.start || ''}" style="padding:3px 6px;border-radius:4px;border:1px solid var(--border);background:var(--bg-card);color:var(--text);font-size:0.75rem">
-            <span style="font-size:0.7rem">→</span>
-            <input type="time" id="sh-end-${sufx}" value="${sh.end || ''}" style="padding:3px 6px;border-radius:4px;border:1px solid var(--border);background:var(--bg-card);color:var(--text);font-size:0.75rem">
-            <button onclick="saveCardSilentHours('${sufx}')" style="padding:3px 10px;background:var(--primary);color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:0.7rem">Salvar</button>
-            <button onclick="clearCardSilentHours('${sufx}')" style="padding:3px 10px;background:transparent;color:var(--text-dim);border:1px solid var(--border);border-radius:4px;cursor:pointer;font-size:0.7rem">Off</button>
-        </div>`;
+async function loadCardHistory(chipId, sufx) {
+    const now = Date.now();
+    if (_notifHistoryCache.alerts && (now - _notifHistoryCache.ts) < 60000) {
+        const cat = _notifCardCacheByChip[chipId];
+        const catalogList = cat && cat.catalog ? cat.catalog.catalog : [];
+        _renderCardHistory(sufx, _notifHistoryCache.alerts, catalogList);
+        return;
+    }
+    try {
+        const resp = await api('/api/profile/alerts/history?days=30');
+        _notifHistoryCache = { ts: now, alerts: resp.alerts || [] };
+        const cat = _notifCardCacheByChip[chipId];
+        const catalogList = cat && cat.catalog ? cat.catalog.catalog : [];
+        _renderCardHistory(sufx, _notifHistoryCache.alerts, catalogList);
+    } catch (e) {
+        console.warn('Erro ao carregar historico:', e);
+        const errEl = document.getElementById(`card-history-${sufx}`);
+        if (errEl) errEl.innerHTML = `<p style="color:#e74c3c;font-size:0.75rem">Erro: ${escapeHtml(e.message)}</p>`;
+    }
 }
 
-function _renderCardSilentHours(sufx, sh) {
-    const el = document.getElementById(`card-silent-${sufx}`);
-    if (!el) return;
-    el.innerHTML = _buildSilentHtml(sh, sufx);
-}
+// v4.1.52: _buildSilentHtml/_renderCardSilentHours removidos — janela de
+// silencio agora vive no menu do usuario (modal openSilentHoursModal()).
 
-function _buildCatalogHtml(items) {
-    // v4.1.45: header explicativo + texto completo nos toggles (eram "P"/"E"
-    // — opaco demais, ninguem advinha sem ver o codigo). Agora "Push"/"Email"
-    // com icones, e o header explica que sao canais de entrega do alerta.
+function _buildCatalogHtml(items, chipId) {
+    // v4.1.52: chipId obrigatorio — onchange precisa pra chamar
+    // /api/modules/<chip>/alert-prefs/<type>. Pref e per-modulo.
+    const safeChip = escapeAttr(chipId || '');
+    if (!items || items.length === 0) {
+        return `<p style="color:var(--text-dim);font-size:0.72rem;text-align:center;padding:10px">Nenhum tipo de alerta configurado pra esse modulo.</p>`;
+    }
     const header = `
         <div style="font-size:0.7rem;color:var(--text-dim);margin:0 2px 6px;line-height:1.4">
-            Marque por onde quer <b>receber</b> cada tipo de alerta:
+            Marque por onde quer <b>receber</b> cada tipo de alerta deste modulo:
             <b>&#128241; Push</b> (notificacao no celular/browser) e/ou
             <b>&#9993; Email</b>. Desmarcar desliga o canal so pra esse tipo
-            (cooldown e demais regras continuam valendo).
+            neste modulo (cooldown e demais regras continuam valendo).
         </div>`;
     const rows = items.map(item => {
         const sev = item.severity_default;
         const safeType = escapeAttr(item.alert_type);
-        // v4.1.49: removido flex-wrap (checkboxes nao caem mais pra linha de baixo);
-        // align-items:flex-start pra badge/checkboxes ficarem na 1a linha quando o
-        // label longo (P2 "Sensor com leitura invalida" etc.) wrap em 2 linhas;
-        // overflow-wrap:anywhere garante quebra agressiva sem estourar o container.
         return `
         <div style="display:flex;justify-content:space-between;align-items:flex-start;padding:6px 8px;background:var(--bg);border:1px solid var(--border);border-radius:5px;margin-bottom:3px;font-size:0.72rem;gap:8px">
             <div style="display:flex;align-items:flex-start;gap:5px;min-width:0;flex:1 1 auto;line-height:1.35">
@@ -3922,11 +3905,11 @@ function _buildCatalogHtml(items) {
             </div>
             <div style="display:flex;gap:10px;flex-shrink:0;align-items:center;padding-top:1px">
                 <label style="display:flex;align-items:center;gap:4px;cursor:pointer" title="Push: notificacao no celular/browser via Service Worker">
-                    <input type="checkbox" ${item.enabled_push ? 'checked' : ''} onchange="saveCardAlertPref('${safeType}','push',this.checked)">
+                    <input type="checkbox" ${item.enabled_push ? 'checked' : ''} onchange="saveCardAlertPref('${safeChip}','${safeType}','push',this.checked)">
                     <span>&#128241; Push</span>
                 </label>
                 <label style="display:flex;align-items:center;gap:4px;cursor:pointer" title="Email: enviado pra seu notification_email (ou email de login se vazio)">
-                    <input type="checkbox" ${item.enabled_email ? 'checked' : ''} onchange="saveCardAlertPref('${safeType}','email',this.checked)">
+                    <input type="checkbox" ${item.enabled_email ? 'checked' : ''} onchange="saveCardAlertPref('${safeChip}','${safeType}','email',this.checked)">
                     <span>&#9993; Email</span>
                 </label>
             </div>
@@ -3935,10 +3918,10 @@ function _buildCatalogHtml(items) {
     return header + rows;
 }
 
-function _renderCardCatalog(sufx, items) {
+function _renderCardCatalog(sufx, items, chipId) {
     const el = document.getElementById(`card-catalog-${sufx}`);
     if (!el) return;
-    el.innerHTML = _buildCatalogHtml(items);
+    el.innerHTML = _buildCatalogHtml(items, chipId);
 }
 
 function _buildHistoryHtml(alerts, catalog) {
@@ -3978,65 +3961,44 @@ function _renderCardHistory(sufx, alerts, catalog) {
 // --- Handlers (invalida cache + reload todos os cards visiveis) ---
 
 function _invalidateAndReloadAll() {
-    _notifCardCache.ts = 0;
-    // Reload todos os cards visiveis
+    // v4.1.52: limpa os 2 caches (per-chip + history global) e re-carrega
+    // todos os cards de notificacoes visiveis no DOM. Cada card sabe seu
+    // proprio chipId via reverse lookup do cache.
+    _notifHistoryCache.ts = 0;
+    Object.keys(_notifCardCacheByChip).forEach(chipId => {
+        _notifCardCacheByChip[chipId].ts = 0;
+    });
     document.querySelectorAll('[id^="card-catalog-"]').forEach(el => {
         const sufx = el.id.replace('card-catalog-', '');
-        loadCardNotificationsBySufx(sufx);
+        // sufx -> chipId: percorre _notifCardCacheByChip pra achar o chip
+        // que sanitiza pro mesmo sufx. Sem cache (1a vez): nao reload —
+        // proxima renderizacao do dashboard ja vai disparar fetch.
+        const chipId = Object.keys(_notifCardCacheByChip).find(
+            cid => cid.replace(/[^a-zA-Z0-9]/g, '') === sufx
+        );
+        if (chipId) {
+            loadCardCatalog(chipId, sufx);
+            loadCardHistory(chipId, sufx);
+        }
     });
 }
 
-async function loadCardNotificationsBySufx(sufx) {
-    // Helper pra reload sem precisar do chipId — usa o cache global
-    const cards = document.querySelectorAll(`#card-catalog-${sufx}`);
-    if (!cards.length) return;
-    try {
-        const [catalogResp, historyResp] = await Promise.all([
-            api('/api/profile/alerts/catalog'),
-            api('/api/profile/alerts/history?days=30'),
-        ]);
-        _notifCardCache.catalog = catalogResp;
-        _notifCardCache.history = historyResp;
-        _notifCardCache.ts = Date.now();
-        _renderCardSilentHours(sufx, catalogResp.silent_hours || {});
-        _renderCardCatalog(sufx, catalogResp.catalog || []);
-        _renderCardHistory(sufx, historyResp.alerts || [], catalogResp.catalog || []);
-    } catch (e) {
-        console.warn('reload card:', e);
-    }
-}
-
-async function saveCardSilentHours(sufx) {
-    const start = document.getElementById(`sh-start-${sufx}`).value;
-    const end = document.getElementById(`sh-end-${sufx}`).value;
-    if (!start || !end) { alert('Preencha ambas as horas, ou clique em Off'); return; }
-    try {
-        await api('/api/profile/alert-silent-hours', { method: 'PUT', body: { start, end } });
-        _invalidateAndReloadAll();
-    } catch (e) { alert('Erro: ' + e.message); }
-}
-
-async function clearCardSilentHours(sufx) {
-    try {
-        await api('/api/profile/alert-silent-hours', { method: 'PUT', body: { start: '', end: '' } });
-        _invalidateAndReloadAll();
-    } catch (e) { alert('Erro: ' + e.message); }
-}
-
-async function saveCardAlertPref(alertType, channel, enabled) {
+async function saveCardAlertPref(chipId, alertType, channel, enabled) {
+    // v4.1.52: pref e per-modulo agora — usa endpoint /api/modules/<chip>/...
     try {
         const body = {};
         if (channel === 'push') body.enabled_push = enabled;
         if (channel === 'email') body.enabled_email = enabled;
-        await api(`/api/profile/alert-prefs/${encodeURIComponent(alertType)}`, { method: 'PUT', body });
-        // v4.1.50: atualiza cache local pra proximas re-renderizacoes (a cada
-        // poll do dashboard, ~5s) refletirem o novo estado. Antes, o cache
-        // ficava com o valor antigo por ate 60s — o checkbox no DOM mantinha
-        // o estado correto, mas se renderNotificationCard fosse chamado, o
-        // template gerado vinha com `checked` baseado no cache antigo,
-        // revertendo visualmente o toggle.
-        if (_notifCardCache.catalog && Array.isArray(_notifCardCache.catalog.catalog)) {
-            const item = _notifCardCache.catalog.catalog.find(i => i.alert_type === alertType);
+        await api(
+            `/api/modules/${encodeURIComponent(chipId)}/alert-prefs/${encodeURIComponent(alertType)}`,
+            { method: 'PUT', body }
+        );
+        // Atualiza cache local pra evitar revert visual em re-renders subsequentes
+        // (ver v4.1.50 — o template usa cache, sem este update o checkbox
+        // reverteria pro estado antigo no proximo poll do dashboard).
+        const cache = _notifCardCacheByChip[chipId];
+        if (cache && cache.catalog && Array.isArray(cache.catalog.catalog)) {
+            const item = cache.catalog.catalog.find(i => i.alert_type === alertType);
             if (item) {
                 if (channel === 'push') item.enabled_push = enabled;
                 else if (channel === 'email') item.enabled_email = enabled;
@@ -4051,8 +4013,96 @@ async function saveCardAlertPref(alertType, channel, enabled) {
 async function ackCardAlert(alertId) {
     try {
         await api(`/api/profile/alerts/${alertId}/ack`, { method: 'POST' });
-        _invalidateAndReloadAll();  // re-renderiza todos os cards (alerta vira ackd em todos)
+        _invalidateAndReloadAll();  // historico mudou (ack_at) — reload caches
     } catch (e) { alert('Erro ao marcar: ' + e.message); }
+}
+
+// =====================================================================
+// v4.1.52 — Janela de silencio (modal aberto pelo menu do usuario)
+// =====================================================================
+// Configuracao global do user — pausa notificacoes em uma faixa de horario
+// (ex: madrugada, reuniao, manutencao). Alertas P0 SEMPRE passam, mesmo
+// dentro da janela. Antes (v4.1.41) ficava no card de notificacoes de cada
+// modulo (replicado N vezes — confuso). Agora vive no menu.
+async function openSilentHoursModal() {
+    // Carrega valor atual antes de abrir o modal
+    let current = { start: '', end: '' };
+    try {
+        current = await api('/api/profile/alert-silent-hours');
+    } catch (e) {
+        console.warn('Erro ao carregar janela de silencio:', e);
+    }
+
+    // Cria modal inline (mesmo padrao dos outros modais do app)
+    const existing = document.getElementById('silent-hours-modal');
+    if (existing) existing.remove();
+    const modal = document.createElement('div');
+    modal.id = 'silent-hours-modal';
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px';
+    modal.innerHTML = `
+        <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:20px;max-width:480px;width:100%;max-height:90vh;overflow-y:auto">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+                <h2 style="margin:0;font-size:1.05rem;color:var(--text);display:flex;align-items:center;gap:8px">
+                    <span>&#128564;</span> Janela de silencio
+                </h2>
+                <button onclick="document.getElementById('silent-hours-modal').remove()" style="background:transparent;border:none;color:var(--text-dim);font-size:1.5rem;cursor:pointer;line-height:1;padding:0 4px">&times;</button>
+            </div>
+            <div style="font-size:0.78rem;color:var(--text-dim);line-height:1.5;margin-bottom:14px">
+                Pausa as notificacoes em uma faixa de horario, util quando voce sabe que <b>nao podera reagir agora</b> ou esta <b>fazendo manutencao</b>:
+                <ul style="margin:6px 0 8px 18px;padding:0">
+                    <li>Madrugada (alerta P1 pode esperar a manha)</li>
+                    <li>Reuniao com cliente (celular tocando atrapalha)</li>
+                    <li>Bench / teste (mexer nos modulos sem ser bombardeado)</li>
+                </ul>
+                <div style="padding:8px 10px;background:rgba(231,76,60,0.08);border:1px solid rgba(231,76,60,0.25);border-radius:6px;color:var(--text);font-size:0.75rem">
+                    &#9888; <b>Alertas P0 (emergencia) sempre passam</b>, mesmo na janela de silencio.
+                </div>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:14px">
+                <label style="font-size:0.8rem;color:var(--text-dim);display:flex;align-items:center;gap:6px">
+                    De: <input type="time" id="modal-sh-start" value="${current.start || ''}" style="padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:0.85rem">
+                </label>
+                <label style="font-size:0.8rem;color:var(--text-dim);display:flex;align-items:center;gap:6px">
+                    Ate: <input type="time" id="modal-sh-end" value="${current.end || ''}" style="padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:0.85rem">
+                </label>
+                <span id="modal-sh-msg" style="font-size:0.7rem;color:var(--text-dim);margin-left:auto"></span>
+            </div>
+            <div style="display:flex;gap:8px;justify-content:flex-end">
+                <button onclick="clearSilentHoursModal()" style="padding:8px 14px;background:transparent;color:var(--text-dim);border:1px solid var(--border);border-radius:6px;cursor:pointer;font-size:0.82rem">Desativar</button>
+                <button onclick="saveSilentHoursModal()" style="padding:8px 16px;background:var(--primary);color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:0.82rem;font-weight:600">Salvar</button>
+            </div>
+        </div>`;
+    // Click fora do conteudo fecha
+    modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+    document.body.appendChild(modal);
+}
+
+async function saveSilentHoursModal() {
+    const start = document.getElementById('modal-sh-start').value;
+    const end = document.getElementById('modal-sh-end').value;
+    const msg = document.getElementById('modal-sh-msg');
+    if (!start || !end) {
+        if (msg) { msg.textContent = 'Preencha ambas as horas (ou clique Desativar)'; msg.style.color = '#e67e22'; }
+        return;
+    }
+    try {
+        await api('/api/profile/alert-silent-hours', { method: 'PUT', body: { start, end } });
+        if (msg) { msg.textContent = 'Salvo'; msg.style.color = '#27ae60'; }
+        setTimeout(() => document.getElementById('silent-hours-modal')?.remove(), 800);
+    } catch (e) {
+        if (msg) { msg.textContent = 'Erro: ' + e.message; msg.style.color = '#e74c3c'; }
+    }
+}
+
+async function clearSilentHoursModal() {
+    const msg = document.getElementById('modal-sh-msg');
+    try {
+        await api('/api/profile/alert-silent-hours', { method: 'PUT', body: { start: '', end: '' } });
+        if (msg) { msg.textContent = 'Desativado'; msg.style.color = '#7d8a98'; }
+        setTimeout(() => document.getElementById('silent-hours-modal')?.remove(), 600);
+    } catch (e) {
+        if (msg) { msg.textContent = 'Erro: ' + e.message; msg.style.color = '#e74c3c'; }
+    }
 }
 
 async function toggleOfflineAlert(chipId, el) {
@@ -4188,9 +4238,10 @@ function _formatCooldown(sec) {
     return `${Math.round(h/24)}d`;
 }
 
-// v4.1.43: removidas as funcoes loadAlertCatalog/loadAlertsHistory/saveAlertPref/
-// saveSilentHours/clearSilentHours/ackAlert — eram da v4.1.41 (perfil), agora
-// substituidas pelos handlers do card consolidado: loadCardNotifications +
-// _renderCardSilentHours/_renderCardCatalog/_renderCardHistory + saveCardSilentHours/
-// clearCardSilentHours/saveCardAlertPref/ackCardAlert (definidos perto de
-// renderNotificationCard).
+// v4.1.52: handlers atuais (definidos perto de renderNotificationCard):
+//   loadCardCatalog(chipId, sufx) + loadCardHistory(chipId, sufx)
+//   saveCardAlertPref(chipId, alertType, channel, enabled) — per-modulo
+//   ackCardAlert(alertId)
+//   _invalidateAndReloadAll() — limpa caches + reload de todos os cards
+// Janela de silencio agora vive no menu do usuario (openSilentHoursModal()),
+// nao mais no card de cada modulo.

@@ -77,9 +77,9 @@ from .users import (
     # module prefs (UI state)
     get_user_module_prefs,
     save_user_module_prefs,
-    # alert prefs + silent hours (v4.1.41)
-    get_user_alert_prefs,
-    set_user_alert_pref,
+    # alert prefs + silent hours (v4.1.52: prefs agora per-modulo)
+    get_module_alert_prefs,
+    set_module_alert_pref,
     get_user_silent_hours,
     set_user_silent_hours,
 )

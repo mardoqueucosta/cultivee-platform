@@ -10,6 +10,64 @@ Para contexto mais profundo de decisoes arquiteturais (por que foi feito assim, 
 
 ## [Nao lancado]
 
+## [4.1.52] - 2026-04-25
+
+### Mudado (BREAKING — refator de alertas pra independencia per-modulo)
+- **Alertas agora sao POR MODULO, totalmente independentes** entre modulos
+  do mesmo user. Antes (v4.1.41), prefs eram por (user, alert_type) e o
+  catalogo era global — usuario com so Camera via alertas de "level_low"
+  irrelevantes; nao dava pra silenciar 1 modulo problematico mantendo
+  os outros. Refator alinha com a filosofia central do projeto: "modulos
+  sao entidades independentes, servidor e router/storage, nao decisor".
+- **`server/notifications.py`**: substituiu `ALERT_CATALOG` global por
+  `UNIVERSAL_ALERTS` (4 alertas — todo modulo tem) + `PRODUCT_ALERTS`
+  (especificos por module_type). Funcao pura nova `get_alerts_for_module(type)`
+  retorna o catalogo aplicavel a UM modulo. Adicionar produto novo =
+  adicionar entry em `PRODUCT_ALERTS["nome"]`, sem mexer endpoint/UI/banco.
+- **Schema**: drop `user_alert_prefs` (sem migracao — user disse "estamos
+  testando"); cria `module_alert_prefs (user_id, chip_id, alert_type, ...)`.
+- **Helpers em `models/users.py`**: `get_user_alert_prefs/set_user_alert_pref`
+  removidos; substituidos por `get_module_alert_prefs(user_id, chip_id)` e
+  `set_module_alert_pref(user_id, chip_id, alert_type, ...)`.
+- **Endpoints REMOVIDOS** (sem alias):
+  - `GET /api/profile/alerts/catalog`
+  - `PUT /api/profile/alert-prefs/<alert_type>`
+- **Endpoints NOVOS** (em `app.py`, padrao per-chip):
+  - `GET /api/modules/<chip_id>/alerts/catalog`
+  - `PUT /api/modules/<chip_id>/alert-prefs/<alert_type>`
+- **`_send_alert`**: usa `_user_wants_channel(user_id, chip_id, type, channel)` —
+  prefs per-modulo. Severity tambem passa a olhar primeiro o catalogo do produto
+  (precedencia: PRODUCT > UNIVERSAL).
+
+### Mudado (UX)
+- **Janela de silencio saiu do card de notificacoes** (era replicada N vezes,
+  uma em cada card de modulo — confuso). Agora vive no **menu do usuario**
+  com novo item "Janela de silencio" + modal dedicado. Continua sendo
+  propriedade GLOBAL do user (faz sentido — "nao me incomode na madrugada"
+  e do dono, nao do sensor).
+- **Card de notificacoes**: secao "Tipos de alerta" agora diz "(deste modulo)"
+  em vez de "(globais — afeta todos os modulos)". Reflete a nova realidade.
+- **Endpoint novo** `GET /api/profile/alert-silent-hours` (antes vinha
+  embutido no catalogo, que foi removido).
+
+### Frontend (refator do `renderNotificationCard`)
+- Cache `_notifCardCache` (singleton) -> `_notifCardCacheByChip[chipId]`
+  (per-chip, TTL 60s). Historico continua global em `_notifHistoryCache`.
+- Funcoes `loadCardNotifications/loadCardNotificationsBySufx` substituidas
+  por `loadCardCatalog(chipId, sufx)` + `loadCardHistory(chipId, sufx)` —
+  separadas pra refletir que catalogo e per-chip e historico e global.
+- `saveCardAlertPref(alertType, channel, enabled)` -> `saveCardAlertPref(chipId, alertType, channel, enabled)`.
+- `_buildCatalogHtml(items)` -> `_buildCatalogHtml(items, chipId)` — onchange
+  precisa propagar chipId pra montar o endpoint correto.
+- Removidas funcoes `_buildSilentHtml`, `_renderCardSilentHours`,
+  `saveCardSilentHours`, `clearCardSilentHours` — janela de silencio agora
+  e no modal do menu (`openSilentHoursModal/saveSilentHoursModal/clearSilentHoursModal`).
+
+### Filosofia preservada
+Adicionar produto novo no futuro: `PRODUCT_ALERTS["sensor-ph"] = {...}`.
+Pronto. Zero mudanca em endpoint, schema, ou frontend. UI ja sabe consumir
+o catalogo do modulo via Registry Pattern.
+
 ## [4.1.51] - 2026-04-25
 
 ### Corrigido (CRITICAL — bug latente desde o deploy do Worker)

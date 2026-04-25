@@ -615,6 +615,86 @@ def module_notification_prefs(chip_id):
 
 
 # =====================================================================
+# v4.1.52 — Alertas por modulo (catalogo + prefs)
+# =====================================================================
+# Cada modulo carrega seu proprio catalogo: UNIVERSAL_ALERTS (todos os
+# modulos) + PRODUCT_ALERTS[module_type]. Endpoints sao genericos per-chip
+# (nao precisam de blueprint por produto — a logica e a mesma).
+# =====================================================================
+
+@app.route("/api/modules/<chip_id>/alerts/catalog", methods=["GET"])
+@require_auth
+def module_alerts_catalog(chip_id):
+    """Retorna o catalogo de alertas aplicaveis ao modulo + pref atual de
+    cada canal pra esse user. Linhas sem pref no banco vem com defaults
+    (push ON + email ON)."""
+    from notifications import get_alerts_for_module
+
+    module = models.get_module_by_chip_id(chip_id)
+    if not module:
+        return jsonify({"error": "Modulo nao encontrado"}), 404
+    is_admin = (request.user.get("role") == "admin")
+    is_owner = module.get("user_id") == request.user["id"]
+    if not (is_admin or is_owner):
+        return jsonify({"error": "Modulo nao encontrado"}), 404
+
+    catalog = get_alerts_for_module(module["type"])
+    prefs = models.get_module_alert_prefs(request.user["id"], chip_id)
+    items = []
+    for alert_type, meta in catalog.items():
+        p = prefs.get(alert_type, {"enabled_push": True, "enabled_email": True})
+        items.append({
+            "alert_type": alert_type,
+            "name": meta["name"],
+            "severity_default": meta["severity_default"],
+            "cooldown_sec": meta["cooldown_sec"],
+            "enabled_push": p["enabled_push"],
+            "enabled_email": p["enabled_email"],
+        })
+    return jsonify({
+        "chip_id": chip_id,
+        "module_type": module["type"],
+        "catalog": items,
+    })
+
+
+@app.route("/api/modules/<chip_id>/alert-prefs/<alert_type>", methods=["PUT"])
+@require_auth
+def module_alert_pref(chip_id, alert_type):
+    """Atualiza pref de canal (push/email) pra (user, chip, alert_type).
+    Valida que o tipo e aplicavel ao module_type — bloqueia tentativas de
+    salvar pref pra alerta que nao existe nesse modulo."""
+    from notifications import get_alerts_for_module
+
+    module = models.get_module_by_chip_id(chip_id)
+    if not module:
+        return jsonify({"error": "Modulo nao encontrado"}), 404
+    is_admin = (request.user.get("role") == "admin")
+    is_owner = module.get("user_id") == request.user["id"]
+    if not (is_admin or is_owner):
+        return jsonify({"error": "Modulo nao encontrado"}), 404
+
+    catalog = get_alerts_for_module(module["type"])
+    if alert_type not in catalog:
+        return jsonify({"error": "Tipo de alerta nao aplicavel a esse modulo"}), 400
+
+    data = request.get_json(silent=True) or {}
+    push = data.get("enabled_push")
+    email = data.get("enabled_email")
+    if push is None and email is None:
+        return jsonify({"error": "Nada pra atualizar"}), 400
+
+    # set_module_alert_pref grava em nome do dono (admin agindo via "ver como"
+    # readonly nao chega aqui pq middleware bloqueia PUT em modo readonly)
+    models.set_module_alert_pref(
+        module["user_id"], chip_id, alert_type,
+        enabled_push=bool(push) if push is not None else None,
+        enabled_email=bool(email) if email is not None else None,
+    )
+    return jsonify({"ok": True})
+
+
+# =====================================================================
 # v4.1.33 — Webhook de incidentes da plataforma (CF Worker → VPS)
 # =====================================================================
 # POST /api/platform-incident — recebido pelo Cloudflare Worker (status
