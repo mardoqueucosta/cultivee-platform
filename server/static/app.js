@@ -3760,9 +3760,25 @@ function renderNotificationCard(chipId, ctrlData) {
     const safeChip = escapeAttr(chipId);
     const sufx = chipId.replace(/[^a-zA-Z0-9]/g, '');  // sufixo seguro pra IDs
 
-    // Dispara carregamento async dos dados globais (catalogo + silent + historico)
-    // apos a section ser inserida no DOM. Cache de 60s evita re-fetch a cada poll.
-    setTimeout(() => loadCardNotifications(chipId, sufx), 50);
+    // v4.1.50: anti-flash. loadCtrlStatus polla a cada ~5s e o key inclui
+    // temperature/humidity (DHT11) — entao renderDashboard reescreve o
+    // container.innerHTML (e o card de notificacoes junto) toda vez que a temp
+    // varia. Antes, isso destruia o catalog ja carregado, mostrava placeholder
+    // por 50ms ate o setTimeout repintar do cache. Agora: se cache valido,
+    // renderiza HTML completo direto. Sem cache, mantem placeholder + carrega.
+    const cacheValid = _notifCardCache.catalog && (Date.now() - _notifCardCache.ts) < 60000;
+    let catalogHtml, silentHtml, historyHtml;
+    if (cacheValid) {
+        catalogHtml = _buildCatalogHtml(_notifCardCache.catalog.catalog || []);
+        silentHtml = _buildSilentHtml(_notifCardCache.catalog.silent_hours || {}, sufx);
+        historyHtml = _buildHistoryHtml(_notifCardCache.history.alerts || [], _notifCardCache.catalog.catalog || []);
+    } else {
+        catalogHtml = `<div class="empty-state"><p style="font-size:0.75rem">Carregando tipos...</p></div>`;
+        silentHtml = `<div class="empty-state"><p style="font-size:0.75rem">Carregando silencio...</p></div>`;
+        historyHtml = `<div class="empty-state"><p style="font-size:0.75rem">Carregando historico...</p></div>`;
+        // Dispara fetch async pra preencher cache (so a 1a vez ou apos TTL expirar)
+        setTimeout(() => loadCardNotifications(chipId, sufx), 50);
+    }
 
     return `<div class="card" style="padding:14px">
         <h2 style="margin:0 0 10px;font-size:0.95rem;display:flex;align-items:center;gap:6px">
@@ -3792,18 +3808,14 @@ function renderNotificationCard(chipId, ctrlData) {
         <div style="font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-dim);margin:14px 0 4px">
             Tipos de alerta <span style="text-transform:none;font-weight:normal;color:var(--text-dim);font-size:0.65rem">(globais — afeta todos os modulos)</span>
         </div>
-        <div id="card-catalog-${sufx}" style="font-size:0.78rem">
-            <div class="empty-state"><p style="font-size:0.75rem">Carregando tipos...</p></div>
-        </div>
+        <div id="card-catalog-${sufx}" style="font-size:0.78rem">${catalogHtml}</div>
 
         <!-- SECTION 3: HISTORICO (collapsed por default) -->
         <details style="margin-top:14px">
             <summary style="cursor:pointer;font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-dim);padding:4px 0">
                 Historico (30 dias)
             </summary>
-            <div id="card-history-${sufx}" style="margin-top:8px;font-size:0.75rem">
-                <div class="empty-state"><p style="font-size:0.75rem">Carregando historico...</p></div>
-            </div>
+            <div id="card-history-${sufx}" style="margin-top:8px;font-size:0.75rem">${historyHtml}</div>
         </details>
 
         <!-- SECTION 4: JANELA DE SILENCIO (no fim, com explicacao) -->
@@ -3823,9 +3835,7 @@ function renderNotificationCard(chipId, ctrlData) {
                     &#9888; <b>Alertas P0 (emergencia) sempre passam</b>, mesmo na janela de silencio. Isso garante que falhas criticas (vazamento, modulo offline >24h) nao sao perdidas.
                 </div>
             </div>
-            <div id="card-silent-${sufx}" style="padding:8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;margin-top:8px;font-size:0.78rem">
-                <div class="empty-state"><p style="font-size:0.75rem">Carregando silencio...</p></div>
-            </div>
+            <div id="card-silent-${sufx}" style="padding:8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;margin-top:8px;font-size:0.78rem">${silentHtml}</div>
         </details>
     </div>`;
 }
@@ -3861,11 +3871,12 @@ async function loadCardNotifications(chipId, sufx) {
     _renderCardHistory(sufx, _notifCardCache.history.alerts || [], _notifCardCache.catalog.catalog || []);
 }
 
-function _renderCardSilentHours(sufx, sh) {
-    const el = document.getElementById(`card-silent-${sufx}`);
-    if (!el) return;
+// v4.1.50: builders puros (retornam string) — usados tanto pelo
+// renderNotificationCard (renderiza inline quando cache valido) quanto pelos
+// _renderCardXxx (escrevem em el.innerHTML apos fetch). Evita duplicacao.
+function _buildSilentHtml(sh, sufx) {
     const hasWindow = sh.start && sh.end;
-    el.innerHTML = `
+    return `
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
             <span style="font-weight:600">&#128564; Janela de silencio</span>
             <span style="font-size:0.7rem;color:var(--text-dim)">${hasWindow ? `${sh.start} → ${sh.end}` : 'desativada'}</span>
@@ -3879,9 +3890,13 @@ function _renderCardSilentHours(sufx, sh) {
         </div>`;
 }
 
-function _renderCardCatalog(sufx, items) {
-    const el = document.getElementById(`card-catalog-${sufx}`);
+function _renderCardSilentHours(sufx, sh) {
+    const el = document.getElementById(`card-silent-${sufx}`);
     if (!el) return;
+    el.innerHTML = _buildSilentHtml(sh, sufx);
+}
+
+function _buildCatalogHtml(items) {
     // v4.1.45: header explicativo + texto completo nos toggles (eram "P"/"E"
     // — opaco demais, ninguem advinha sem ver o codigo). Agora "Push"/"Email"
     // com icones, e o header explica que sao canais de entrega do alerta.
@@ -3917,19 +3932,22 @@ function _renderCardCatalog(sufx, items) {
             </div>
         </div>`;
     }).join('');
-    el.innerHTML = header + rows;
+    return header + rows;
 }
 
-function _renderCardHistory(sufx, alerts, catalog) {
-    const el = document.getElementById(`card-history-${sufx}`);
+function _renderCardCatalog(sufx, items) {
+    const el = document.getElementById(`card-catalog-${sufx}`);
     if (!el) return;
+    el.innerHTML = _buildCatalogHtml(items);
+}
+
+function _buildHistoryHtml(alerts, catalog) {
     if (alerts.length === 0) {
-        el.innerHTML = `<p style="color:var(--text-dim);font-size:0.72rem;text-align:center;padding:10px">Sem alertas nos ultimos 30 dias.</p>`;
-        return;
+        return `<p style="color:var(--text-dim);font-size:0.72rem;text-align:center;padding:10px">Sem alertas nos ultimos 30 dias.</p>`;
     }
     const nameMap = {};
     catalog.forEach(c => { nameMap[c.alert_type] = c.name; });
-    el.innerHTML = alerts.slice(0, 20).map(a => {
+    return alerts.slice(0, 20).map(a => {
         const sev = a.severity || 'P1';
         const name = nameMap[a.alert_type] || a.alert_type;
         const when = formatRelativeShort(a.sent_at);
@@ -3949,6 +3967,12 @@ function _renderCardHistory(sufx, alerts, catalog) {
             ${ackHtml}
         </div>`;
     }).join('');
+}
+
+function _renderCardHistory(sufx, alerts, catalog) {
+    const el = document.getElementById(`card-history-${sufx}`);
+    if (!el) return;
+    el.innerHTML = _buildHistoryHtml(alerts, catalog);
 }
 
 // --- Handlers (invalida cache + reload todos os cards visiveis) ---
@@ -4005,7 +4029,19 @@ async function saveCardAlertPref(alertType, channel, enabled) {
         if (channel === 'push') body.enabled_push = enabled;
         if (channel === 'email') body.enabled_email = enabled;
         await api(`/api/profile/alert-prefs/${encodeURIComponent(alertType)}`, { method: 'PUT', body });
-        // Nao invalida cache — toggle ja reflete no DOM otimistamente
+        // v4.1.50: atualiza cache local pra proximas re-renderizacoes (a cada
+        // poll do dashboard, ~5s) refletirem o novo estado. Antes, o cache
+        // ficava com o valor antigo por ate 60s — o checkbox no DOM mantinha
+        // o estado correto, mas se renderNotificationCard fosse chamado, o
+        // template gerado vinha com `checked` baseado no cache antigo,
+        // revertendo visualmente o toggle.
+        if (_notifCardCache.catalog && Array.isArray(_notifCardCache.catalog.catalog)) {
+            const item = _notifCardCache.catalog.catalog.find(i => i.alert_type === alertType);
+            if (item) {
+                if (channel === 'push') item.enabled_push = enabled;
+                else if (channel === 'email') item.enabled_email = enabled;
+            }
+        }
     } catch (e) {
         console.error('Erro ao salvar pref:', e);
         _invalidateAndReloadAll();  // recarrega pra reverter UI

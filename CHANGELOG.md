@@ -10,6 +10,27 @@ Para contexto mais profundo de decisoes arquiteturais (por que foi feito assim, 
 
 ## [Nao lancado]
 
+## [4.1.50] - 2026-04-25
+
+### Corrigido
+- **Card de notificacoes piscava entre "Carregando tipos..." e o conteudo**
+  a cada ~5s (`server/static/app.js`). Causa: `loadCtrlStatus` polla o
+  dashboard a cada poll do ESP32, e o `_lastCtrlKey` inclui `temperature` e
+  `humidity` do DHT11 (mudam toda leitura). Sempre que a temp variava,
+  `renderDashboard` reescrevia o `container.innerHTML` inteiro — incluindo
+  o card de notificacoes — e o template gerado vinha com o placeholder
+  "Carregando tipos...". 50ms depois o `setTimeout` re-renderizava do cache
+  (TTL 60s, sem fetch novo) — daí o flash visual.
+- Fix: `renderNotificationCard` agora consulta o cache (`_notifCardCache`)
+  ANTES de gerar o template. Se cache valido, gera HTML completo dos 3
+  blocos (catalogo + silencio + historico) inline — sem placeholder.
+  Refatorado em 3 builders puros (`_buildCatalogHtml`, `_buildSilentHtml`,
+  `_buildHistoryHtml`) reusados pelos `_renderCardXxx` que escrevem no DOM
+  apos fetch.
+- Bonus: `saveCardAlertPref` agora atualiza o cache local apos salvar (antes,
+  o cache mantinha o valor antigo por ate 60s — bug latente: se o card
+  fosse re-renderizado nesse intervalo, o checkbox revertia visualmente).
+
 ## [4.1.49] - 2026-04-25
 
 ### Corrigido
