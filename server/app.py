@@ -590,7 +590,8 @@ def module_notification_prefs(chip_id):
     module = models.get_module_by_chip_id(chip_id)
     if not module:
         return jsonify({"error": "Modulo nao encontrado"}), 404
-    is_admin = (request.user.get("role") == "admin")
+    # v4.1.52: request.user e sqlite3.Row (sem .get); module e dict (tem .get)
+    is_admin = (_row_field(request.user, "role") == "admin")
     is_owner = module.get("user_id") == request.user["id"]
     if not (is_admin or is_owner):
         return jsonify({"error": "Modulo nao encontrado"}), 404
@@ -622,6 +623,18 @@ def module_notification_prefs(chip_id):
 # (nao precisam de blueprint por produto — a logica e a mesma).
 # =====================================================================
 
+def _row_field(row, field, default=None):
+    """v4.1.52: helper defensivo pra ler campo de sqlite3.Row OU dict.
+    Evita o classico AttributeError: 'sqlite3.Row' object has no attribute
+    'get' — Row suporta acesso via row[field] mas levanta IndexError se a
+    coluna nao existir, e nao tem .get(). Centralizar aqui em vez de
+    espalhar try/except em cada caller."""
+    try:
+        return row[field]
+    except (IndexError, KeyError, TypeError):
+        return default
+
+
 @app.route("/api/modules/<chip_id>/alerts/catalog", methods=["GET"])
 @require_auth
 def module_alerts_catalog(chip_id):
@@ -633,8 +646,8 @@ def module_alerts_catalog(chip_id):
     module = models.get_module_by_chip_id(chip_id)
     if not module:
         return jsonify({"error": "Modulo nao encontrado"}), 404
-    is_admin = (request.user.get("role") == "admin")
-    is_owner = module.get("user_id") == request.user["id"]
+    is_admin = (_row_field(request.user, "role") == "admin")
+    is_owner = _row_field(module, "user_id") == request.user["id"]
     if not (is_admin or is_owner):
         return jsonify({"error": "Modulo nao encontrado"}), 404
 
@@ -669,8 +682,8 @@ def module_alert_pref(chip_id, alert_type):
     module = models.get_module_by_chip_id(chip_id)
     if not module:
         return jsonify({"error": "Modulo nao encontrado"}), 404
-    is_admin = (request.user.get("role") == "admin")
-    is_owner = module.get("user_id") == request.user["id"]
+    is_admin = (_row_field(request.user, "role") == "admin")
+    is_owner = _row_field(module, "user_id") == request.user["id"]
     if not (is_admin or is_owner):
         return jsonify({"error": "Modulo nao encontrado"}), 404
 

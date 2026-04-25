@@ -10,6 +10,42 @@ Para contexto mais profundo de decisoes arquiteturais (por que foi feito assim, 
 
 ## [Nao lancado]
 
+## [4.1.53] - 2026-04-25
+
+### Corrigido (HOTFIX da v4.1.52)
+- **Card de notificacoes mostrava "Erro: Unexpected token '<', '<!doctype "...
+  is not valid JSON"** logo apos o deploy da v4.1.52. Causa: `request.user`
+  e `sqlite3.Row` (vindo de `get_user_by_id`) e Row **nao tem `.get()`**
+  — bug ja documentado no CLAUDE.md como "licao da v4.1.0". O endpoint
+  `module_alerts_catalog` (e `module_alert_pref`) usavam
+  `request.user.get("role")` e quebravam com 500. Frontend tentava parsear
+  o HTML da pagina de erro como JSON e falhava.
+- Confirmacao via `docker logs`:
+  ```
+  AttributeError: 'sqlite3.Row' object has no attribute 'get'
+  File "/app/app.py", line 636, in module_alerts_catalog
+  ```
+- Fix: helper `_row_field(row, field, default=None)` em `app.py` que
+  encapsula `try: row[field] except (IndexError, KeyError, TypeError):
+  return default` — funciona pra `sqlite3.Row` E pra `dict`. Aplicado nos
+  3 lugares que usavam `request.user.get(...)`:
+  - `module_alerts_catalog` (v4.1.52, novo)
+  - `module_alert_pref` (v4.1.52, novo)
+  - `module_notification_prefs` (v4.1.39, bug latente que nunca tinha
+    sido exercitado por admin — agora protegido)
+- Linhas 336, 551, 594 (`module.get(...)`) **nao** foram tocadas porque
+  `get_module_by_chip_id` retorna `dict(module)` desde sempre — `.get()`
+  funciona naturalmente nesses casos.
+
+### Licao reforcada (CLAUDE.md ja menciona, mas vale reforcar)
+Funcoes `get_*` em `models/` retornam tipos diferentes:
+- `get_user_by_id` -> `sqlite3.Row` (sem `.get()`)
+- `get_module_by_chip_id` -> `dict` (tem `.get()`)
+- Outros: variavel — checar antes de usar `.get()`
+
+Quando em duvida, usar `_row_field(row, field, default)` que e seguro
+em ambos os casos.
+
 ## [4.1.52] - 2026-04-25
 
 ### Mudado (BREAKING — refator de alertas pra independencia per-modulo)
