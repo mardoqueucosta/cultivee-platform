@@ -10,6 +10,20 @@ Para contexto mais profundo de decisoes arquiteturais (por que foi feito assim, 
 
 ## [Nao lancado]
 
+## [4.1.49] - 2026-04-25
+
+### Corrigido
+- **Layout inconsistente dos "Tipos de alerta" no card de notificacoes**
+  (`server/static/app.js` `_renderCardCatalog`). Antes, labels longos (P2
+  "Sensor com leitura invalida", "WiFi instavel (varias quedas)", "Memoria
+  baixa no modulo") faziam os checkboxes Push/Email caerem pra linha de
+  baixo via `flex-wrap:wrap`, enquanto labels curtos (P1/P3) ficavam tudo
+  em 1 linha. Visual desigual entre os 6 itens.
+- Fix: removido `flex-wrap:wrap`, label agora wrap em 2 linhas com
+  `overflow-wrap:anywhere`, checkboxes ficam fixos a direita alinhados ao
+  topo (`align-items:flex-start`). Layout uniforme nos 6 itens — nada de
+  checkbox abandonando a linha.
+
 ## [4.1.48] - 2026-04-25
 
 ### Mudado

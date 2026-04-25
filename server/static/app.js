@@ -3895,13 +3895,17 @@ function _renderCardCatalog(sufx, items) {
     const rows = items.map(item => {
         const sev = item.severity_default;
         const safeType = escapeAttr(item.alert_type);
+        // v4.1.49: removido flex-wrap (checkboxes nao caem mais pra linha de baixo);
+        // align-items:flex-start pra badge/checkboxes ficarem na 1a linha quando o
+        // label longo (P2 "Sensor com leitura invalida" etc.) wrap em 2 linhas;
+        // overflow-wrap:anywhere garante quebra agressiva sem estourar o container.
         return `
-        <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 8px;background:var(--bg);border:1px solid var(--border);border-radius:5px;margin-bottom:3px;font-size:0.72rem;gap:8px;flex-wrap:wrap">
-            <div style="display:flex;align-items:center;gap:5px;min-width:0;flex:1 1 auto">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;padding:6px 8px;background:var(--bg);border:1px solid var(--border);border-radius:5px;margin-bottom:3px;font-size:0.72rem;gap:8px">
+            <div style="display:flex;align-items:flex-start;gap:5px;min-width:0;flex:1 1 auto;line-height:1.35">
                 ${_sevBadge(sev)}
-                <span>${escapeHtml(item.name)}</span>
+                <span style="overflow-wrap:anywhere">${escapeHtml(item.name)}</span>
             </div>
-            <div style="display:flex;gap:10px;flex-shrink:0">
+            <div style="display:flex;gap:10px;flex-shrink:0;align-items:center;padding-top:1px">
                 <label style="display:flex;align-items:center;gap:4px;cursor:pointer" title="Push: notificacao no celular/browser via Service Worker">
                     <input type="checkbox" ${item.enabled_push ? 'checked' : ''} onchange="saveCardAlertPref('${safeType}','push',this.checked)">
                     <span>&#128241; Push</span>
