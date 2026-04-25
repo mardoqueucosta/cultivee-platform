@@ -64,6 +64,10 @@ def register_module(chip_id, short_id, module_type="hidro", ip="", ssid="", rssi
             "low_since", "last_activity", "alert_threshold_min",
             # v4.1.39: preferencias do alerta de offline (configuravel por modulo)
             "offline_alert_enabled", "offline_alert_threshold_min",
+            # v4.1.40: contadores e baselines do AlertManager (sensor/wifi)
+            "sensor_invalid_streak",          # contador consecutivo de DHT11 invalido
+            "wifi_disconnect_baseline",       # snapshot do counter de quedas
+            "wifi_disconnect_baseline_at",    # ISO timestamp do snapshot
         )
         for k in server_keys:
             if k in existing_data:

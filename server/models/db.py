@@ -336,6 +336,19 @@ def init_db():
     except Exception:
         conn.execute("ALTER TABLE users ADD COLUMN email_2fa_enabled INTEGER DEFAULT 0")
 
+    # Migracao v4.1.40: alert_log ganha severity (P0-P3) + ack_at/ack_by.
+    # severity default 'P1' pra back-compat. ack_at/ack_by vazios — preenchidos
+    # quando user marcar alerta como visto (Bloco C, futuro).
+    for col, ddl in [
+        ("severity", "ALTER TABLE alert_log ADD COLUMN severity TEXT DEFAULT 'P1'"),
+        ("ack_at", "ALTER TABLE alert_log ADD COLUMN ack_at TEXT"),
+        ("ack_by", "ALTER TABLE alert_log ADD COLUMN ack_by INTEGER"),
+    ]:
+        try:
+            conn.execute(f"SELECT {col} FROM alert_log LIMIT 0")
+        except Exception:
+            conn.execute(ddl)
+
     # Migracao v4.1.31: cleanup inicial do historico de status (retencao 90 dias)
     # Roda 1x a cada boot do container; bom o suficiente pro volume esperado.
     try:

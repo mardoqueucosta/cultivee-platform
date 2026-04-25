@@ -91,11 +91,13 @@ def should_send_alert(user_id, chip_id, alert_type, cooldown_seconds=3600):
         return True
 
 
-def log_alert(user_id, chip_id, alert_type):
+def log_alert(user_id, chip_id, alert_type, severity="P1"):
+    """v4.1.40: severity (P0-P3) opcional, default P1 pra back-compat.
+    Se chamado sem severity (codigo legado), assume P1."""
     conn = get_db()
     conn.execute(
-        "INSERT INTO alert_log (user_id, chip_id, alert_type) VALUES (?, ?, ?)",
-        (user_id, chip_id, alert_type)
+        "INSERT INTO alert_log (user_id, chip_id, alert_type, severity) VALUES (?, ?, ?, ?)",
+        (user_id, chip_id, alert_type, severity)
     )
     conn.commit()
     conn.close()

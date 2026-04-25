@@ -119,9 +119,11 @@ def _maybe_send_offline_alert(module, age_min):
     }
     log.info(f"[offline_watcher] dispara {severity} alert pra {chip_id} "
              f"(offline ha {age_text}, user_id={user_id})")
-    # Reusa _send_alert do AlertManager (push + email + log)
+    # v4.1.40: passa severity explicito (P0 ou P1) — antes ia sempre como
+    # default do catalogo. Agora o alert_log armazena P0 quando >24h.
     from notifications import alert_manager
-    alert_manager._send_alert(user_id, chip_id, "module_offline", payload)
+    alert_manager._send_alert(user_id, chip_id, "module_offline", payload,
+                               severity=severity)
 
 
 def _maybe_send_recovery_alert(module):

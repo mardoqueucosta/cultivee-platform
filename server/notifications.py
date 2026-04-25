@@ -28,6 +28,64 @@ log = logging.getLogger(__name__)
 _alert_timers = {}
 
 
+# =====================================================================
+# v4.1.40 — Catalogo de tipos de alerta (P0-P3)
+# =====================================================================
+# Catalogo INLINE em vez de tabela `alert_definitions` — mais simples,
+# mesma utilidade pra MVP. Cada tipo tem severidade default e cooldown
+# proprio. AlertManager._send_alert usa esses defaults se severity nao
+# for passado explicitamente.
+#
+# Severidades:
+#   P0 — emergencia (acao imediata): vazamento, modulo critico offline >24h
+#   P1 — alta (acao no dia): reservatorio vazio, modulo offline 60min-24h
+#   P2 — media (acao na semana): leitura anormal, instabilidade WiFi
+#   P3 — info (registro): recovery, atualizacao aplicada
+# =====================================================================
+
+ALERT_CATALOG = {
+    "level_low": {
+        "name": "Reservatorio vazio",
+        "severity_default": "P1",
+        "cooldown_sec": 3600,        # 1h — ja era o padrao
+    },
+    "module_offline": {
+        "name": "Modulo offline",
+        "severity_default": "P1",
+        "cooldown_sec": 4 * 3600,    # 4h pra P1; offline_watcher escala P0=12h se >24h
+    },
+    "module_recovered": {
+        "name": "Modulo voltou online",
+        "severity_default": "P3",    # info, nao urgente
+        "cooldown_sec": 3600,
+    },
+    "low_heap_warning": {
+        "name": "Memoria baixa no modulo",
+        "severity_default": "P2",
+        "cooldown_sec": 24 * 3600,   # alerta no maximo 1x/dia — vazamento e gradual
+    },
+    "sensor_invalid": {
+        "name": "Sensor com leitura invalida",
+        "severity_default": "P2",
+        "cooldown_sec": 12 * 3600,   # 2x/dia max
+    },
+    "wifi_disconnect_burst": {
+        "name": "WiFi instavel (varias quedas)",
+        "severity_default": "P2",
+        "cooldown_sec": 6 * 3600,    # 4x/dia max
+    },
+}
+
+
+def get_alert_meta(alert_type):
+    """Retorna metadata do tipo de alerta. Fallback defensivo se desconhecido."""
+    return ALERT_CATALOG.get(alert_type, {
+        "name": alert_type,
+        "severity_default": "P2",
+        "cooldown_sec": 3600,
+    })
+
+
 class AlertManager:
     """Verifica condicoes de alerta e envia notificacoes."""
 
@@ -49,9 +107,23 @@ class AlertManager:
         # Alerta: reservatorio vazio por 10+ minutos
         self._check_reservoir(chip_id, merged, user_id, module)
 
-        # Futuros alertas:
-        # self._check_temperature(chip_id, ctrl_data, user_id)
-        # self._check_module_offline(chip_id, ctrl_data, user_id)
+        # v4.1.40: 3 checks novos (zero impacto no firmware — usam dados ja
+        # reportados via register desde v4.1.8/v4.1.26)
+        try:
+            self._check_low_heap(chip_id, merged, user_id, module)
+        except Exception as e:
+            log.warning(f"check_low_heap falhou pra {chip_id}: {e}")
+        try:
+            self._check_sensor_invalid(chip_id, merged, user_id, module)
+        except Exception as e:
+            log.warning(f"check_sensor_invalid falhou pra {chip_id}: {e}")
+        try:
+            self._check_wifi_disconnect_burst(chip_id, merged, user_id, module)
+        except Exception as e:
+            log.warning(f"check_wifi_burst falhou pra {chip_id}: {e}")
+
+        # Futuros: firmware_update_failed (precisa firmware reportar
+        # ota_rollback_count — adia ate proxima rev de firmware)
 
     def _check_reservoir(self, chip_id, ctrl_data, user_id, module=None):
         """Timer baseado na BOIA DE NIVEL BAIXO (level_low).
@@ -116,9 +188,173 @@ class AlertManager:
 
         self._send_alert(user_id, chip_id, "level_low", payload)
 
-    def _send_alert(self, user_id, chip_id, alert_type, payload):
-        """Envia notificacao via todos os canais disponiveis."""
+    # =========================================================
+    # v4.1.40 — Checks novos (sensor + memoria + WiFi instavel)
+    # =========================================================
+
+    # Threshold 10kB pra free_heap baixo. ESP32-WROOM tem 320kB — 10kB
+    # eh sintoma claro de fragmentacao/vazamento, ainda da pra reagir.
+    LOW_HEAP_THRESHOLD_BYTES = 10 * 1024
+
+    # Sensor invalido: alerta apos N leituras consecutivas invalidas.
+    SENSOR_INVALID_STREAK_THRESHOLD = 3
+
+    # WiFi instavel: alerta se contador subiu N+ desde snapshot baseline
+    # de ate 1h atras. Threshold conservador (10) pra evitar fadiga em
+    # redes ruins por natureza (parceiro com WiFi 4G/grama).
+    WIFI_DISCONNECT_BURST_THRESHOLD = 10
+    WIFI_DISCONNECT_BURST_WINDOW_SEC = 3600
+
+    def _check_low_heap(self, chip_id, ctrl_data, user_id, module):
+        """min_free_heap < 10kB sugere vazamento. P2, cooldown 24h."""
+        min_heap = ctrl_data.get("min_free_heap")
+        if min_heap is None:
+            return  # firmware antigo (<v4.1.26) nao reporta
+        try:
+            min_heap = int(min_heap)
+        except (TypeError, ValueError):
+            return
+        if min_heap >= self.LOW_HEAP_THRESHOLD_BYTES:
+            return
+
         import models
+        if not models.should_send_alert(user_id, chip_id, "low_heap_warning",
+                                        cooldown_seconds=24 * 3600):
+            return
+
+        name = (module.get("name") if module else None) or "Modulo"
+        payload = {
+            "title": "[P2] Memoria baixa no modulo",
+            "body": (f"{name}: heap minimo observado caiu pra {min_heap} bytes "
+                     f"(<10kB). Pode indicar vazamento de memoria. Avalie "
+                     f"reiniciar o ESP32."),
+            "tag": f"low-heap-{chip_id}",
+            "url": "/"
+        }
+        self._send_alert(user_id, chip_id, "low_heap_warning", payload)
+
+    def _check_sensor_invalid(self, chip_id, ctrl_data, user_id, module):
+        """
+        DHT11 reporta `dht_valid` (true/false) — usado por Hidro-Farm.
+        Conta streak consecutivo. Apos 3 leituras invalidas, alerta P2.
+        Reseta o streak quando volta.
+        """
+        dht_valid = ctrl_data.get("dht_valid")
+        if dht_valid is None:
+            return  # produto sem DHT11 (Hidro/Cam) — pula
+
+        import models as _m
+        current_streak = int(ctrl_data.get("sensor_invalid_streak") or 0)
+
+        if dht_valid:
+            # Voltou — reseta streak silenciosamente
+            if current_streak > 0:
+                _m.update_ctrl_data(chip_id, {"sensor_invalid_streak": 0})
+            return
+
+        new_streak = current_streak + 1
+        _m.update_ctrl_data(chip_id, {"sensor_invalid_streak": new_streak})
+        if new_streak < self.SENSOR_INVALID_STREAK_THRESHOLD:
+            return  # ainda sem alerta — espera mais leituras invalidas
+
+        if not _m.should_send_alert(user_id, chip_id, "sensor_invalid",
+                                     cooldown_seconds=12 * 3600):
+            return
+
+        name = (module.get("name") if module else None) or "Modulo"
+        payload = {
+            "title": "[P2] Sensor com leitura invalida",
+            "body": (f"{name}: sensor de temperatura/umidade (DHT11) reporta "
+                     f"leitura invalida ha {new_streak} medicoes. Verifique "
+                     f"conexao do sensor."),
+            "tag": f"sensor-{chip_id}",
+            "url": "/"
+        }
+        self._send_alert(user_id, chip_id, "sensor_invalid", payload)
+
+    def _check_wifi_disconnect_burst(self, chip_id, ctrl_data, user_id, module):
+        """
+        Compara `wifi_disconnect_count` atual com snapshot baseline.
+        Se subiu >=10 em 1h, alerta P2 (WiFi instavel — sintoma de roteador
+        ruim, sinal fraco, interferencia).
+
+        Snapshot baseline e atualizado quando:
+          - Nao existe ainda
+          - Janela atual ja passou (ressetar pra proximo periodo de 1h)
+        """
+        cur_count = ctrl_data.get("wifi_disconnect_count")
+        if cur_count is None:
+            return  # firmware antigo (<v4.1.8)
+        try:
+            cur_count = int(cur_count)
+        except (TypeError, ValueError):
+            return
+
+        import models as _m
+        from datetime import datetime, timedelta
+
+        baseline = ctrl_data.get("wifi_disconnect_baseline")
+        baseline_at = ctrl_data.get("wifi_disconnect_baseline_at")
+        now_ts = time.time()
+
+        # Inicializa baseline se ausente ou janela expirada (>=1h)
+        baseline_age_sec = None
+        if baseline_at:
+            try:
+                baseline_age_sec = (datetime.now() - datetime.fromisoformat(baseline_at)).total_seconds()
+            except (ValueError, TypeError):
+                baseline_age_sec = None
+
+        if baseline is None or baseline_age_sec is None or \
+           baseline_age_sec >= self.WIFI_DISCONNECT_BURST_WINDOW_SEC:
+            # Inicia/reseta janela
+            _m.update_ctrl_data(chip_id, {
+                "wifi_disconnect_baseline": cur_count,
+                "wifi_disconnect_baseline_at": datetime.now().isoformat(),
+            })
+            return
+
+        # Diferenca dentro da janela
+        try:
+            baseline = int(baseline)
+        except (TypeError, ValueError):
+            return
+        diff = cur_count - baseline
+        if diff < self.WIFI_DISCONNECT_BURST_THRESHOLD:
+            return
+
+        if not _m.should_send_alert(user_id, chip_id, "wifi_disconnect_burst",
+                                     cooldown_seconds=6 * 3600):
+            return
+
+        name = (module.get("name") if module else None) or "Modulo"
+        win_min = int(self.WIFI_DISCONNECT_BURST_WINDOW_SEC / 60)
+        payload = {
+            "title": "[P2] WiFi instavel",
+            "body": (f"{name}: {diff} quedas de WiFi em {win_min}min "
+                     f"(threshold {self.WIFI_DISCONNECT_BURST_THRESHOLD}). "
+                     f"Verifique sinal/roteador."),
+            "tag": f"wifi-burst-{chip_id}",
+            "url": "/"
+        }
+        self._send_alert(user_id, chip_id, "wifi_disconnect_burst", payload)
+        # Reseta baseline pra evitar alertar de novo no mesmo burst
+        _m.update_ctrl_data(chip_id, {
+            "wifi_disconnect_baseline": cur_count,
+            "wifi_disconnect_baseline_at": datetime.now().isoformat(),
+        })
+
+    def _send_alert(self, user_id, chip_id, alert_type, payload, severity=None):
+        """
+        Envia notificacao via todos os canais disponiveis.
+
+        v4.1.40: severity opcional. Se None, usa o default do ALERT_CATALOG.
+        """
+        import models
+
+        # Resolve severity (parametro > catalogo > fallback "P1")
+        meta = get_alert_meta(alert_type)
+        sev = severity or meta.get("severity_default", "P1")
 
         # 1. Push PWA
         subscriptions = models.get_push_subscriptions(user_id)
@@ -148,9 +384,9 @@ class AlertManager:
             except Exception as e:
                 log.warning(f"Email falhou ({user['email']}): {e}")
 
-        # Loga o alerta
-        models.log_alert(user_id, chip_id, alert_type)
-        log.info(f"ALERTA [{alert_type}] chip={chip_id}: push={push_sent} email={email_sent}")
+        # Loga o alerta com severidade — usado em filtros + timeline futura
+        models.log_alert(user_id, chip_id, alert_type, severity=sev)
+        log.info(f"ALERTA [{sev}] [{alert_type}] chip={chip_id}: push={push_sent} email={email_sent}")
 
 
 def _send_web_push(subscription, payload):
