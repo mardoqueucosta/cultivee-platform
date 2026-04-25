@@ -10,6 +10,64 @@ Para contexto mais profundo de decisoes arquiteturais (por que foi feito assim, 
 
 ## [Nao lancado]
 
+## [4.1.37] - 2026-04-25
+
+### Alterado
+- Novo helper `getDisplayName(chipId)` em `static/app.js` centraliza a logica de nome exibido pra modulo. Substitui codigo duplicado em 3 lugares (loadModules barra de selecao, loadCtrlStatus header card Hidro/Hidro-Farm, renderModule_cam header card Camera). Antes a barra mostrava "Controle Hidro · DBCC" mas o card aberto mostrava so "Controle Hidro" — inconsistente. Agora e `nome customizado se houver` ou `${label} · ${ultimos 4 chars do chip_id}` em todos os lugares.
+
+### Corrigido
+- Header da Camera tinha `<b>Câmera</b>` hardcoded literal. Agora usa o helper.
+
+---
+
+## [4.1.36] - 2026-04-25
+
+### Corrigido
+- Quando havia 4+ modulos no layout de 3 colunas, o 4o card ficava sozinho na 2a linha e **esticava pra ocupar a largura toda**. Causa: CSS usava `flex: 1 1 calc(33.333% - 0.67rem)` com `flex-grow: 1`. Em linhas cheias o grow distribuia espaco igualmente; em linha incompleta, o grow expandia o item solitario pra 100%.
+
+### Alterado
+- `style.css` `@media (min-width: 640px)`: troca Flex por CSS Grid em ambos os containers (`.modules-list` na barra superior e `#module-content` no dashboard de selecionados):
+  ```css
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(NNNpx, 1fr));
+  ```
+  Com `auto-fill`, colunas vazias ficam reservadas — items mantem largura natural alinhados a esquerda. Mobile (sem @media) continua flex column.
+
+---
+
+## [4.1.35] - 2026-04-25
+
+### Adicionado
+- Firmware reporta `firmware_version` no register (`core_register.h`) — admin/dashboard passam a ver qual versao esta rodando em cada modulo via `ctrl_data.firmware_version` no banco, sem precisar abrir `/update` do ESP32 na rede local.
+- PWA desambigua nomes de modulos do mesmo capability: quando 2+ HIDROs (ou Cams, ou Farms) estao pareados sem nome customizado, o card mostra `Controle Hidro · DBCC` e `Controle Hidro · 7000` em vez de dois "Controle Hidro" identicos. Se o user nomeia ("Estufa Sala"), respeita o nome custom sem sufixo.
+
+### Corrigido
+- **Bug introduzido neste mesmo commit (858e4b7)** e fixado em `8eafe4b`: a primeira tentativa colocou `firmware_version` na raiz do JSON do request. Mas o servidor (`app.py register_module`) so extrai chaves especificas da raiz e o resto desce para o sub-objeto `ctrl_data`. Resultado: campo nao era armazenado em lugar nenhum. Fix: mover a linha pra dentro do `"ctrl_data":{...}` no firmware, junto com as outras telemetrias cross-produto (wifi_last_error, min_free_heap). Validado: ambos HIDROs reportando fw=4.1.35 no banco apos OTA.
+
+### Notas operacionais
+- **Roll-out**: HIDRO #2 (chip novo `50B525077000`) gravado via USB no COM17. HIDRO #1 (E04730A7DBCC, em campo) atualizado via OTA — feito por SSH single-session subindo `.bin` direto no volume Docker (`/var/lib/docker/volumes/cultivee_cultivee-data/_data/firmware/`), sem precisar de token de admin. Servidor auto-deletou o `.bin` apos download (anti-loop, fix da v4.1.8). Modulo voltou online em ~31s (1 reboot, sem rollback A/B disparado).
+
+---
+
+## [4.1.34] - 2026-04-25
+
+### Adicionado
+- AP SSID + mDNS name agora ganham sufixo de 6 hex chars do MAC. Antes `Cultivee-Hidro` e `cultivee-hidro.local` colidiam quando 2 modulos do mesmo produto estavam na mesma rede WiFi (lista de redes do celular agregava SSIDs duplicados, mDNS resolvia pra um IP ou outro). Agora:
+  - HIDRO MAC `E04730A7DBCC` → AP `Cultivee-Hidro-A7DBCC` + mDNS `cultivee-hidro-a7dbcc.local`
+  - HIDRO MAC outro ESP32 → AP `Cultivee-Hidro-XXXXXX` + mDNS `cultivee-hidro-xxxxxx.local`
+- Inicializacao em `firmware.ino setup()`: `dynamicApSsid` e `dynamicMdnsName` calculados a partir do `chipId` ja existente. Globais em `core_wifi.h`. Uppercase no SSID (visual), lowercase no mDNS (convencao).
+- `core_wifi.h startAP()` e `MDNS.begin()` (em `core_wifi.h` + `firmware.ino`) usam as variaveis dinamicas com fallback defensivo ao define estatico.
+- `core_server.h` captive portal mostra o SSID dinamico no HTML (em vez do literal `AP_SSID`).
+
+### Alterado
+- `compile.sh`: aceita `PORT` via env var (default `COM7`). Permite `PORT=COM17 bash compile.sh upload` pra gravar segundo HIDRO sem editar o script. Melhoria permanente, serve pra qualquer modulo novo no futuro.
+
+### Notas operacionais
+- **Descoberta**: `docker compose restart` **nao re-le** `env_file`. As env vars sao capturadas na CRIACAO do container. Pra re-ler apos editar `.env`, usar `docker compose up -d --force-recreate <service>`. Documentado em CLAUDE.md/memory.
+- **Descoberta**: nome do service no docker-compose e `app`, nao `cultivee-app` (esse e o `container_name`). Comando correto: `docker compose restart app`.
+
+---
+
 ## [4.1.33] - 2026-04-24
 
 ### Adicionado

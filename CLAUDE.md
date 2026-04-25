@@ -18,6 +18,30 @@ Nunca hardcodar logica de modulo especifico fora do registry.
 ### Deploy e SSH a VPS
 NUNCA disparar multiplas conexoes SSH em sequencia rapida contra a VPS (`129.121.50.168:22022`). A VPS tem `fail2ban` ativo — duas ou tres tentativas proximas banem o IP por horas e so o usuario recupera via painel do provedor. Fazer **uma conexao por vez**, esperar terminar; se precisar de varios comandos, encadear com `&&` numa unica sessao SSH. Nunca rodar SSH em paralelo (Bash em background + foreground contra a mesma VPS). O `deploy.sh` e o workflow do GitHub Actions ja encadeiam tudo numa sessao — usar esses caminhos ao inves de comandos SSH avulsos.
 
+### Container Docker — gotchas operacionais (v4.1.34+)
+- **Nome do service no compose** e `app` (nao `cultivee-app` — este e o `container_name`). Comando correto: `docker compose restart app` ou `docker compose up -d --force-recreate app`.
+- **`docker compose restart` NAO re-le `env_file`**. As env vars sao capturadas na CRIACAO do container. Apos editar `.env` da VPS, **sempre** usar `docker compose up -d --force-recreate app` (recreate forca releitura do `env_file`). Sintoma do bug: secret novo no `.env` mas endpoint reporta `webhook_disabled` ate recreate.
+- **Diagnostico de env vars no container**: NUNCA usar `${VAR:-X}` (vaza o valor da variavel se setada). Usar `${#VAR}` (so length) ou `[ -n "$VAR" ] && echo YES`.
+
+### Compilar firmware pra COM diferente (v4.1.34+)
+`compile.sh` aceita `PORT` via env var. Default `COM7` (Hidro). Pra gravar segundo HIDRO em outra porta:
+```bash
+PORT=COM17 bash compile.sh upload
+```
+Mesma ideia vale pra `compile-cam.sh` e `compile-hidrofarm.sh` se evoluirem (hoje eles tem porta hardcoded — atualizar quando precisar de segundo Cam ou Farm).
+
+### OTA admin sem token (v4.1.34+ — operacao avancada)
+Pra atualizar modulo em campo sem precisar do token de admin do user, SSH single-session enviando `.bin` direto pro volume Docker:
+```bash
+SHA=$(sha256sum build/firmware.ino.bin | awk '{print $1}')
+base64 -w0 build/firmware.ino.bin | ssh ... "
+  FW='/var/lib/docker/volumes/cultivee_cultivee-data/_data/firmware'
+  base64 -d > \"\$FW/<chip_id>.bin\"
+  printf '%s' \"\$SHA\" > \"\$FW/<chip_id>.sha256\"
+"
+```
+Servidor detecta no proximo poll do ESP32 e serve. Anti-loop ja built-in (auto-deleta `.bin` apos download — fix da v4.1.8).
+
 ---
 
 ## Visao Geral
@@ -31,7 +55,7 @@ Plataforma IoT para cultivo inteligente. Arquitetura modular:
 Hardware especializado: cada ESP32 faz uma coisa so.
 Composicao por software: o app mostra os modulos que o usuario adicionar.
 
-Versao ativa: **v4.1.33** (backend/PWA) — definida como fonte unica em [`server/config.py:24`](./server/config.py) (`APP_VERSION`).
+Versao ativa: **v4.1.37** (backend/PWA) — definida como fonte unica em [`server/config.py:24`](./server/config.py) (`APP_VERSION`).
 
 Firmware: **v4.1.26** em todos os produtos — sincronizado automaticamente via [`sync-version.sh`](./sync-version.sh) em [`products/hidro.h:11`](./products/hidro.h), [`products/hidro-farm.h:16`](./products/hidro-farm.h) e [`products/cam.h:11`](./products/cam.h) (`FIRMWARE_VERSION`). Rode `bash sync-version.sh --write` antes de recompilar.
 
@@ -315,8 +339,8 @@ PWA: `requestPermission()` + `pushManager.subscribe()` chamado 2s apos login. To
 - **LED de status:** GPIO2 (LED azul onboard — `LED_ONBOARD`)
 - **Reset WiFi:** botao BOOT (GPIO0 — `RESET_BTN`), segurar por 3s
 - **Automacao:** `MAX_PHASES = 10` fases, cada fase tem luz + bomba + ventilacao + aeracao com ciclos dia/noite independentes (struct `Phase` em [`firmware/firmware.ino:28-47`](./firmware/firmware.ino))
-- **AP:** `Cultivee-Hidro`
-- **mDNS:** `cultivee-hidro.local` (v4.1.28+; legado: `cultivee-ctrl.local`)
+- **AP:** `Cultivee-Hidro-XXXXXX` (sufixo MAC desde v4.1.34 — antes era so `Cultivee-Hidro` que colidia entre 2+ modulos do mesmo produto na mesma rede)
+- **mDNS:** `cultivee-hidro-xxxxxx.local` (sufixo MAC lowercase desde v4.1.34; v4.1.28+ era so `cultivee-hidro.local`; legado pre-v4.1.28: `cultivee-ctrl.local`)
 - **SERVER_URL prod:** `http://app.cultivee.com.br` (HTTP puro — ESP32 nao faz TLS)
 - **APP_URL prod:** `https://app.cultivee.com.br` (usuario acessa PWA via HTTPS)
 
@@ -326,8 +350,8 @@ Variante avancada do HIDRO: mesma placa, mesmo RTC, mesmo sistema de fases. Adic
 
 - **Porta (sugerida):** COM16 (definida em [`compile-hidrofarm.sh`](./compile-hidrofarm.sh))
 - **Board:** `esp32:esp32:esp32doit-devkit-v1` com particao `min_spiffs` (OTA habilitado — identico ao HIDRO)
-- **AP:** `Cultivee-HidroFarm`
-- **mDNS:** `cultivee-hidro-farm.local`
+- **AP:** `Cultivee-HidroFarm-XXXXXX` (sufixo MAC desde v4.1.34)
+- **mDNS:** `cultivee-hidro-farm-xxxxxx.local` (sufixo MAC desde v4.1.34)
 - **SERVER_URL prod:** `http://app.cultivee.com.br`
 - **APP_URL prod:** `https://app.cultivee.com.br`
 - **Preferences NVS:** namespace `"hydrofarm"` (separado do HIDRO `"hydro"` — nao compartilham configuracao de fases). Persiste: fases, `start_date`, `mode_auto`, `valve_auto`
@@ -442,8 +466,8 @@ Os 4 reles automatizados compartilham toda a logica de fases do HIDRO via `struc
 - **Board:** `esp32:esp32:esp32wroverkit` com particao `min_spiffs` (1.9 MB app0 + 1.9 MB app1, OTA habilitado desde v4.1.8 — antes era `no_ota`). Firmware ocupa 1.27 MB (64% — sobra ~690 KB)
 - **Camera:** OV2640 always-on (init unico no boot, nunca `esp_camera_deinit()`)
 - **Reset WiFi:** botao BOOT (GPIO0 — `RESET_BTN`), segurar por 3s
-- **AP:** `Cultivee-Cam`
-- **mDNS:** `cultivee-cam.local`
+- **AP:** `Cultivee-Cam-XXXXXX` (sufixo MAC desde v4.1.34)
+- **mDNS:** `cultivee-cam-xxxxxx.local` (sufixo MAC desde v4.1.34)
 - **SERVER_URL prod:** `http://app.cultivee.com.br` (HTTP para upload de fotos)
 - **APP_URL prod:** `https://app.cultivee.com.br`
 - **Pinos OV2640:** completos em [`products/cam.h:42-58`](./products/cam.h) (XCLK=21, SIOD=26, SIOC=27, data Y2-Y9, VSYNC=25, HREF=23, PCLK=22)
