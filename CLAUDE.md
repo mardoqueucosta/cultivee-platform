@@ -48,6 +48,19 @@ Threads daemon iniciadas no startup do `app.py`. Cada job e responsavel pelo pro
 Exemplo atual:
 - `jobs/offline_watcher.py` — verifica modulos offline > threshold (default 15min, v4.1.39) e dispara alerta proativo (push + email). Lock via `models.try_acquire_offline_watcher_lock(min_interval_sec)` na tabela `offline_watcher_state` (singleton id=1).
 
+### Firmware Arduino: `String += String` em JSON grandes (lecao da rodada 2026-04-25, v4.1.47)
+Quando montar JSON > 1.5kB com `String +=` em ~30+ lugares, o heap **fragmenta silenciosamente** por reallocacoes. Em Hidro-Farm (3 fases × 18 campos = `phasesJson` ~1.5kB), os ultimos 2 campos do JSON (`min_free_heap`, `firmware_version`) NAO eram adicionados — `String((unsigned long)val)` falhava silenciosamente, `json += ""` nao fazia nada. JSON sintaticamente valido mas truncado.
+
+**Sempre `reserve()` capacity antes do primeiro `+=`** em strings que vao crescer alem de 200 bytes:
+```cpp
+String json;
+json.reserve(3000);  // 1 alocacao, sem realloc/fragmentacao
+json += "{";
+// ... 30+ +=
+```
+
+Bug latente desde v4.1.26, manifestou apenas no Hidro-Farm em v4.1.45-46. Hidro/Cam tinham JSON menor (~1.2kB) e nao fragmentavam o suficiente.
+
 ### Refator de simbolo — checklist obrigatorio (lecao da rodada 2026-04-25)
 Antes de commitar qualquer rename/refator de constante, classe ou funcao:
 ```bash
@@ -69,7 +82,7 @@ Plataforma IoT para cultivo inteligente. Arquitetura modular:
 Hardware especializado: cada ESP32 faz uma coisa so.
 Composicao por software: o app mostra os modulos que o usuario adicionar.
 
-Versao ativa: **v4.1.39** (backend/PWA) — definida como fonte unica em [`server/config.py:24`](./server/config.py) (`APP_VERSION`).
+Versao ativa: **v4.1.47** (backend/PWA + firmware nos 4 modulos) — definida como fonte unica em [`server/config.py:24`](./server/config.py) (`APP_VERSION`). Sync com firmware via [`sync-version.sh`](./sync-version.sh).
 
 Firmware: **v4.1.26** em todos os produtos — sincronizado automaticamente via [`sync-version.sh`](./sync-version.sh) em [`products/hidro.h:11`](./products/hidro.h), [`products/hidro-farm.h:16`](./products/hidro-farm.h) e [`products/cam.h:11`](./products/cam.h) (`FIRMWARE_VERSION`). Rode `bash sync-version.sh --write` antes de recompilar.
 

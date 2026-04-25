@@ -10,6 +10,161 @@ Para contexto mais profundo de decisoes arquiteturais (por que foi feito assim, 
 
 ## [Nao lancado]
 
+## [4.1.47] - 2026-04-25
+
+### Corrigido (CRITICAL latente — afetava silenciosamente Hidro-Farm)
+- **JSON do `register` truncava silenciosamente em modulos com payload >1.5kB**
+  (Hidro-Farm tem 3 fases × 18 campos = `phasesJson` ~1.5kB). Heap do ESP32
+  fragmentava por reallocacoes do `String += String` em ~30 lugares no
+  `core_register.h` + `mod_*_register_json()`. Ao chegar perto do fim, alocacoes
+  falhavam silenciosamente e os ultimos 2 campos (`min_free_heap`,
+  `firmware_version`) **simplesmente nao eram adicionados** ao JSON.
+- Sintoma: Hidro-Farm reportava 31 campos em `ctrl_data` (faltavam 2). Hidros
+  reportavam todos (33). Bug latente desde v4.1.26 (quando `min_free_heap`
+  foi adicionado) — manifestava SO no Hidro-Farm porque tem JSON maior.
+- Fix de 1 linha em `core_register.h`:
+  ```cpp
+  String json;
+  json.reserve(3000);  // pre-aloca capacity, evita reallocacoes
+  json += "{";
+  ```
+- Validado em producao: apos OTA do Farm, JSON volta com `total_keys=33`,
+  `firmware_version=4.1.47`, `min_free_heap=198492`.
+
+### Removido
+- Log debug `REG-FARM-DEBUG` em `app.py` (era v4.1.46, ja cumpriu seu papel).
+
+### Roll-out
+- Hidro-Farm (`348257088304`): gravado USB (descoberta do bug)
+- Hidro #2 (`50B525077000`), Hidro #1 (`E04730A7DBCC`), Cam (`704CAAF7C630`):
+  OTA via SSH escrevendo `.bin` direto no volume Docker. Os 3 chips reportam
+  agora `firmware_version=4.1.47`. Sem rollback A/B disparado.
+
+---
+
+## [4.1.46] - 2026-04-25 (debug — nao-release oficial)
+
+### Adicionado (temporario)
+- Log de debug `REG-FARM-DEBUG` em `register_module` que captura body cru
+  + presenca/posicao de chaves criticas. Disparou apenas pra chip
+  `348257088304` (Hidro-Farm). Removido na v4.1.47.
+- Resultado da investigacao: confirmou que JSON chega ao servidor truncado
+  em `..."wifi_disconnect_count":0}}` com 1511 bytes — bug e no firmware,
+  nao no servidor.
+
+---
+
+## [4.1.45] - 2026-04-25
+
+### Alterado
+- Labels do catalogo de alertas: `P` / `E` -> `📱 Push` / `✉ Email`
+  com texto cheio. Adicionado header explicativo acima da lista descrevendo
+  os canais (push = notificacao no celular/browser, email = SMTP). Tooltips
+  com detalhes tecnicos. Era opaco, ninguem adivinhava sem ver o codigo.
+
+---
+
+## [4.1.44] - 2026-04-25
+
+### Alterado
+- Reordena card de notificacoes — janela de silencio movida pro fim, dentro
+  de um `<details>` collapsed (era 2a section). Adiciona explicacao expandida
+  ao abrir, listando 4 casos de uso reais (madrugada, reuniao, bench, viagem)
+  + aviso destacado: P0 sempre passa.
+- Justificativa: feature e nicho (maioria nao usa). Esconder por default
+  deixa o card menos cheio sem perder funcionalidade.
+
+---
+
+## [4.1.43] - 2026-04-25
+
+### Alterado (consolidacao UX)
+- **Notificacoes consolidadas em UM helper unico** `renderNotificationCard(chipId, ctrlData)`
+  no card de cada modulo (era espalhado entre Perfil + card per-modulo desde v4.1.41).
+  Estrutura em 3 sections num so card:
+  1. **Este modulo** (per-modulo): toggle offline + threshold (v4.1.39)
+  2. **Tipos de alerta** (globais): catalogo + checkboxes Push/Email
+  3. **Historico** (collapsed `<details>`): timeline com ack inline
+- IDs sufixados com `chipId` pra permitir N cards simultaneos sem colisao.
+- Cache compartilhado de 60s (`_notifCardCache`) — fetch unico pra catalogo
+  + historico, todos os cards leem do mesmo cache. Evita N requests por poll.
+- Acoes globais (silent_hours, ack, toggle de canal) invalidam cache +
+  re-renderizam **todos os cards visiveis** simultaneamente — estado sempre
+  sincronizado entre cards.
+
+### Removido
+- Section `#profile-notifications-card` no `index.html` (era v4.1.41).
+- 6 funcoes antigas no `app.js` (`loadAlertCatalog`, `loadAlertsHistory`,
+  `saveAlertPref`, `saveSilentHours`, `clearSilentHours`, `ackAlert`).
+
+---
+
+## [4.1.42] - 2026-04-25
+
+### Corrigido
+- Cards de selecao (barra superior) estavam mais estreitos que cards de
+  dashboard (5 colunas vs 4 em tela larga) — visualmente desencaixado.
+  Causa: `.modules-list` usava `minmax(250px)` + `gap 0.5rem`,
+  `#module-content` usava `minmax(300px)` + `gap 1rem`.
+- Fix: igualar grid em ambos pra `minmax(300px, 1fr)` + `gap 1rem`. Cards
+  agora alinhados verticalmente entre as duas linhas.
+
+---
+
+## [4.1.41] - 2026-04-25 (substituido pela v4.1.43)
+
+### Adicionado (depois consolidado)
+- Section "Notificacoes" no Perfil com catalogo + historico + prefs +
+  silent_hours. **Movido pro card de cada modulo na v4.1.43** apos
+  feedback do user de que "perfil nao e o lugar certo".
+- Tabela `user_alert_prefs(user_id, alert_type, enabled_push, enabled_email)`.
+- Colunas `users.alert_silent_hours_start/end`.
+- Helpers em `models/users.py`: `get/set_user_alert_prefs`,
+  `get/set_user_silent_hours`.
+- 5 endpoints em `usuario/profile.py`: `/alerts/catalog`, `/alerts/history`,
+  `/alerts/<id>/ack`, `/alert-prefs/<type>`, `/alert-silent-hours`.
+- `_send_alert` respeita prefs do user: `_user_wants_channel(user_id, type, channel)`
+  + `_is_in_silent_hours(user_id, severity)` (P0 sempre passa). Sempre
+  loga em `alert_log` mesmo quando bloqueado por silent_hours/pref —
+  user ve no historico que disparou.
+
+---
+
+## [4.1.40] - 2026-04-25
+
+### Adicionado (catalogo P0-P3 formal — fecha item 3 do plano Mes 2)
+- `alert_log` ganha 3 colunas: `severity` (P0-P3, default 'P1'),
+  `ack_at`, `ack_by`. Migration aditiva idempotente.
+- Catalogo INLINE `ALERT_CATALOG` em `notifications.py` (dict
+  constante, em vez de tabela `alert_definitions` que seria
+  over-engineering pra MVP). 6 tipos com `severity_default` +
+  `cooldown_sec` + `name`.
+- 3 checks novos no `AlertManager.check()` (cross-modulo via
+  `register_module`):
+  - `low_heap_warning` — P2, dispara se `min_free_heap < 10kB`. Cooldown 24h.
+  - `sensor_invalid` — P2, streak 3x consecutivos de `dht_valid=false`.
+    Cooldown 12h. Pra Hidro-Farm (DHT11). Hidro/Cam pulam.
+  - `wifi_disconnect_burst` — P2, snapshot baseline + diff em janela de 1h.
+    Threshold conservador (>=10 quedas) pra evitar fadiga em WiFi naturalmente
+    ruim. Cooldown 6h.
+- 3 server_keys novos em `models/modules.py` (protegem merge do ESP32):
+  `sensor_invalid_streak`, `wifi_disconnect_baseline`,
+  `wifi_disconnect_baseline_at`.
+
+### Alterado
+- `AlertManager._send_alert(severity)` agora aceita parametro opcional.
+  Se `None`, usa default do catalogo. `offline_watcher` passa P0/P1 explicito.
+- `models.log_alert(severity)` aceita parametro novo (default P1 pra back-compat).
+- Log linha agora inclui sev: `ALERTA [P0] [module_offline] chip=...`
+
+### Notas
+- `firmware_update_failed`: deferred pra proxima rev de firmware (precisa
+  reportar `ota_rollback_count` no register).
+- Tabela `user_alert_prefs` + UI de preferencias por canal: feita em
+  v4.1.41 (entrou na rodada seguinte).
+
+---
+
 ## [4.1.39] - 2026-04-25
 
 ### Adicionado
