@@ -3866,7 +3866,10 @@ async function loadCardHistory(chipId, sufx) {
     }
     try {
         const resp = await api('/api/profile/alerts/history?days=30');
-        _notifHistoryCache = { ts: now, alerts: resp.alerts || [] };
+        // v4.1.54: muta propriedades — _notifHistoryCache e const, nao da
+        // pra reatribuir o objeto inteiro (TypeError em strict mode)
+        _notifHistoryCache.ts = now;
+        _notifHistoryCache.alerts = resp.alerts || [];
         const cat = _notifCardCacheByChip[chipId];
         const catalogList = cat && cat.catalog ? cat.catalog.catalog : [];
         _renderCardHistory(sufx, _notifHistoryCache.alerts, catalogList);

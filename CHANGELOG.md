@@ -10,6 +10,28 @@ Para contexto mais profundo de decisoes arquiteturais (por que foi feito assim, 
 
 ## [Nao lancado]
 
+## [4.1.54] - 2026-04-25
+
+### Corrigido (HOTFIX 2 da v4.1.52)
+- **Historico de alertas mostrava "Erro: Assignment to constant variable"**.
+  Causa: em `loadCardHistory` (`app.js`), apos receber resposta do
+  fetch, o codigo fazia `_notifHistoryCache = { ts: now, alerts: ... }`
+  — reatribuindo o objeto inteiro. Mas `_notifHistoryCache` foi declarado
+  como `const` na refatoracao da v4.1.52. Em strict mode (modo padrao
+  do JS moderno), reatribuir uma `const` lanca TypeError.
+- Fix: mutar as propriedades em vez de reatribuir o objeto:
+  ```js
+  _notifHistoryCache.ts = now;
+  _notifHistoryCache.alerts = resp.alerts || [];
+  ```
+  `const` impede REATRIBUICAO da referencia, nao MUTACAO do conteudo.
+
+### Licao
+Quando criar cache global como `const obj = {ts: 0, ...}`, todos os
+updates devem ser via `obj.prop = ...` — nunca `obj = {...}`. Vale pra
+qualquer objeto/array em const. Erro silencioso em escopo de teste local
+(JS sem strict), ruidoso em prod (todo modulo eh strict).
+
 ## [4.1.53] - 2026-04-25
 
 ### Corrigido (HOTFIX da v4.1.52)
