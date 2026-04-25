@@ -3788,12 +3788,9 @@ function renderNotificationCard(chipId, ctrlData) {
             </label>
         </div>
 
-        <!-- SECTION 2: GLOBAIS (silent_hours + canais por tipo) -->
+        <!-- SECTION 2: TIPOS GLOBAIS (canais por tipo de alerta) -->
         <div style="font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-dim);margin:14px 0 4px">
-            Globais <span style="text-transform:none;font-weight:normal;color:var(--text-dim);font-size:0.65rem">(afeta todos os modulos)</span>
-        </div>
-        <div id="card-silent-${sufx}" style="padding:8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;margin-bottom:8px;font-size:0.78rem">
-            <div class="empty-state"><p style="font-size:0.75rem">Carregando silencio...</p></div>
+            Tipos de alerta <span style="text-transform:none;font-weight:normal;color:var(--text-dim);font-size:0.65rem">(globais — afeta todos os modulos)</span>
         </div>
         <div id="card-catalog-${sufx}" style="font-size:0.78rem">
             <div class="empty-state"><p style="font-size:0.75rem">Carregando tipos...</p></div>
@@ -3806,6 +3803,28 @@ function renderNotificationCard(chipId, ctrlData) {
             </summary>
             <div id="card-history-${sufx}" style="margin-top:8px;font-size:0.75rem">
                 <div class="empty-state"><p style="font-size:0.75rem">Carregando historico...</p></div>
+            </div>
+        </details>
+
+        <!-- SECTION 4: JANELA DE SILENCIO (no fim, com explicacao) -->
+        <details style="margin-top:14px">
+            <summary style="cursor:pointer;font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-dim);padding:4px 0">
+                &#128564; Janela de silencio
+            </summary>
+            <div style="margin-top:8px;font-size:0.72rem;color:var(--text-dim);line-height:1.5;padding:0 4px 8px">
+                Pausa as notificacoes em uma faixa de horario, util quando voce sabe que <b>nao podera reagir agora</b> ou esta <b>fazendo manutencao</b>:
+                <ul style="margin:6px 0 6px 18px;padding:0">
+                    <li>Madrugada (alerta P1 pode esperar a manha — voce vai tratar de manha mesmo)</li>
+                    <li>Reuniao com cliente (celular tocando atrapalha)</li>
+                    <li>Bench / teste (mexer nos modulos sem ser bombardeado)</li>
+                    <li>Viagem / ferias curta (alguem mais cuida)</li>
+                </ul>
+                <div style="padding:6px 8px;background:rgba(231,76,60,0.08);border:1px solid rgba(231,76,60,0.25);border-radius:4px;margin-top:6px;color:var(--text)">
+                    &#9888; <b>Alertas P0 (emergencia) sempre passam</b>, mesmo na janela de silencio. Isso garante que falhas criticas (vazamento, modulo offline >24h) nao sao perdidas.
+                </div>
+            </div>
+            <div id="card-silent-${sufx}" style="padding:8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;margin-top:8px;font-size:0.78rem">
+                <div class="empty-state"><p style="font-size:0.75rem">Carregando silencio...</p></div>
             </div>
         </details>
     </div>`;
