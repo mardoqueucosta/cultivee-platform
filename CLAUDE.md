@@ -69,6 +69,109 @@ grep -rn "NOME_ANTIGO" server/ firmware/ products/ static/ templates/ | grep -v 
 ```
 **4 bugs consecutivos na rodada 2026-04-25** seguiram esse padrao. Bug mais grave: `OFFLINE_ALERT_THRESHOLD_MIN` renomeada na v4.1.39 com 2 ocorrencias esquecidas → thread offline_watcher crashou no startup, sistema sem alerta automatico por ~25min.
 
+### `sqlite3.Row` vs `dict` — usar `_row_field()` (lecao reforcada 3x — v4.1.0, v4.1.39, v4.1.53)
+Funcoes `models/get_*` retornam tipos DIFERENTES — armadilha clássica:
+- `get_user_by_id` -> `sqlite3.Row` (NAO tem `.get()`)
+- `get_module_by_chip_id` -> `dict` (tem `.get()`, vem com `return dict(module) if module else None`)
+- Outros: variavel — checar antes de usar `.get()`
+
+Usar `request.user.get("role")` quebra com `AttributeError: 'sqlite3.Row' object has no attribute 'get'`. Frontend recebe HTML 500 e tenta parsear como JSON — sintoma `Unexpected token '<', '<!doctype "...`.
+
+**Padrao defensivo (use sempre que tocar `request.user` ou outra Row):**
+```python
+def _row_field(row, field, default=None):
+    """Le campo de sqlite3.Row OU dict. Defensive — Row nao tem .get()."""
+    try:
+        return row[field]
+    except (IndexError, KeyError, TypeError):
+        return default
+
+# Em vez de:
+is_admin = (request.user.get("role") == "admin")  # CRASHA com Row
+# Usar:
+is_admin = (_row_field(request.user, "role") == "admin")  # OK pra ambos
+```
+
+Helper ja existe em `server/app.py`. **Bug repetiu 3x na historia** (v4.1.0, v4.1.39 latente, v4.1.53) — toda vez que alguem escreve endpoint novo tocando `request.user`. **Quando em duvida**, use `_row_field`.
+
+### `<details>` + estado UI persistente (lecao da rodada 2026-04-26, v4.1.55)
+Qualquer estado UI transient (open/closed, scroll, selected tab) sobre componentes dentro de containers re-renderizados a cada poll PRECISA ser persistido em `localStorage`. Mesma raiz do flash visual da v4.1.50, mas pra estado de componente.
+
+`renderDashboard` reescreve `container.innerHTML` a cada poll do ESP32 (~5s) porque `_lastCtrlKey` inclui `temperature/humidity` (DHT11 muda toda leitura). `<details>` recriado = volta pro default (fechado). User clica → abre → 5s depois fecha sozinho.
+
+**Padrao**:
+```js
+function _isXxxOpen(chipId) {
+    try { return localStorage.getItem(`xxx-open-${chipId}`) === '1'; }
+    catch(e) { return false; }
+}
+function _setXxxOpen(chipId, isOpen) {
+    try {
+        if (isOpen) localStorage.setItem(`xxx-open-${chipId}`, '1');
+        else localStorage.removeItem(`xxx-open-${chipId}`);
+    } catch(e) {}
+}
+// No template:
+`<details ${_isXxxOpen(chipId) ? 'open' : ''} ontoggle="_setXxxOpen('${chipId}', this.open)">`
+```
+
+Chave per-chip — cada modulo tem seu proprio estado.
+
+### Cache write-through em PUTs (lecao da rodada 2026-04-26, v4.1.50)
+Caches no frontend (TTL 60s) precisam ser **atualizados imediatamente apos um PUT bem-sucedido**, senao a proxima re-renderizacao usa cache antigo e reverte visualmente o que o user acabou de mudar.
+
+**Padrao** (optimistic update — preferido por evitar latencia de re-fetch):
+```js
+async function saveCardAlertPref(chipId, alertType, channel, enabled) {
+    try {
+        await api(`/api/modules/${chipId}/alert-prefs/${alertType}`,
+                  { method: 'PUT', body: { [`enabled_${channel}`]: enabled }});
+        // ATUALIZA CACHE LOCAL — senao re-render volta pro valor antigo
+        const cache = _notifCardCacheByChip[chipId];
+        if (cache && cache.catalog) {
+            const item = cache.catalog.catalog.find(i => i.alert_type === alertType);
+            if (item) item[`enabled_${channel}`] = enabled;
+        }
+    } catch(e) { _invalidateAndReloadAll(); }
+}
+```
+
+Vale pra qualquer cache TTL — alerta prefs, silent_hours, ordem de modulos, etc.
+
+### `const obj = {...}` em JS — mutar, NAO reatribuir (lecao da rodada 2026-04-26, v4.1.54)
+`const` em JS impede REATRIBUICAO da referencia, nao MUTACAO do conteudo. Strict mode (modo padrao do JS moderno) lanca `TypeError: Assignment to constant variable`.
+
+```js
+const _cache = { ts: 0, alerts: null };
+
+// ERRADO (TypeError em strict mode):
+_cache = { ts: now, alerts: data };
+
+// CERTO:
+_cache.ts = now;
+_cache.alerts = data;
+```
+
+Vale pra qualquer cache global, configuracao em memoria, etc. Se var precisa ser reatribuida, usar `let`.
+
+### Compile scripts — `PORT` via env var (convencao desde v4.1.34, v4.1.59 reforcada)
+`compile.sh`, `compile-cam.sh`, `compile-hidrofarm.sh` aceitam `PORT` como env var:
+```bash
+# Default da porta hardcoded (geralmente COM7)
+bash compile.sh upload
+
+# Override pra outra porta:
+PORT=COM8 bash compile-cam.sh upload
+PORT=COM17 bash compile.sh upload
+```
+
+Sintoma de porta errada: `Could not open COMx, the port is busy or doesn't exist`. Listar portas disponiveis: `wmic path Win32_SerialPort get DeviceID,Name` no PowerShell. Pra novos scripts/produtos, sempre usar `PORT="${PORT:-COMxx}"`.
+
+### Refator BREAKING — entregar em fases pequenas (lecao da rodada 2026-04-26, v4.1.52)
+A v4.1.52 mexeu **schema + 3 endpoints novos + 2 endpoints removidos + frontend grande + janela silencio movida** numa unica release. Resultou em **3 hotfixes consecutivos** (v4.1.53/54/55) — 2 erros logo no deploy + 1 latente do refator que so apareceu quando user mexeu.
+
+**Padrao**: refator grande deve ser entregue em fases (catalogo → endpoints → frontend → migracao de UI), com smoke test em cada fase. A urgencia de validar bate com a complexidade — fragmentar reduz risco de regressao composta.
+
 ---
 
 ## Visao Geral
@@ -315,24 +418,79 @@ Quando o usuario acessa o IP do ESP32 diretamente (via rede local ou AP), o firm
 - Usa as mesmas rotas locais: `/status`, `/relay`, `/config`, `/save-config`, `/update` (OTA)
 - REGRA CRITICA: toda mudanca na UI online (app.js) DEVE ser replicada no offline (mod_*.h) e vice-versa
 
-**6. Sistema de Alertas — Push PWA + Email (v4.1.0)**
+**6. Sistema de Alertas — Push PWA + Email (v4.1.0 + refator per-module v4.1.52)**
 ```
   AlertManager (notifications.py) roda no servidor, ativado a cada register do ESP32:
-  1. register_module() salva ctrl_data → chama AlertManager.check_alerts(module)
-  2. AlertManager merge: dados do ESP32 (level_low) + dados do banco (low_since, alert_threshold_min)
-  3. Se level_low == false (sem agua) por >= alert_threshold_min minutos:
-     a) Push PWA: pywebpush → endpoint do navegador (VAPID keys do .env)
-     b) Email SMTP SSL (porta 465): contato@cultivee.com.br → notification_email do usuario
-     c) Grava em alert_log (cooldown 1h entre alertas iguais)
-  4. Timer visual no PWA: "⏱ Nivel baixo ha Xmin Xs" (laranja < threshold, vermelho pulsante >= threshold)
-     - low_since salvo em ctrl_data (timestamp UTC, protegido como server_key)
-     - Timer restaura do banco apos restart do container
+  1. register_module() salva ctrl_data → chama AlertManager.check(chip_id, ctrl_data, module)
+  2. Merge: dados do ESP32 + dados do banco (server_keys protegidos)
+  3. Roda 9+ checks. Cada check filtrado por module_type (DHT so em hidro-farm, etc).
+  4. Se condicao + cooldown OK: _send_alert(user, chip, alert_type, payload)
+     a) Severity resolvida via get_alert_meta(alert_type, module_type)
+     b) Silent hours global (P0 ignora) — _is_in_silent_hours(user, sev)
+     c) Push PWA — _user_wants_channel(user, chip, type, "push") + pywebpush
+     d) Email SMTP — _user_wants_channel(user, chip, type, "email") + _send_email_alert
+     e) Sempre log em alert_log (mesmo silenciado — historico mostra que disparou)
 ```
 
-Tabelas adicionadas:
-- `push_subscriptions` — user_id, endpoint, p256dh, auth (Web Push subscription do navegador)
-- `alert_log` — module_id, alert_type, sent_at (cooldown 1h entre alertas iguais)
-- `users.notification_email` — email separado para alertas (pode diferir do email de login)
+**Catalogo de alertas (v4.1.52+ — POR MODULO):**
+
+```python
+UNIVERSAL_ALERTS = {       # todo modulo tem (4)
+    "module_offline":          P1, cooldown 4h
+    "module_recovered":        P3, cooldown 1h
+    "low_heap_warning":        P2, cooldown 24h
+    "wifi_disconnect_burst":   P2, cooldown 6h
+}
+
+PRODUCT_ALERTS = {
+    "hidro": {},  # so universais
+    "hidro-farm": {           # 6 especificos
+        "level_low":              P1, cooldown 1h
+        "sensor_invalid":         P2, cooldown 12h  (DHT11)
+        "dht_temperature_high":   P2, cooldown 6h   (>= 35C / 30min)
+        "dht_temperature_low":    P2, cooldown 6h   (<= 10C / 30min)
+        "dht_humidity_extreme":   P3, cooldown 12h  (<20% ou >95% / 1h)
+        "reservoir_fill_stuck":   P1, cooldown 4h   (valvula 30min sem boia alta)
+    },
+    "cam": {                  # 3 especificos
+        "cam_capture_failed":     P2, cooldown 12h  (last_capture > 2x interval)
+        "cam_init_failed":        P1, cooldown 24h  (firmware reporta cam_init_error_code)
+        "cam_dark_frame":         P3, cooldown 24h  (5 capturas < 30% baseline)
+    },
+}
+
+def get_alerts_for_module(module_type):
+    return {**UNIVERSAL_ALERTS, **PRODUCT_ALERTS.get(module_type, {})}
+```
+
+Adicionar produto novo: criar entry em `PRODUCT_ALERTS["nome"]`, implementar
+`_check_*` em `AlertManager`, filtrar em `check()` por `module_type`.
+Zero mudanca em endpoint, schema, UI ou banco.
+
+**Tabelas:**
+- `push_subscriptions (user_id, endpoint, p256dh, auth)` — Web Push do navegador
+- `alert_log (module_id, alert_type, severity, sent_at, ack_at, ack_by)` — historico
+- `module_alert_prefs (user_id, chip_id, alert_type, enabled_push, enabled_email)` — prefs PER-MODULO (v4.1.52)
+- `users.notification_email` — email pra alertas (pode diferir do login)
+- `users.alert_silent_hours_start/_end` — janela de silencio GLOBAL por user
+
+**Endpoints (v4.1.52+):**
+- `GET /api/modules/<chip>/alerts/catalog` — lista alertas aplicaveis ao modulo + prefs
+- `PUT /api/modules/<chip>/alert-prefs/<type>` — atualiza pref de canal
+- `GET /api/modules/<chip>/alerts/history?days=N` — historico filtrado por chip + stats (v4.1.57)
+- `GET /api/profile/alert-silent-hours` / `PUT` — janela global (consumida pelo modal no menu user)
+- `POST /api/profile/alerts/<id>/ack` — ack de alerta individual
+
+**Frontend:**
+- `renderNotificationCard(chipId, ctrlData)` em `app.js` — renderiza card per-modulo
+- Cache `_notifCardCacheByChip[chipId]` + `_notifHistoryCacheByChip[chipId]` (TTL 60s)
+- Tabs 7d/30d/60d + estado `<details>` open persistidos em `localStorage` per-chip
+- Janela de silencio: modal aberto pelo menu do user (`openSilentHoursModal()`)
+
+**Email (v4.1.60 — contextualizado):**
+- Subject: `Cultivee · {nome do modulo} · {tipo do alerta} [P{sev}]`
+- Body: bloco metadados (Modulo / Severidade / Hora) + body original + footer educativo
+- Permite filter Gmail por modulo (`subject:"Hidro 7000"`)
 
 Service Worker (`sw.js` dinamico): handlers `push` + `notificationclick` — exibe notificacao e abre o app ao clicar.
 PWA: `requestPermission()` + `pushManager.subscribe()` chamado 2s apos login. Toggle iOS-style no card Reservatorio (ON verde / OFF cinza / BLOCKED vermelho).
