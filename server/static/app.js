@@ -3915,8 +3915,8 @@ function _buildCatalogHtml(items, chipId) {
     const header = `
         <div style="font-size:0.7rem;color:var(--text-dim);margin:0 2px 6px;line-height:1.4">
             Marque por onde quer <b>receber</b> cada tipo de alerta deste modulo:
-            <b>&#128241; Push</b> (notificacao no celular/browser) e/ou
-            <b>&#9993; Email</b>. Desmarcar desliga o canal so pra esse tipo
+            <b>Push</b> (notificacao no celular/browser) e/ou
+            <b>Email</b>. Desmarcar desliga o canal so pra esse tipo
             neste modulo (cooldown e demais regras continuam valendo).
         </div>`;
     const rows = items.map(item => {
@@ -3931,11 +3931,11 @@ function _buildCatalogHtml(items, chipId) {
             <div style="display:flex;gap:10px;flex-shrink:0;align-items:center;padding-top:1px">
                 <label style="display:flex;align-items:center;gap:4px;cursor:pointer" title="Push: notificacao no celular/browser via Service Worker">
                     <input type="checkbox" ${item.enabled_push ? 'checked' : ''} onchange="saveCardAlertPref('${safeChip}','${safeType}','push',this.checked)">
-                    <span>&#128241; Push</span>
+                    <span>Push</span>
                 </label>
                 <label style="display:flex;align-items:center;gap:4px;cursor:pointer" title="Email: enviado pra seu notification_email (ou email de login se vazio)">
                     <input type="checkbox" ${item.enabled_email ? 'checked' : ''} onchange="saveCardAlertPref('${safeChip}','${safeType}','email',this.checked)">
-                    <span>&#9993; Email</span>
+                    <span>Email</span>
                 </label>
             </div>
         </div>`;

@@ -10,6 +10,16 @@ Para contexto mais profundo de decisoes arquiteturais (por que foi feito assim, 
 
 ## [Nao lancado]
 
+## [4.1.56] - 2026-04-25
+
+### Mudado
+- **Removidos icones (📱 / ✉) dos labels Push/Email** no card de notificacoes.
+  Layout fica mais limpo e com mais espaco — alguns labels longos (P2 "WiFi
+  instavel (varias quedas)") ficavam apertados. Texto sozinho e suficiente
+  pra entender. Tooltip do label ainda explica detalhes do canal.
+- Header explicativo da secao tambem perdeu os icones (mantida a estrutura
+  do texto).
+
 ## [4.1.55] - 2026-04-25
 
 ### Corrigido
