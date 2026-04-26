@@ -12,6 +12,17 @@ Para contexto mais profundo de decisoes arquiteturais (por que foi feito assim, 
 
 ## [4.1.60] - 2026-04-26
 
+### Roll-out firmware (rodada de sync)
+- **Os 4 modulos sincronizados em firmware v4.1.60** via OTA remoto (SSH
+  single-session por produto). Tempo total: ~10min compile + ~30s OTA.
+  - Hidro #1 (`E04730A7DBCC`): v4.1.47 -> v4.1.60
+  - Hidro #2 (`50B525077000`): v4.1.47 -> v4.1.60
+  - Hidro-Farm (`348257088304`): v4.1.47 -> v4.1.60
+  - Cam (`704CAAF7C630`): v4.1.59 -> v4.1.60
+- Sem mudanca comportamental real entre v4.1.47/v4.1.59 e v4.1.60 — so
+  versao avancou. Sync cosmetico pra ter os 4 reportando o mesmo
+  `firmware_version` na pagina admin (alinhado com `APP_VERSION`).
+
 ### Mudado — Email de alerta com contexto (subject + body)
 - **Subject contextualizado**: antes era `Cultivee Alerta - [P2] WiFi instavel`
   (mesma string pra qualquer modulo do user — inbox virava sopa quando 4
