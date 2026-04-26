@@ -10,6 +10,53 @@ Para contexto mais profundo de decisoes arquiteturais (por que foi feito assim, 
 
 ## [Nao lancado]
 
+## [4.1.58] - 2026-04-25
+
+### Adicionado — 5 alertas novos (server-only, ZERO mudanca no firmware)
+
+**Hidro-Farm (4 alertas):**
+- `dht_temperature_high` — temperatura ambiente >= 35°C por 30min+ (P2,
+  cooldown 6h). Aciona quando DHT11 reporta calor sustentado.
+- `dht_temperature_low` — temperatura <= 10°C por 30min+ (P2, cooldown 6h).
+  Pode prejudicar germinacao em algumas culturas.
+- `dht_humidity_extreme` — umidade < 20% OU > 95% por 1h+ (P3, cooldown 12h).
+  Severidade info — fora de faixa mas raramente urgente.
+- `reservoir_fill_stuck` — valvula de entrada aberta ha 30min+ sem boia
+  alta ativar (P1, cooldown 4h). Sintoma de: agua na entrada esgotou,
+  valvula entupida, boia alta defeituosa, vazamento maior que vazao.
+  So ativa em modo `valve_auto=true` (manual e responsabilidade do user).
+
+**Cam (1 alerta):**
+- `cam_capture_failed` — Cam configurada pra gravar (recording=true) mas
+  ultima captura ha mais de `max(2*capture_interval, 30min)` (P2,
+  cooldown 12h). Sintoma de: erro na camera, falha de upload, storage
+  cheio no servidor, ESP32 trastornado.
+
+### Implementacao
+- Helper generico `_dht_threshold_check` em `notifications.py` —
+  encapsula o pattern timer (timestamp persistido em `ctrl_data`,
+  sobrevive a restart do container, dispara apos N segundos de condicao
+  continua, limpa quando volta ao normal). Reusado pelos 3 checks de DHT
+  pra evitar duplicacao.
+- Cada `_check_*` filtrado em `check()` por `module_type` — `dht_*` so
+  roda em `hidro-farm`, `cam_capture_failed` so em `cam`. Evita
+  KeyError em modulos que nao reportam aqueles campos.
+- Constantes de threshold no topo da `AlertManager` (`DHT_TEMP_HIGH_C`,
+  `VALVE_FILL_TIMEOUT_SEC`, etc.) pra facilitar tuning sem mexer logica.
+
+### Removido
+- `GET /api/profile/alerts/history` em `usuario/profile.py`. Era global e
+  nao tinha caller no frontend (migrado pra per-module em v4.1.57).
+  Cleanup conforme auditoria — manter codigo morto piora manutencao.
+  Recriacao trivial se demanda surgir.
+
+### Como testar
+- Hidro-Farm: pra forcar `reservoir_fill_stuck`, abrir valvula manualmente
+  com modo auto + esvaziar reservatorio (boia alta nao ativa). Ou esperar
+  ciclo natural se ja tem o problema.
+- Cam: parar o servidor de captura ou desconectar Cam por 30min+.
+- Acompanhar via `docker logs cultivee-app | grep ALERTA`.
+
 ## [4.1.57] - 2026-04-25
 
 ### Mudado (consistencia entre os 2 historicos do app)

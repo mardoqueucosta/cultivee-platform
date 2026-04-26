@@ -94,12 +94,36 @@ PRODUCT_ALERTS = {
             "severity_default": "P2",
             "cooldown_sec": 12 * 3600,
         },
-        # v4.1.53 vai adicionar: dht_temperature_high/low,
-        # dht_humidity_extreme, reservoir_fill_stuck
+        # v4.1.58: 4 alertas novos (server-only, zero firmware change)
+        "dht_temperature_high": {
+            "name": "Temperatura alta no ambiente",
+            "severity_default": "P2",
+            "cooldown_sec": 6 * 3600,
+        },
+        "dht_temperature_low": {
+            "name": "Temperatura baixa no ambiente",
+            "severity_default": "P2",
+            "cooldown_sec": 6 * 3600,
+        },
+        "dht_humidity_extreme": {
+            "name": "Umidade fora da faixa segura",
+            "severity_default": "P3",
+            "cooldown_sec": 12 * 3600,
+        },
+        "reservoir_fill_stuck": {
+            "name": "Reservatorio nao enche (valvula aberta sem agua)",
+            "severity_default": "P1",
+            "cooldown_sec": 4 * 3600,
+        },
     },
     "cam": {
-        # v4.1.54 vai adicionar: cam_capture_failed, cam_dark_frame,
-        # cam_init_failed
+        # v4.1.58: 1 alerta server-only (baseado em last_capture_at)
+        "cam_capture_failed": {
+            "name": "Falha de captura na camera",
+            "severity_default": "P2",
+            "cooldown_sec": 12 * 3600,
+        },
+        # v4.1.59+ (firmware change): cam_dark_frame, cam_init_failed
     },
 }
 
@@ -216,6 +240,31 @@ class AlertManager:
             self._check_wifi_disconnect_burst(chip_id, merged, user_id, module)
         except Exception as e:
             log.warning(f"check_wifi_burst falhou pra {chip_id}: {e}")
+
+        # v4.1.58: 5 alertas novos (server-only). Filtra por module_type
+        # internamente — alerta de DHT so faz sentido pra hidro-farm,
+        # capture_failed so pra cam, etc.
+        module_type = module.get("type") if module else None
+        try:
+            if module_type == "hidro-farm":
+                self._check_dht_temperature(chip_id, merged, user_id, module)
+        except Exception as e:
+            log.warning(f"check_dht_temperature falhou pra {chip_id}: {e}")
+        try:
+            if module_type == "hidro-farm":
+                self._check_dht_humidity(chip_id, merged, user_id, module)
+        except Exception as e:
+            log.warning(f"check_dht_humidity falhou pra {chip_id}: {e}")
+        try:
+            if module_type == "hidro-farm":
+                self._check_reservoir_fill_stuck(chip_id, merged, user_id, module)
+        except Exception as e:
+            log.warning(f"check_fill_stuck falhou pra {chip_id}: {e}")
+        try:
+            if module_type == "cam":
+                self._check_cam_capture_failed(chip_id, merged, user_id, module)
+        except Exception as e:
+            log.warning(f"check_cam_capture_failed falhou pra {chip_id}: {e}")
 
         # Futuros: firmware_update_failed (precisa firmware reportar
         # ota_rollback_count — adia ate proxima rev de firmware)
@@ -438,6 +487,286 @@ class AlertManager:
             "wifi_disconnect_baseline": cur_count,
             "wifi_disconnect_baseline_at": datetime.now().isoformat(),
         })
+
+    # =========================================================
+    # v4.1.58 — Alertas especificos Hidro-Farm (DHT + reservatorio)
+    # =========================================================
+    # Todos server-only, zero impacto no firmware. Campos `temperature`,
+    # `humidity`, `dht_valid`, `valve_entrada`, `level_high` ja sao
+    # reportados pelo mod_hidrofarm.h via register a cada poll.
+
+    DHT_TEMP_HIGH_C = 35              # >= 35°C por 30min = alerta
+    DHT_TEMP_LOW_C = 10               # <= 10°C por 30min = alerta
+    DHT_TEMP_DURATION_SEC = 30 * 60
+    DHT_HUMIDITY_LOW = 20             # < 20% UR
+    DHT_HUMIDITY_HIGH = 95            # > 95% UR
+    DHT_HUMIDITY_DURATION_SEC = 60 * 60   # 1h
+
+    # Reservoir fill stuck: valvula aberta ha 30min+ sem boia alta ativar.
+    # Causas: agua na entrada esgotou, valvula entupida, boia alta defeituosa.
+    VALVE_FILL_TIMEOUT_SEC = 30 * 60
+
+    def _check_dht_temperature(self, chip_id, ctrl_data, user_id, module):
+        """Temperatura DHT11 fora da faixa segura (10-35°C) por 30min+.
+        Pattern de timer igual _check_reservoir: persiste timestamp em
+        ctrl_data pra sobreviver a restart do container."""
+        if not ctrl_data.get("dht_valid"):
+            return  # leitura invalida — _check_sensor_invalid cuida disso
+        temp = ctrl_data.get("temperature")
+        if temp is None:
+            return
+        try:
+            temp = int(temp)
+        except (TypeError, ValueError):
+            return
+
+        # HIGH: >= 35°C
+        self._dht_threshold_check(
+            chip_id, ctrl_data, user_id, module,
+            value=temp,
+            condition=(temp >= self.DHT_TEMP_HIGH_C),
+            timer_field="dht_temp_high_since",
+            duration_sec=self.DHT_TEMP_DURATION_SEC,
+            alert_type="dht_temperature_high",
+            title="[P2] Temperatura alta no ambiente",
+            body_template=(
+                "{name}: temperatura ambiente em {value}°C ha {min}min "
+                "(limite >= {thr}°C). Verifique ventilacao."
+            ),
+            threshold=self.DHT_TEMP_HIGH_C,
+            cooldown_sec=6 * 3600,
+        )
+        # LOW: <= 10°C
+        self._dht_threshold_check(
+            chip_id, ctrl_data, user_id, module,
+            value=temp,
+            condition=(temp <= self.DHT_TEMP_LOW_C),
+            timer_field="dht_temp_low_since",
+            duration_sec=self.DHT_TEMP_DURATION_SEC,
+            alert_type="dht_temperature_low",
+            title="[P2] Temperatura baixa no ambiente",
+            body_template=(
+                "{name}: temperatura ambiente em {value}°C ha {min}min "
+                "(limite <= {thr}°C). Pode prejudicar germinacao."
+            ),
+            threshold=self.DHT_TEMP_LOW_C,
+            cooldown_sec=6 * 3600,
+        )
+
+    def _check_dht_humidity(self, chip_id, ctrl_data, user_id, module):
+        """Umidade DHT11 fora da faixa 20-95% por 1h+. Severidade P3 (info)."""
+        if not ctrl_data.get("dht_valid"):
+            return
+        hum = ctrl_data.get("humidity")
+        if hum is None:
+            return
+        try:
+            hum = int(hum)
+        except (TypeError, ValueError):
+            return
+
+        # Fora da faixa: < 20% OU > 95%
+        out_of_range = (hum < self.DHT_HUMIDITY_LOW or hum > self.DHT_HUMIDITY_HIGH)
+        side = "alta" if hum > self.DHT_HUMIDITY_HIGH else "baixa"
+        self._dht_threshold_check(
+            chip_id, ctrl_data, user_id, module,
+            value=hum,
+            condition=out_of_range,
+            timer_field="dht_humidity_since",
+            duration_sec=self.DHT_HUMIDITY_DURATION_SEC,
+            alert_type="dht_humidity_extreme",
+            title="[P3] Umidade fora da faixa segura",
+            body_template=(
+                "{name}: umidade " + side + " em {value}% ha {min}min "
+                "(faixa segura: " + str(self.DHT_HUMIDITY_LOW) + "-"
+                + str(self.DHT_HUMIDITY_HIGH) + "%)."
+            ),
+            threshold=hum,  # nao usado no template, evita KeyError
+            cooldown_sec=12 * 3600,
+        )
+
+    def _dht_threshold_check(self, chip_id, ctrl_data, user_id, module,
+                             value, condition, timer_field, duration_sec,
+                             alert_type, title, body_template, threshold,
+                             cooldown_sec):
+        """Helper generico de timer pra alertas baseados em sensor fora de
+        faixa. Mesma logica do _check_reservoir — persiste timestamp pra
+        sobreviver a restart, dispara apos N segundos de condicao continua,
+        limpa quando volta ao normal."""
+        import models as _m
+        timer_key = f"{chip_id}:{alert_type}"
+
+        if not condition:
+            # Voltou ao normal — limpa timer (memoria + banco)
+            if timer_key in _alert_timers:
+                _alert_timers.pop(timer_key, None)
+                _m.update_ctrl_data(chip_id, {timer_field: None})
+            return
+
+        now = time.time()
+        if timer_key not in _alert_timers:
+            existing_since = ctrl_data.get(timer_field)
+            if existing_since:
+                try:
+                    from datetime import datetime
+                    since_dt = datetime.fromisoformat(existing_since)
+                    _alert_timers[timer_key] = since_dt.timestamp()
+                except (ValueError, TypeError):
+                    _alert_timers[timer_key] = now
+            else:
+                _alert_timers[timer_key] = now
+                from datetime import datetime, timezone
+                _m.update_ctrl_data(chip_id, {
+                    timer_field: datetime.now(timezone.utc).isoformat()
+                })
+                return  # acabou de iniciar — espera
+
+        elapsed = now - _alert_timers[timer_key]
+        if elapsed < duration_sec:
+            return  # ainda dentro do tempo de tolerancia
+
+        if not _m.should_send_alert(user_id, chip_id, alert_type,
+                                     cooldown_seconds=cooldown_sec):
+            return
+
+        name = (module.get("name") if module else None) or "Modulo"
+        body = body_template.format(
+            name=name, value=value,
+            min=int(elapsed / 60), thr=threshold
+        )
+        payload = {
+            "title": title,
+            "body": body,
+            "tag": f"{alert_type}-{chip_id}",
+            "url": "/"
+        }
+        self._send_alert(user_id, chip_id, alert_type, payload)
+
+    def _check_reservoir_fill_stuck(self, chip_id, ctrl_data, user_id, module):
+        """Valvula de entrada aberta ha 30min+ sem a boia alta ativar.
+        Sintoma de: (a) agua na entrada esgotou, (b) valvula entupida,
+        (c) boia alta defeituosa, (d) vazamento maior que a vazao.
+        P1 — acao no dia. So checa quando valveAuto=true (modo manual
+        e responsabilidade do usuario)."""
+        valve_auto = ctrl_data.get("valve_auto", True)
+        if not valve_auto:
+            return  # modo manual — usuario sabe o que ta fazendo
+
+        valve = ctrl_data.get("valve_entrada")
+        if not valve:
+            # Valvula fechada — limpa timer
+            timer_key = f"{chip_id}:fill_stuck"
+            if timer_key in _alert_timers:
+                _alert_timers.pop(timer_key, None)
+                import models as _m
+                _m.update_ctrl_data(chip_id, {"valve_open_since": None})
+            return
+
+        # Valvula aberta — checar boia alta
+        high = ctrl_data.get("level_high")
+        if high:
+            # Boia alta ativou — encheu, OK, valvula deve fechar logo
+            timer_key = f"{chip_id}:fill_stuck"
+            if timer_key in _alert_timers:
+                _alert_timers.pop(timer_key, None)
+                import models as _m
+                _m.update_ctrl_data(chip_id, {"valve_open_since": None})
+            return
+
+        # Valvula aberta + boia alta NAO ativou — timer
+        import models as _m
+        timer_key = f"{chip_id}:fill_stuck"
+        now = time.time()
+        if timer_key not in _alert_timers:
+            existing_since = ctrl_data.get("valve_open_since")
+            if existing_since:
+                try:
+                    from datetime import datetime
+                    since_dt = datetime.fromisoformat(existing_since)
+                    _alert_timers[timer_key] = since_dt.timestamp()
+                except (ValueError, TypeError):
+                    _alert_timers[timer_key] = now
+            else:
+                _alert_timers[timer_key] = now
+                from datetime import datetime, timezone
+                _m.update_ctrl_data(chip_id, {
+                    "valve_open_since": datetime.now(timezone.utc).isoformat()
+                })
+                return
+
+        elapsed = now - _alert_timers[timer_key]
+        if elapsed < self.VALVE_FILL_TIMEOUT_SEC:
+            return
+
+        if not _m.should_send_alert(user_id, chip_id, "reservoir_fill_stuck",
+                                     cooldown_seconds=4 * 3600):
+            return
+
+        name = (module.get("name") if module else None) or "Modulo"
+        payload = {
+            "title": "[P1] Reservatorio nao enche",
+            "body": (f"{name}: valvula aberta ha {int(elapsed/60)}min mas "
+                     f"a boia alta nao ativou. Verifique: agua na entrada, "
+                     f"valvula entupida, ou boia defeituosa."),
+            "tag": f"fill-stuck-{chip_id}",
+            "url": "/"
+        }
+        self._send_alert(user_id, chip_id, "reservoir_fill_stuck", payload)
+
+    # =========================================================
+    # v4.1.58 — Alerta Cam: capture_failed (server-only)
+    # =========================================================
+
+    # Margem de tolerancia: alerta se passou 2x o capture_interval sem
+    # upload, com floor de 30min (intervalos curtos como 5min nao alertariam
+    # em 10min — pouco tempo, pode ser glitch transiente).
+    CAM_CAPTURE_FAIL_FLOOR_SEC = 30 * 60
+
+    def _check_cam_capture_failed(self, chip_id, ctrl_data, user_id, module):
+        """Cam configurada pra gravar mas nao envia foto ha mais de
+        max(2*capture_interval, 30min). Sintoma de: erro na camera, falha
+        de upload, storage cheio no servidor, ou ESP32 trastornado."""
+        if not ctrl_data.get("recording"):
+            return  # Cam nao esta capturando — nada a alertar
+
+        try:
+            interval = int(ctrl_data.get("capture_interval", 600))
+        except (TypeError, ValueError):
+            interval = 600
+
+        last_at = ctrl_data.get("last_capture_at")
+        if not last_at:
+            # Nunca capturou — pode ser 1a vez (acabou de ligar recording).
+            # Espera 1 ciclo antes de alertar — proximo poll vai ter
+            # last_capture_at se a Cam funcionar.
+            return
+
+        from datetime import datetime
+        try:
+            last_dt = datetime.fromisoformat(last_at)
+        except (ValueError, TypeError):
+            return
+
+        elapsed = (datetime.now() - last_dt).total_seconds()
+        threshold = max(2 * interval, self.CAM_CAPTURE_FAIL_FLOOR_SEC)
+        if elapsed < threshold:
+            return
+
+        import models
+        if not models.should_send_alert(user_id, chip_id, "cam_capture_failed",
+                                         cooldown_seconds=12 * 3600):
+            return
+
+        name = (module.get("name") if module else None) or "Camera"
+        payload = {
+            "title": "[P2] Falha de captura na camera",
+            "body": (f"{name}: ultima captura ha {int(elapsed/60)}min "
+                     f"(intervalo configurado: {int(interval/60)}min). "
+                     f"Verifique modulo da camera ou storage do servidor."),
+            "tag": f"cam-fail-{chip_id}",
+            "url": "/"
+        }
+        self._send_alert(user_id, chip_id, "cam_capture_failed", payload)
 
     def _send_alert(self, user_id, chip_id, alert_type, payload, severity=None):
         """

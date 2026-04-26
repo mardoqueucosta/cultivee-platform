@@ -499,27 +499,10 @@ def lookup_cep(cep):
 # consumido pelo menu do usuario, nao mais pelo card do modulo.
 
 
-@profile_bp.route("/alerts/history", methods=["GET"])
-@_require_auth
-def alerts_history():
-    """Lista alertas recebidos pelo user nos ultimos N dias (default 30, max 90)."""
-    from datetime import datetime, timedelta
-    try:
-        days = int(request.args.get("days", 30))
-    except (TypeError, ValueError):
-        days = 30
-    days = max(1, min(90, days))
-    cutoff = (datetime.now() - timedelta(days=days)).isoformat()
-    from models.db import get_db
-    conn = get_db()
-    rows = conn.execute(
-        "SELECT id, chip_id, alert_type, severity, sent_at, ack_at "
-        "FROM alert_log WHERE user_id = ? AND sent_at >= ? "
-        "ORDER BY sent_at DESC LIMIT 200",
-        (request.user["id"], cutoff)
-    ).fetchall()
-    conn.close()
-    return jsonify({"alerts": [dict(r) for r in rows]})
+# v4.1.58: removido GET /api/profile/alerts/history (era global). Historico
+# agora e per-module em GET /api/modules/<chip>/alerts/history (v4.1.57).
+# Se um dia surgir use case pra view "todos os alertas do user" no menu,
+# recriar facilmente — basta esse mesmo SELECT sem filtro de chip_id.
 
 
 @profile_bp.route("/alerts/<int:alert_id>/ack", methods=["POST"])
