@@ -1,219 +1,307 @@
 # Plano de Execucao Cultivee — 5 Meses (Abril → Agosto 2026)
 
-> **Documento de referencia.** Atualizar status conforme entregas.
-> Marcar `[x]` quando concluido, anotar versao + observacao.
-> Itens parciais ficam `[~]` com nota explicando o que falta.
+> **Cronologia preservada** (Mes 1..5) com **colunas por natureza de trabalho** —
+> permite ver de relance se um item e puro software, exige hardware novo, ou
+> precisa de visita presencial.
 
 **Ultima atualizacao**: 2026-04-26
-**Status global**: 7/20 itens (35%) — ver detalhe por mes abaixo
+**Status global**: 7/20 itens (35%)
 
 ---
 
-## Resumo executivo
+## Legenda
 
-| Mes | Tema | Itens | Status |
-|---|---|---|---|
-| **Abril** | Fundacao e Controle | 4/4 | ✅ Concluido |
-| **Maio** | Rede Distribuida e Vigilancia | 2/4 | 🟡 Parcial (2 presenciais pendentes) |
-| **Junho** | Rastreabilidade e Ciclo de Producao | 0/4 | ⏳ Nao iniciado |
-| **Julho** | Instrumentacao Ambiental | 0/4 (1 parcial) | ⏳ Nao iniciado |
-| **Agosto** | Planejamento e Inteligencia Operacional | 0/4 | ⏳ Nao iniciado |
+**Categorias de trabalho** (o que precisa ser feito pra entregar):
 
----
+| Tag | Significado | Caracteristica |
+|---|---|---|
+| **HW** | Hardware fisico | Comprar, montar, validar — leadtime de semanas |
+| **FW** | Firmware ESP32 | Compilar, OTA — risco de brick, exige USB ou OTA estavel |
+| **BE** | Backend Flask | Schema, endpoints, jobs — deploy automatico via push |
+| **FE** | Frontend PWA | UI, dashboard, fluxos — deploy junto com backend |
+| **OPS** | Operacional / presencial | Visita, instalacao fisica, configuracao no local |
+| **DATA** | Dados / conteudo | Cadastro de catalogo, calibracao com solucoes reais |
 
-## Mes 1 — Abril (Fundacao e Controle) — ✅ CONCLUIDO
-
-- [x] **Instalacao e validacao do modulo HIDRO em campo: ciclos de luz e bomba por 72h continuas**
-  - Status: ✅ Concluido. 2 chips Hidro rodando em campo desde inicio do mes (`50B525077000` em bench / `E04730A7DBCC` no parceiro). Sistema de fases ja roda os ciclos via RTC DS3231 (offline-first).
-  - Versoes relevantes: firmware base (pre-v4.0.x) ja tinha; refinamentos continuaram ate v4.1.60.
-
-- [x] **Automacao do reservatorio de solucao nutritiva: sensor de nivel (float switch) com corte automatico da bomba**
-  - Status: ✅ Concluido no produto **HIDRO-FARM** (que tem 2 boias reed-switch + valvula de entrada com automacao via `valveAuto=true`). Maquina de estados em `mod_hidrofarm.h:reservoirControlFarm()`.
-  - Observacao: o HIDRO base nao tem boias (so o FARM tem). O plano original previa apenas no Hidro, foi cumprido com o produto Premium.
-  - Versoes relevantes: firmware base do hidro-farm; alerta `level_low` (P1) em v4.1.0; alerta `reservoir_fill_stuck` (P1) em v4.1.58.
-
-- [x] **Configuracao do dashboard IoT com locais, modulos pareados e controle remoto de atuadores**
-  - Status: ✅ Concluido desde v4.0.x. PWA `app.cultivee.com.br` com:
-    - Pareamento via short_id (4 chars) — wizard
-    - Lista per-user com checkbox/setas de ordem (`module_prefs`)
-    - Controle remoto de reles via `/api/hidro|hidro-farm|cam/<chip>/relay`
-    - Proxy direto ao IP local + fallback `pending_commands` na fila
-  - Versoes relevantes: arquitetura 3-camadas v4.1.17, registry pattern frontend, blueprints por capability.
-
-- [x] **Implementacao de alertas P0/P1 de nivel do reservatorio com push notification via PWA**
-  - Status: ✅ Concluido em v4.1.0. `level_low` alert P1 com cooldown 1h, push (VAPID/pywebpush) + email (SMTP HostGator). Timer visual `low_since` no card. Threshold configuravel (1-120 min).
-  - Versoes relevantes: v4.1.0 (sistema base), v4.1.7 (threshold configuravel), v4.1.40 (catalogo P0-P3 formal).
+**Status:**
+- ✅ Concluido
+- 🟡 Parcial (infra existe, falta integracao ou dados)
+- 🔴 Pendente bloqueado (depende de algo externo, ex: presencial)
+- ⏳ Nao iniciado (sem bloqueio aparente)
 
 ---
 
-## Mes 2 — Maio (Rede Distribuida e Vigilancia) — 🟡 2/4 (2 presenciais pendentes)
+## Tabela mestre — todos os 20 itens (cronologica)
 
-- [ ] **Instalacao e pareamento do segundo modulo HIDRO no expositor de pequeno porte**
-  - Status: 🔴 Pendente — exige **visita presencial** ao parceiro.
-  - Pre-requisitos tecnicos: prontos. Firmware v4.1.60 ja em outro chip de bench (`50B525077000`), pronto pra ser regravado pro expositor quando agendar.
-  - Acao: agendar visita.
-
-- [ ] **Validacao da operacao do modulo em rede WiFi externa (ambiente do parceiro/expositor)**
-  - Status: 🔴 Pendente — depende do item anterior. Validar sinal RSSI, estabilidade (`wifi_disconnect_count`), conectividade ao app, captive portal funcionando.
-  - Pre-requisitos tecnicos: telemetria WiFi ja existe (v4.1.8) — `wifi_last_error`, `wifi_last_connected_ms`, `wifi_disconnect_count`. Alert `wifi_disconnect_burst` (P2) ja monitora estabilidade.
-
-- [x] **Implementacao do sistema de alertas P0-P3 com push notification, email e cooldown anti-fadiga**
-  - Status: ✅ Concluido + EVOLUIDO alem do escopo.
-  - Versao base: v4.1.40 (catalogo P0-P3 formal, 6 tipos com cooldown variavel).
-  - Refator: v4.1.52 (per-module — alertas viraram propriedade do modulo, nao do user).
-  - Hoje: 9 alertas no catalogo total (4 universais + 6 hidro-farm + 3 cam):
-    - Universais: `module_offline`, `module_recovered`, `low_heap_warning`, `wifi_disconnect_burst`
-    - Hidro-Farm: `level_low`, `sensor_invalid`, `dht_temperature_high/low`, `dht_humidity_extreme`, `reservoir_fill_stuck`
-    - Cam: `cam_capture_failed`, `cam_init_failed`, `cam_dark_frame`
-  - Anti-fadiga: cooldowns variaveis (1h-24h por tipo) + janela de silencio global do user (P0 sempre passa) + prefs per-modulo (push/email opt-in).
-  - Email contextualizado em v4.1.60 (subject identifica modulo).
-
-- [x] **Configuracao de deteccao automatica de offline para todos os locais cadastrados no dashboard**
-  - Status: ✅ Concluido em v4.1.38. `server/jobs/offline_watcher.py` thread daemon (a cada 60s) detecta modulos com `last_seen > threshold` e dispara alerta P1 (push + email). Lock distribuido via `offline_watcher_state` singleton (1 worker do Gunicorn executa).
-  - v4.1.39: threshold configuravel **per-modulo** (1-1440 min, default 15min) + toggle ON/OFF no card de notificacoes.
-  - Cooldowns: P1 4h, P0 12h (>24h offline), recovery 1h.
+| # | Mes | Item | HW | FW | BE | FE | OPS | DATA | Versao / Ref | Status |
+|---|---|---|:-:|:-:|:-:|:-:|:-:|:-:|---|:-:|
+| **1.1** | Abril | Instalacao HIDRO em campo (ciclos 72h) | • | • | | | • | | pre-v4.0 | ✅ |
+| **1.2** | Abril | Automacao reservatorio (boias + valvula auto) | • | • | • | • | | | hidro-farm | ✅ |
+| **1.3** | Abril | Dashboard IoT (locais + modulos + controle) | | | • | • | | | v4.0.x → v4.1.17 | ✅ |
+| **1.4** | Abril | Alertas P0/P1 nivel reservatorio + push PWA | | | • | • | | | v4.1.0 | ✅ |
+| **2.1** | Maio | Instalacao 2º HIDRO no expositor parceiro | | | | | • | | — | 🔴 |
+| **2.2** | Maio | Validacao operacao em WiFi externa parceiro | | | | | • | | — | 🔴 |
+| **2.3** | Maio | Sistema P0-P3 push + email + cooldown | | | • | • | | | v4.1.40 → v4.1.52 | ✅ |
+| **2.4** | Maio | Deteccao offline automatica (todos modulos) | | | • | | | | v4.1.38 → v4.1.39 | ✅ |
+| **3.1** | Junho | Catalogo de especies (parametros agronomicos) | | | • | • | | • | — | ⏳ |
+| **3.2** | Junho | Lotes + progressao (Germ→Berc→Engorda→Pre-col) | | | • | • | | | — | ⏳ |
+| **3.3** | Junho | Transferencia fazenda → expositor | | | • | • | • | | — | ⏳ |
+| **3.4** | Junho | Contagem regressiva + alerta P2 reposicao | | | • | • | | | — | ⏳ |
+| **4.1** | Julho | **Modulo CLIMA** (DHT22 + MH-Z19 CO2) | • | • | • | • | • | | — | ⏳ |
+| **4.2** | Julho | **Modulo SOLUCAO** (sondas pH + CE) | • | • | • | • | • | • | — | ⏳ |
+| **4.3** | Julho | Historico sensorial + graficos 24h | | | • | • | | | — | 🟡 |
+| **4.4** | Julho | Alertas sensoriais P1 por especie | | | • | | | | — | 🟡 |
+| **5.1** | Agosto | Motor planejamento producao (Lei de Little) | | | • | | | | — | ⏳ |
+| **5.2** | Agosto | Agenda automatica semeadura/transferencia | | | • | • | | | — | ⏳ |
+| **5.3** | Agosto | Relatorios real vs planejado + fator perda | | | • | • | | | — | ⏳ |
+| **5.4** | Agosto | Alertas pipeline P2 (estagio < 70% volume ideal) | | | • | | | | — | ⏳ |
 
 ---
 
-## Mes 3 — Junho (Rastreabilidade e Ciclo de Producao) — ⏳ NAO INICIADO
+## Estatisticas por categoria (visao complementar)
 
-- [ ] **Cadastro do catalogo de especies cultivadas com parametros agronomicos e duracao de ciclo por estagio**
-  - Status: ⏳ Nao iniciado.
-  - Escopo provavel:
-    - Schema novo `species (id, nome, parametros_agronomicos JSON, ciclo_estagios JSON)`
-    - Cada estagio tem duracao + thresholds de temp/hum/CE/pH ideais
-    - UI: pagina `/especies` no app pra cadastrar/editar
-    - Endpoint admin pra catalogo "padrao da casa" (alface, manjericao, etc.)
+| Categoria | Total de itens que tocam | Concluidos | Pendentes |
+|---|:-:|:-:|:-:|
+| **HW** (hardware fisico) | 4 | 2 (1.1, 1.2) | 2 (4.1, 4.2) |
+| **FW** (firmware) | 4 | 2 (1.1, 1.2) | 2 (4.1, 4.2) |
+| **BE** (backend) | 18 | 6 | 12 |
+| **FE** (frontend) | 14 | 5 | 9 |
+| **OPS** (presencial) | 6 | 1 (1.1) | 5 (2.1, 2.2, 3.3, 4.1, 4.2) |
+| **DATA** (cadastro/calibracao) | 3 | 0 | 3 (3.1, 4.2 calibracao, especies novas) |
 
-- [ ] **Implementacao do registro e progressao automatica de lotes na fazenda vertical (Germinacao → Bercario → Engorda → Pre-colheita)**
-  - Status: ⏳ Nao iniciado.
-  - Observacao: ja existe conceito de **fases** no Hidro/Hidro-Farm (`struct Phase` com luz/bomba/vent/aer + duracao em dias), mas e **por modulo**, nao por **lote** com identidade propria.
-  - Escopo provavel:
-    - Schema novo `lots (id, species_id, modulo_id, estagio_atual, planted_at, harvested_at)`
-    - State machine de progressao automatica (data-based ou trigger manual)
-    - Historico por lote pra rastreabilidade
-
-- [ ] **Desenvolvimento do fluxo de transferencia de lotes da fazenda vertical para o expositor com rastreamento completo**
-  - Status: ⏳ Nao iniciado.
-  - Pre-requisito: itens 1 e 2 acima (catalogo + lotes).
-  - Escopo provavel:
-    - UI: tela "Mover lote" — escolher lote + destino (expositor)
-    - Trigger automatico quando estagio == "pre-colheita"
-    - Transacao atomica: lot.modulo_id atualizado + log de transferencia
-
-- [ ] **Contagem regressiva de dias no expositor e alertas automaticos de reposicao (P2 a 3 dias do fim do ciclo)**
-  - Status: ⏳ Nao iniciado.
-  - Pre-requisito: item 3 acima.
-  - Escopo provavel:
-    - Novo alerta `lot_near_harvest` (P2, cooldown 24h) — dispara quando `dias_no_expositor + dias_restantes_ciclo <= 3`
-    - Card visual no dashboard com countdown
-    - Integra com sistema de alertas per-module (v4.1.52)
+**Insight chave**: 65% do plano (13 itens) e **PURO software** (so BE+FE) — pode rodar em paralelo enquanto hardware/presencial estao em andamento.
 
 ---
 
-## Mes 4 — Julho (Instrumentacao Ambiental) — ⏳ NAO INICIADO
+## Dependencias entre itens (cross-mes)
 
-- [ ] **Instalacao do modulo CLIMA na fazenda vertical: sensores de temperatura, umidade relativa (DHT22) e CO2 (MH-Z19)**
-  - Status: ⏳ Nao iniciado (modulo dedicado).
-  - Observacao: o **HIDRO-FARM** ja tem DHT11 (temp+umidade ambiente), mas e modulo de irrigacao com sensor "tag along". O plano preve modulo CLIMA dedicado com:
-    - DHT22 (mais preciso que DHT11, casa decimal)
-    - MH-Z19 (CO2 NDIR — sensor novo nao existente no projeto)
-  - Escopo provavel:
-    - Novo produto `products/clima.h` + `firmware/mod_clima.h`
-    - Capability "clima" + blueprint `server/hardware/clima.py`
-    - Frontend: novo `renderModule_clima` no registry pattern
+Algumas entregas precisam de outras prontas antes:
 
-- [ ] **Instalacao do modulo SOLUCAO: sondas de pH e condutividade eletrica (CE) com calibracao inicial (solucoes pH 4.0 e 7.0)**
-  - Status: ⏳ Nao iniciado.
-  - Escopo provavel:
-    - Novo produto `products/solucao.h` + `firmware/mod_solucao.h`
-    - Sensor pH (DFRobot ou similar) + sensor CE (TDS/EC)
-    - Procedimento de calibracao 2 pontos (pH 4.0 + 7.0) — UI no app pra registrar
-    - Persistir offsets de calibracao no NVS do ESP32
-    - Reportar `ph` + `ec` no register a cada poll
+```
+3.1 catalogo de especies ──┬──→ 4.4 alertas sensoriais por especie
+                            ├──→ 5.1 motor de planejamento
+                            └──→ 5.3 relatorios
 
-- [ ] **Implementacao de historico de leituras sensoriais com graficos de tendencia das ultimas 24h por parametro**
-  - Status: 🟡 PARCIAL — infra de eventos temporais existe (`module_status_events` v4.1.31, retencao 90 dias) mas e SO uptime (online/offline), nao leituras sensoriais.
-  - Falta: tabela nova tipo `sensor_readings (chip_id, timestamp, parametro, valor)` com aggregation por hora pra historico de 24h.
-  - UI: componente de chart (sparkline ou line chart) — Chart.js ja foi cogitado no backlog.
+3.2 lotes ─────────────────┬──→ 3.3 transferencia
+                            ├──→ 3.4 contagem regressiva
+                            ├──→ 5.1 motor de planejamento
+                            ├──→ 5.2 agenda automatica
+                            └──→ 5.3 relatorios
 
-- [ ] **Configuracao de alertas sensoriais automaticos (P1) por desvio de faixa configurada por especie**
-  - Status: 🟡 PARCIAL — alertas DHT temp/hum existem (v4.1.58) mas com **thresholds globais hardcoded** (35°C / 10°C / 20%-95%), nao por especie.
-  - Falta:
-    - Thresholds vir do catalogo de especies (Mes 3 item 1)
-    - Logica per-modulo cruzar lote ativo (Mes 3 item 2) com especie pra resolver thresholds
-    - Severidade aumentar pra P1 quando alerta sensorial cruza com lote em estagio critico
+4.1 modulo CLIMA ──────────┬──→ 4.3 historico sensorial (precisa dos dados)
+                            └──→ 4.4 alertas sensoriais (precisa dos sensores)
+
+4.2 modulo SOLUCAO ────────┬──→ 4.3 historico sensorial
+                            └──→ 4.4 alertas sensoriais
+
+5.1 motor planejamento ────┬──→ 5.2 agenda automatica
+                            └──→ 5.4 alertas pipeline
+```
+
+**Caminho critico**: `3.1 + 3.2 → 5.1 → 5.2/5.4`. Sem catalogo + lotes (Junho), nada do Mes 5 anda.
 
 ---
 
-## Mes 5 — Agosto (Planejamento e Inteligencia Operacional) — ⏳ NAO INICIADO
+## Filtros uteis pra planejamento
 
-- [ ] **Implementacao do motor de planejamento de producao com calculo de pipeline ideal por especie (Lei de Little)**
-  - Status: ⏳ Nao iniciado. Pre-requisito: catalogo de especies (Mes 3) + lotes (Mes 3).
-  - Conceito: **Lei de Little** (`L = λ × W`) — em estado estavel, lotes em pipeline = throughput × tempo de ciclo. Permite calcular quantos lotes deveriam estar em cada estagio pra atingir meta mensal.
-  - Escopo provavel: pagina `/planejamento` com calculadora + dashboard do estado atual vs ideal.
+### Itens que podem rodar EM PARALELO ao hardware sendo comprado/instalado
 
-- [ ] **Agenda semanal automatica de semeadura e transferencias com base na meta mensal configurada**
-  - Status: ⏳ Nao iniciado. Pre-requisito: motor de planejamento (item 1 acima).
-  - Escopo provavel: cron interno gera tarefas (semear lote X, transferir lote Y) baseado em meta + ciclo das especies. Card "agenda da semana" no dashboard.
+(Software puro, sem dependencia de HW novo na mesma rodada)
 
-- [ ] **Relatorios de producao real vs. planejado por especie com calculo de fator de perda real**
-  - Status: ⏳ Nao iniciado.
-  - Escopo provavel:
-    - Pagina `/relatorios` com filtros (especie, periodo)
-    - Calcular fator de perda = `1 - (colhidos / plantados)` por especie
-    - Comparar planejado (meta × ciclo) vs real (lotes finalizados)
+- **3.1, 3.2, 3.4** (Junho) — catalogo + lotes + contagem regressiva
+- **5.1, 5.2, 5.3, 5.4** (Agosto) — depois de Junho pronto
 
-- [ ] **Alertas automaticos de pipeline (P2) por estagio de cultivo abaixo de 70% do volume ideal**
-  - Status: ⏳ Nao iniciado. Pre-requisito: motor de planejamento (item 1).
-  - Conceito: novo alerta `pipeline_underflow` (P2) por estagio + especie. Dispara quando `volume_atual < 0.7 × volume_ideal_calculado`.
-  - Escopo provavel: novo `_check_pipeline` em AlertManager (server-only). Adicionar em `PRODUCT_ALERTS` ou cria categoria nova de alertas "operacionais" (nao per-module).
+Total: **7 itens** que voce pode comecar enquanto hardware do Mes 4 esta em compra/montagem.
+
+### Itens bloqueados por presencial
+
+- **2.1, 2.2** — exigem visita ao parceiro (instalacao 2º HIDRO + validacao WiFi)
+- **3.3** — gestao de transferencia (acompanhamento, nao instalacao)
+- **4.1, 4.2** — instalacao fisica dos modulos novos (depois HW pronto)
+
+Total: **5 itens** bloqueados por algum presencial.
+
+### Itens que dependem de hardware NOVO (CLIMA + SOLUCAO)
+
+- **4.1, 4.2** — os proprios modulos
+- **4.3, 4.4** — consomem dados deles
+
+Total: **4 itens** atrelados ao Mes 4. Comprar componentes assim que decidir prosseguir.
+
+---
+
+## Detalhe expandido por mes
+
+### Mes 1 — Abril (Fundacao e Controle) — ✅ CONCLUIDO
+
+**1.1 Instalacao HIDRO em campo (ciclos 72h)** — `[HW][FW][OPS]` ✅
+- 2 chips Hidro rodando: `50B525077000` (bench) + `E04730A7DBCC` (parceiro)
+- Sistema de fases roda offline-first via RTC DS3231
+- Refinamentos continuaram ate v4.1.60
+
+**1.2 Automacao reservatorio (boias + valvula auto)** — `[HW][FW][BE][FE]` ✅
+- Implementado no produto **HIDRO-FARM** (boias reed-switch + maquina de estados em `mod_hidrofarm.h:reservoirControlFarm()`)
+- Alerta `level_low` (P1) v4.1.0; alerta `reservoir_fill_stuck` (P1) v4.1.58
+
+**1.3 Dashboard IoT (locais + modulos + controle remoto)** — `[BE][FE]` ✅
+- PWA `app.cultivee.com.br` desde v4.0.x
+- Pareamento via short_id, lista per-user, controle remoto via blueprints por capability
+- Arquitetura 3-camadas v4.1.17, registry pattern frontend
+
+**1.4 Alertas P0/P1 nivel + push PWA** — `[BE][FE]` ✅
+- v4.1.0 (sistema base) + v4.1.7 (threshold configuravel) + v4.1.40 (catalogo P0-P3)
+
+---
+
+### Mes 2 — Maio (Rede Distribuida e Vigilancia) — 🟡 2/4
+
+**2.1 Instalacao 2º HIDRO no expositor parceiro** — `[OPS]` 🔴
+- Pre-requisitos tecnicos: prontos. Firmware v4.1.60 ja em outro chip de bench, pronto pra ser regravado.
+- **Acao pendente**: agendar visita ao parceiro.
+
+**2.2 Validacao operacao em WiFi externa parceiro** — `[OPS]` 🔴
+- Depende de 2.1.
+- Telemetria WiFi ja existe (v4.1.8): `wifi_last_error`, `wifi_last_connected_ms`, `wifi_disconnect_count`. Alert `wifi_disconnect_burst` (P2) ja monitora.
+
+**2.3 Sistema P0-P3 push + email + cooldown anti-fadiga** — `[BE][FE]` ✅ + EVOLUIDO
+- v4.1.40 (catalogo formal) → v4.1.52 (refator per-module).
+- Hoje: 9 alertas no catalogo (4 universais + 6 hidro-farm + 3 cam).
+- Cooldowns variaveis (1h-24h por tipo) + janela de silencio global do user (P0 sempre passa) + prefs per-modulo.
+
+**2.4 Deteccao offline automatica** — `[BE]` ✅
+- v4.1.38 (`server/jobs/offline_watcher.py` thread daemon) + v4.1.39 (threshold per-modulo configuravel, default 15min).
+- Cooldowns: P1 4h, P0 12h (>24h offline), recovery 1h.
+
+---
+
+### Mes 3 — Junho (Rastreabilidade e Ciclo de Producao) — ⏳ 0/4
+
+**3.1 Catalogo de especies** — `[BE][FE][DATA]`
+- Schema novo `species (id, nome, parametros_agronomicos JSON, ciclo_estagios JSON)`
+- Cada estagio: duracao + thresholds ideais (temp/hum/CE/pH)
+- UI: pagina `/especies` no app pra cadastrar/editar
+- Dados: 3-5 especies "padrao da casa" (alface, manjericao, etc.)
+- **Habilita**: 4.4, 5.1, 5.3
+
+**3.2 Lotes com progressao automatica** — `[BE][FE]`
+- Schema novo `lots (id, species_id, modulo_id, estagio_atual, planted_at, harvested_at)`
+- State machine: Germinacao → Bercario → Engorda → Pre-colheita
+- Progressao data-based ou trigger manual
+- Historico por lote pra rastreabilidade
+- **Habilita**: 3.3, 3.4, 5.1, 5.2, 5.3
+- **Observacao**: o Hidro/Hidro-Farm ja tem `struct Phase` por modulo, mas e diferente — phases controlam atuadores, lots controlam ciclo do PRODUTO
+
+**3.3 Transferencia fazenda → expositor** — `[BE][FE][OPS]`
+- UI: tela "Mover lote" — escolher lote + destino (expositor)
+- Trigger automatico quando estagio == "pre-colheita" (config opcional)
+- Transacao atomica: `lot.modulo_id` atualizado + log de transferencia
+- Pre-requisito: 3.1 + 3.2
+
+**3.4 Contagem regressiva + alerta P2 reposicao** — `[BE][FE]`
+- Novo alerta `lot_near_harvest` (P2, cooldown 24h) — dispara quando `dias_no_expositor + dias_restantes_ciclo <= 3`
+- Card visual no dashboard com countdown
+- Integra com sistema de alertas per-module (v4.1.52) — adicionar em `PRODUCT_ALERTS["hidro-farm"]` e/ou criar categoria "operacional"
+
+---
+
+### Mes 4 — Julho (Instrumentacao Ambiental) — ⏳ 0/4 (2 parciais)
+
+**4.1 Modulo CLIMA (DHT22 + MH-Z19 CO2)** — `[HW][FW][BE][FE][OPS]`
+- HW: comprar DHT22 (mais preciso que DHT11, casa decimal) + MH-Z19 NDIR + ESP32-WROOM
+- FW: novo `firmware/mod_clima.h` + `products/clima.h` (segue template do hidro-farm)
+- BE: novo blueprint `server/hardware/clima.py` + capability `"clima"`
+- FE: novo `renderModule_clima` no `moduleRenderers` (registry pattern)
+- OPS: instalar fisicamente na fazenda vertical
+- **Habilita**: 4.3, 4.4
+
+**4.2 Modulo SOLUCAO (sondas pH + CE)** — `[HW][FW][BE][FE][OPS][DATA]`
+- HW: sonda pH (DFRobot ou similar) + sensor CE/TDS + ESP32
+- FW: novo `firmware/mod_solucao.h` + `products/solucao.h`
+- BE: blueprint `server/hardware/solucao.py` + capability `"solucao"`
+- FE: `renderModule_solucao` + UI de calibracao 2 pontos
+- OPS: instalacao fisica
+- DATA: **calibracao inicial** com solucoes pH 4.0 + 7.0 (procedimento documentado)
+- Persistir offsets de calibracao no NVS do ESP32
+- **Habilita**: 4.3, 4.4
+
+**4.3 Historico sensorial + graficos 24h** — `[BE][FE]` 🟡 PARCIAL
+- Infra de eventos temporais existe (`module_status_events` v4.1.31, retencao 90 dias) mas e SO uptime — nao leituras sensoriais.
+- Falta: tabela `sensor_readings (chip_id, timestamp, parametro, valor)` com aggregation por hora
+- UI: chart component (Chart.js cogitado no backlog)
+- **Pre-requisito**: 4.1 + 4.2 (pra ter dados pra plotar)
+
+**4.4 Alertas sensoriais P1 por especie** — `[BE]` 🟡 PARCIAL
+- Alertas DHT temp/hum existem (v4.1.58) com **thresholds globais hardcoded** (35°C / 10°C / 20%-95%)
+- Falta:
+  - Thresholds vir do catalogo de especies (3.1)
+  - Logica per-modulo cruzar lote ativo (3.2) com especie pra resolver thresholds
+  - Severidade subir pra P1 quando alerta sensorial cruza com lote em estagio critico
+- **Pre-requisito**: 3.1 + 3.2 + (4.1 ou 4.2 — ja teria com hidro-farm DHT11 mas com baixa precisao)
+
+---
+
+### Mes 5 — Agosto (Planejamento e Inteligencia Operacional) — ⏳ 0/4
+
+**5.1 Motor de planejamento (Lei de Little)** — `[BE]`
+- Conceito: `L = λ × W` — lotes em pipeline = throughput × tempo de ciclo
+- Permite calcular quantos lotes deveriam estar em cada estagio pra atingir meta mensal
+- UI minima nesta release: API `GET /api/planning/ideal-pipeline?species=X&meta=N`
+- **Pre-requisito**: 3.1 + 3.2
+
+**5.2 Agenda automatica semeadura/transferencia** — `[BE][FE]`
+- Cron interno gera tarefas (semear lote X, transferir lote Y) baseado em meta + ciclo
+- Card "agenda da semana" no dashboard
+- **Pre-requisito**: 5.1
+
+**5.3 Relatorios real vs planejado + fator perda** — `[BE][FE]`
+- Pagina `/relatorios` com filtros (especie, periodo)
+- Calcular fator de perda = `1 - (colhidos / plantados)` por especie
+- Comparar planejado (meta × ciclo) vs real (lotes finalizados)
+- **Pre-requisito**: 3.1 + 3.2 (pra ter dados de plantados/colhidos)
+
+**5.4 Alertas pipeline P2 (estagio < 70% volume ideal)** — `[BE]`
+- Novo alerta `pipeline_underflow` (P2)
+- Dispara quando `volume_atual_no_estagio < 0.7 × volume_ideal_calculado`
+- Possivelmente categoria nova de alertas "operacionais" (nao per-module — e cross-fazenda)
+- **Pre-requisito**: 5.1
 
 ---
 
 ## Como atualizar este documento
 
 Quando entregar um item:
-1. Marca `[x]` (ou `[~]` pra parcial).
-2. Adiciona linha "Status: ✅ Concluido em vX.Y.Z" + observacao breve.
-3. Atualiza o "Resumo executivo" no topo (contadores).
-4. Atualiza "Ultima atualizacao" no topo.
-5. Commit junto com a release que entregou o item.
 
-Se o escopo MUDAR (item ganhou novo requisito ou foi descartado):
-- Adicionar nota inline "**Reescopo (DD/MM)**: ..." mantendo o texto original visivel.
-- NAO apaga o item original — preserva historico.
+1. Mudar status na **tabela mestre** (coluna Status: ✅ ou 🟡)
+2. Adicionar versao na coluna **Versao / Ref** (ex: `v4.1.60`)
+3. Atualizar contadores no **Resumo executivo** (35% no topo)
+4. Atualizar **Estatisticas por categoria** (concluidos)
+5. Atualizar **Ultima atualizacao** no topo
+6. No **detalhe expandido** do mes, marcar item com ✅ + observacao breve
+7. Commit junto com a release que entregou o item
 
----
-
-## Visao por capacidade tecnica (cross-mes)
-
-Util pra estimar quanto falta de cada area:
-
-| Capacidade | Meses afetados | Status |
-|---|---|---|
-| **Hardware base (HIDRO/FARM/CAM)** | Mes 1 | ✅ |
-| **Alertas P0-P3** | Mes 1 (P0/P1) + Mes 2 (P0-P3 + cooldown) | ✅ + evoluido |
-| **Monitoring de operacao** | Mes 2 (offline) | ✅ |
-| **Catalogo de especies** | Mes 3 → Mes 4 (alertas por especie) → Mes 5 (planejamento) | 0% |
-| **Lotes / rastreabilidade** | Mes 3 + Mes 4 (alertas por lote) | 0% |
-| **Modulos de sensor (CLIMA, SOLUCAO)** | Mes 4 | 0% |
-| **Historico sensorial + graficos** | Mes 4 | 10% (infra existe pra uptime, falta pra sensores) |
-| **Planejamento / Inteligencia operacional** | Mes 5 | 0% |
-| **Comercializacao (LGPD, billing, manual)** | Cross-mes (paralelo) | Parcial — ver `docs/license-gate.md`, `docs/lgpd-aipd.md`, `docs/manual-usuario.md` (drafts) |
+Se o **escopo MUDAR** (item ganhou novo requisito ou foi descartado):
+- Adicionar nota inline `**Reescopo (DD/MM/YYYY)**: ...` mantendo o texto original visivel
+- NAO apaga o item original — preserva historico
 
 ---
 
 ## Proximos passos imediatos (ordem sugerida)
 
-1. **Agendar visita ao parceiro** — fecha 2 itens do Mes 2 (presenciais).
-2. **Iniciar Mes 3 — catalogo de especies**: schema + UI basica + 3-5 especies "padrao da casa". Habilita Mes 4 (alertas por especie) e Mes 5 (planejamento).
-3. **Mes 3 — lotes**: schema + state machine. Sequencial ao item 2.
-4. **Mes 4 — modulo CLIMA primeiro** (DHT22 + MH-Z19). E o "produto novo" mais simples — segue o template do hidro-farm. Habilita historico sensorial.
-5. **Mes 4 — modulo SOLUCAO**: pH + CE. Mais complexo (calibracao 2 pontos).
-6. **Mes 5**: motor de planejamento, agenda automatica, relatorios. Sequencia logica apos meses 3 e 4.
+### Curto prazo (~2 semanas)
+1. **Agendar visita ao parceiro** — fecha 2.1 + 2.2 (presenciais).
+2. **Iniciar 3.1 (catalogo de especies)** — software puro, habilita Mes 5 inteiro + 4.4.
+3. **Decidir compras do Mes 4** (DHT22 + MH-Z19 + sondas pH/CE) — leadtime longo, comecar antes.
 
-Em paralelo (nao bloqueia roadmap tecnico):
+### Medio prazo (~1 mes)
+4. **3.2 (lotes + state machine)** — sequencial a 3.1.
+5. **3.3 + 3.4** — completam o Mes 3.
+
+### Sequencia natural daqui
+6. **4.1 modulo CLIMA primeiro** (mais simples que SOLUCAO).
+7. **4.2 modulo SOLUCAO** (calibracao 2 pontos exige cuidado extra).
+8. **4.3 + 4.4** — depois de 4.1 + 4.2 + 3.1 + 3.2.
+9. **Mes 5 inteiro** — depende de 3.1 + 3.2.
+
+### Em paralelo (nao bloqueia roadmap tecnico)
 - Decidir modelo de monetizacao (`docs/license-gate.md`)
 - DPO + AIPD + Termos (compliance)
-- Manual consumidor PDF + video 3min
+- Manual consumidor PDF + video 3min (`docs/manual-usuario.md`)
