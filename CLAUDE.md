@@ -82,7 +82,7 @@ Plataforma IoT para cultivo inteligente. Arquitetura modular:
 Hardware especializado: cada ESP32 faz uma coisa so.
 Composicao por software: o app mostra os modulos que o usuario adicionar.
 
-Versao ativa: **v4.1.59** (backend/PWA + firmware Cam — 2 alertas novos requerem firmware Cam atualizado: cam_init_failed + cam_dark_frame) / firmware: Hidro/Hidro-Farm v4.1.47 (sem mudanca real, podem rodar v4.1.59 sem regravar) / Cam v4.1.59 (gravado via OTA). `APP_VERSION` definida como fonte unica em [`server/config.py:24`](./server/config.py). Sync com firmware via [`sync-version.sh`](./sync-version.sh).
+Versao ativa: **v4.1.60** (backend/PWA — emails de alerta contextualizados: subject inclui nome do modulo + severidade) / firmware: Hidro/Hidro-Farm v4.1.47 / Cam v4.1.59. `APP_VERSION` definida como fonte unica em [`server/config.py:24`](./server/config.py). Sync com firmware via [`sync-version.sh`](./sync-version.sh).
 
 Firmware: **v4.1.26** em todos os produtos — sincronizado automaticamente via [`sync-version.sh`](./sync-version.sh) em [`products/hidro.h:11`](./products/hidro.h), [`products/hidro-farm.h:16`](./products/hidro-farm.h) e [`products/cam.h:11`](./products/cam.h) (`FIRMWARE_VERSION`). Rode `bash sync-version.sh --write` antes de recompilar.
 

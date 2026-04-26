@@ -933,7 +933,16 @@ class AlertManager:
                     to_email = user["email"]
             if to_email:
                 try:
-                    _send_email_alert(to_email, payload)
+                    # v4.1.60: passa contexto pro subject identificar o modulo.
+                    # `mod` ja foi resolvido la em cima (get_module_by_chip_id).
+                    module_name = mod.get("name") if mod else None
+                    _send_email_alert(
+                        to_email, payload,
+                        chip_id=chip_id,
+                        module_name=module_name,
+                        severity=sev,
+                        alert_type=alert_type,
+                    )
                     email_sent = True
                 except Exception as e:
                     log.warning(f"Email falhou ({to_email}): {e}")
@@ -1018,21 +1027,55 @@ def send_email(to_email, subject, body):
     return True
 
 
-def _send_email_alert(to_email, payload):
-    """Envia email de alerta (wrapper sobre send_email com template de alerta)."""
+def _send_email_alert(to_email, payload, chip_id=None, module_name=None,
+                      severity=None, alert_type=None):
+    """Envia email de alerta com subject + body contextualizados (v4.1.60).
+
+    Antes (v4.1.0+): subject era 'Cultivee Alerta - [P2] WiFi instavel' —
+    mesma string pra TODOS os modulos do user, impossivel saber QUAL deu
+    o problema sem abrir o email. Nome do modulo so aparecia embutido na
+    1a frase do body, sem destaque.
+
+    Agora: subject inclui nome do modulo + tipo do alerta + severidade.
+    Body comeca com bloco de metadados estruturado (Modulo/Severidade/Hora)
+    pra scan rapido. Body original do payload vem logo depois.
+
+    Parametros novos (todos opcionais, backward-compat):
+      chip_id, module_name, severity, alert_type
+    """
+    import re
     title = payload.get("title", "Alerta")
     body_text = payload.get("body", "")
-    full_body = f"""Cultivee Alerta
 
-{title}
+    # Nome amigavel: nome cadastrado pelo user, fallback chip_id curto
+    name = module_name or (f"chip {chip_id[:6]}" if chip_id else "modulo")
+
+    # Subject: limpa prefixo "[P#] " do title (vai pro fim como suffix)
+    clean_title = re.sub(r'^\[P\d\]\s*', '', title)
+    sev_suffix = f" [{severity}]" if severity else ""
+    subject = f"Cultivee · {name} · {clean_title}{sev_suffix}"
+
+    # Body: bloco de metadados + corpo + CTA + instrucoes de ajuste
+    from datetime import datetime
+    when = datetime.now().strftime("%d/%m/%Y %H:%M")
+    full_body = f"""Modulo:     {name}
+Severidade: {severity or '?'}
+Hora:       {when}
+
 {body_text}
 
-Acesse: https://app.cultivee.com.br
 ---
-Para desativar alertas, acesse o app e desabilite notificacoes.
+Acesse o app: https://app.cultivee.com.br
+
+Para ajustar canais (push/email) deste tipo de alerta NESTE modulo, abra
+o card do modulo no app > Notificacoes > Tipos de alerta.
+
+Para silenciar TODOS os alertas em uma faixa de horario (ex: madrugada),
+use o menu do usuario > Janela de silencio. Alertas P0 (emergencia)
+sempre passam mesmo na janela de silencio.
 """
     try:
-        send_email(to_email, f"Cultivee Alerta - {title}", full_body)
+        send_email(to_email, subject, full_body)
     except Exception as e:
         log.error(f"SMTP error (alerta): {e}")
         raise

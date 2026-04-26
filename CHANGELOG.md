@@ -10,6 +10,47 @@ Para contexto mais profundo de decisoes arquiteturais (por que foi feito assim, 
 
 ## [Nao lancado]
 
+## [4.1.60] - 2026-04-26
+
+### Mudado — Email de alerta com contexto (subject + body)
+- **Subject contextualizado**: antes era `Cultivee Alerta - [P2] WiFi instavel`
+  (mesma string pra qualquer modulo do user — inbox virava sopa quando 4
+  modulos disparavam alertas similares). Agora: `Cultivee · Hidro 7000 ·
+  WiFi instavel [P2]`. Inclui nome do modulo + tipo + severidade. Permite
+  filter/regex no Gmail por modulo, e leitura imediata na lista da inbox.
+- **Body com bloco de metadados**: as 3 primeiras linhas viram um header
+  estruturado (`Modulo: ... / Severidade: ... / Hora: ...`) pra scan
+  rapido. Body original do payload vem logo depois — sem perder info.
+- **Footer educativo**: passos pra ajustar canais (per-modulo > card)
+  E pra silenciar todos (menu user > Janela de silencio). Substitui o
+  generico "desabilite notificacoes" anterior.
+
+### Implementacao
+- `_send_email_alert(to_email, payload)` ganhou parametros opcionais
+  `chip_id, module_name, severity, alert_type` (backward-compat — caller
+  antigo continua funcionando, so com email generico anterior).
+- Strip do prefixo `[P#]` do title quando vai pro subject (severidade
+  vai pro fim como suffix `[P1]` — separa visualmente).
+- `_send_alert` em `notifications.py` agora passa o contexto. `mod` ja
+  estava em escopo (foi resolvido em v4.1.52 pra severity lookup).
+
+### Exemplo lado a lado
+
+```
+ANTES (v4.1.59):
+  Subject: Cultivee Alerta - [P1] Reservatorio nao enche
+  Body:    Cultivee Alerta
+           [P1] Reservatorio nao enche
+           Controle Hidro 7000: boia de nivel...
+
+DEPOIS (v4.1.60):
+  Subject: Cultivee · Controle Hidro 7000 · Reservatorio nao enche [P1]
+  Body:    Modulo:     Controle Hidro 7000
+           Severidade: P1
+           Hora:       26/04/2026 07:23
+           Controle Hidro 7000: boia de nivel...
+```
+
 ## [4.1.59] - 2026-04-26
 
 ### Adicionado — 2 alertas Cam (firmware + server)
