@@ -68,6 +68,11 @@ def register_module(chip_id, short_id, module_type="hidro", ip="", ssid="", rssi
             "sensor_invalid_streak",          # contador consecutivo de DHT11 invalido
             "wifi_disconnect_baseline",       # snapshot do counter de quedas
             "wifi_disconnect_baseline_at",    # ISO timestamp do snapshot
+            # v4.1.58: timers persistidos dos checks DHT/reservatorio
+            "dht_temp_high_since", "dht_temp_low_since",
+            "dht_humidity_since", "valve_open_since",
+            # v4.1.59: rolling window de tamanhos de captura (Cam, alerta dark_frame)
+            "last_capture_size_bytes", "recent_capture_sizes",
         )
         for k in server_keys:
             if k in existing_data:

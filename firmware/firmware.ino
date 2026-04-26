@@ -163,6 +163,10 @@ unsigned long lastLiveFrame = 0;
 unsigned long liveStartTime = 0;
 framesize_t captureFrameSize = FRAMESIZE_SVGA;  // SVGA 800x600 — melhor relacao qualidade/tamanho para processamento
 int captureQuality = 5;                          // q5 — maxima nitidez para deteccao em plantas
+// v4.1.59: codigo de erro do esp_camera_init (0 = ESP_OK = sucesso). Reportado
+// no register pra alerta cam_init_failed no servidor. Nao reseta em runtime —
+// vale do boot ate o proximo restart.
+int camInitErrorCode = 0;
 #endif
 
 // ===== FORWARD DECLARATIONS (funcoes compostas usadas pelos modulos) =====

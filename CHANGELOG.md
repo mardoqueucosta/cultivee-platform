@@ -10,6 +10,53 @@ Para contexto mais profundo de decisoes arquiteturais (por que foi feito assim, 
 
 ## [Nao lancado]
 
+## [4.1.59] - 2026-04-26
+
+### Adicionado — 2 alertas Cam (firmware + server)
+
+**Cam (2 alertas — REQUER firmware Cam >= v4.1.59):**
+- `cam_init_failed` — `esp_camera_init()` retornou erro no boot
+  (`cam_init_error_code != 0`). P1, cooldown 24h. Sintomas: sensor
+  OV2640 com defeito, cabo solto, PSRAM corrompida. Reset fisico do
+  ESP32 pode ajudar; persistente = trocar modulo.
+- `cam_dark_frame` — ultimas 5 capturas com tamanho < 30% do baseline
+  (mediana das ultimas 10). P3, cooldown 24h. Heuristica de "frame
+  anormal" via tamanho do JPEG (proxy de complexidade visual). Detecta:
+  lente tampada, escuridao total, falha de sensor. Precisa de pelo menos
+  10 capturas pra estabelecer baseline antes de ativar.
+
+### Firmware (Cam — v4.1.47 -> v4.1.59)
+- Variavel global `camInitErrorCode` em `firmware.ino` (escopo MOD_CAM).
+- `initCamera()` em `mod_cam.h` persiste `esp_err_t err` se falhar
+  (`camInitErrorCode = (int)err`). Se sucesso, garante `0` (defensivo).
+- `cam_register_json()` e `cam_status_json()` reportam
+  `"cam_init_error_code":<int>` no JSON.
+- Hidro e Hidro-Farm tambem bumpados (sync-version.sh padroniza) mas
+  sem mudanca real — so o numero da versao avancou. Rev nao precisa OTA
+  desses (firmware identico em comportamento).
+
+### Backend
+- Instrumentacao em `upload_capture` (`hardware/cam.py`): a cada upload
+  da Cam, atualiza `last_capture_size_bytes` + mantem rolling window
+  `recent_capture_sizes` (ultimas 10 sizes). E o que alimenta o
+  `_check_cam_dark_frame`.
+- 2 metodos novos `_check_cam_init_failed` e `_check_cam_dark_frame` em
+  `notifications.py`. Ambos filtrados por `module_type == "cam"`.
+- `server_keys` em `models/modules.py` agora inclui:
+  - `last_capture_size_bytes`, `recent_capture_sizes` (Cam tracking)
+  - `dht_temp_high_since`, `dht_temp_low_since`, `dht_humidity_since`,
+    `valve_open_since` (timers persistidos da v4.1.58 — bug latente
+    consertado na mesma rodada: ESP32 do Hidro-Farm podia sobrescrever)
+
+### Roll-out
+- Backend deploy automatico via push (GH Actions) — independente do
+  firmware. Server sabe aceitar firmware antigo (sem `cam_init_error_code`)
+  e simplesmente nao roda o check.
+- Firmware Cam OTA via SSH single-session pro chip 704CAAF7C630 (volume
+  Docker `cultivee_cultivee-data`).
+- Apos OTA, validar campo `cam_init_error_code: 0` aparecendo no
+  `ctrl_data` da Cam.
+
 ## [4.1.58] - 2026-04-25
 
 ### Adicionado — 5 alertas novos (server-only, ZERO mudanca no firmware)

@@ -123,7 +123,19 @@ PRODUCT_ALERTS = {
             "severity_default": "P2",
             "cooldown_sec": 12 * 3600,
         },
-        # v4.1.59+ (firmware change): cam_dark_frame, cam_init_failed
+        # v4.1.59: 2 alertas que requerem firmware Cam >= v4.1.59
+        # (reporta cam_init_error_code) + instrumentacao no upload pra
+        # rolling window de tamanhos (recent_capture_sizes).
+        "cam_init_failed": {
+            "name": "Falha ao inicializar a camera",
+            "severity_default": "P1",
+            "cooldown_sec": 24 * 3600,   # 1x/dia max — bug de hardware nao se resolve sozinho
+        },
+        "cam_dark_frame": {
+            "name": "Capturas com frame anormal (escuro/uniforme)",
+            "severity_default": "P3",
+            "cooldown_sec": 24 * 3600,   # info — nao urgente
+        },
     },
 }
 
@@ -265,6 +277,17 @@ class AlertManager:
                 self._check_cam_capture_failed(chip_id, merged, user_id, module)
         except Exception as e:
             log.warning(f"check_cam_capture_failed falhou pra {chip_id}: {e}")
+        # v4.1.59: 2 checks novos da Cam (requerem firmware >= v4.1.59)
+        try:
+            if module_type == "cam":
+                self._check_cam_init_failed(chip_id, merged, user_id, module)
+        except Exception as e:
+            log.warning(f"check_cam_init_failed falhou pra {chip_id}: {e}")
+        try:
+            if module_type == "cam":
+                self._check_cam_dark_frame(chip_id, merged, user_id, module)
+        except Exception as e:
+            log.warning(f"check_cam_dark_frame falhou pra {chip_id}: {e}")
 
         # Futuros: firmware_update_failed (precisa firmware reportar
         # ota_rollback_count — adia ate proxima rev de firmware)
@@ -767,6 +790,99 @@ class AlertManager:
             "url": "/"
         }
         self._send_alert(user_id, chip_id, "cam_capture_failed", payload)
+
+    # =========================================================
+    # v4.1.59 — Cam: init_failed + dark_frame (requer firmware >= v4.1.59)
+    # =========================================================
+
+    # Threshold pra cam_dark_frame: precisa N capturas pra estabelecer baseline
+    # E ultimas K consecutivas precisam estar abaixo de FRACTION % da mediana.
+    DARK_FRAME_BASELINE_MIN = 10        # mediana de quantas amostras
+    DARK_FRAME_TRAILING_LOW = 5         # ultimas N consecutivas baixas
+    DARK_FRAME_THRESHOLD_FRACTION = 0.30  # < 30% da mediana = anormal
+    DARK_FRAME_BASELINE_FLOOR = 5000    # bytes — abaixo disso ja e suspeito (cap mediana)
+
+    def _check_cam_init_failed(self, chip_id, ctrl_data, user_id, module):
+        """v4.1.59: firmware da Cam reporta cam_init_error_code = esp_err_t.
+        0 = OK; != 0 = erro de hardware/sensor (cabo solto, OV2640 com defeito,
+        PSRAM corrompida). Sintoma: dashboard offline mostra 'Camera nao
+        inicializada'. Cooldown 24h — bug de hardware nao se resolve sozinho."""
+        code = ctrl_data.get("cam_init_error_code")
+        if code is None:
+            return  # firmware antigo (<v4.1.59) nao reporta
+        try:
+            code = int(code)
+        except (TypeError, ValueError):
+            return
+        if code == 0:
+            return  # OK
+
+        import models
+        if not models.should_send_alert(user_id, chip_id, "cam_init_failed",
+                                         cooldown_seconds=24 * 3600):
+            return
+
+        name = (module.get("name") if module else None) or "Camera"
+        payload = {
+            "title": "[P1] Camera nao inicializou",
+            "body": (f"{name}: esp_camera_init falhou com codigo 0x{code:x}. "
+                     f"Provavel: cabo solto, sensor OV2640 com defeito, ou "
+                     f"PSRAM corrompida. Reset fisico do ESP32 pode ajudar; "
+                     f"se persistir, trocar modulo."),
+            "tag": f"cam-init-{chip_id}",
+            "url": "/"
+        }
+        self._send_alert(user_id, chip_id, "cam_init_failed", payload)
+
+    def _check_cam_dark_frame(self, chip_id, ctrl_data, user_id, module):
+        """v4.1.59: deteccao de anomalia visual via tamanho do JPEG (proxy de
+        complexidade). Lente tampada ou escuridao total -> JPEG MUITO menor
+        que o baseline (poucos detalhes pra comprimir). Frames muito grandes
+        tambem podem ser suspeitos (ruido extremo) mas fica pra outra release.
+
+        Baseline: mediana das ultimas DARK_FRAME_BASELINE_MIN+ capturas
+        (ou DARK_FRAME_BASELINE_FLOOR se historico e curto). Alerta se
+        ultimas DARK_FRAME_TRAILING_LOW estao todas abaixo de
+        DARK_FRAME_THRESHOLD_FRACTION x baseline.
+
+        recent_capture_sizes vem de upload_capture (instrumentado em v4.1.59),
+        rolling window de 10 sizes em ctrl_data."""
+        sizes = ctrl_data.get("recent_capture_sizes")
+        if not isinstance(sizes, list) or len(sizes) < self.DARK_FRAME_BASELINE_MIN:
+            return  # historico insuficiente — espera juntar amostras
+
+        # Baseline: mediana das primeiras (mais antigas) — assumindo que cenario
+        # "normal" estabilizou la atras. Sortear pra mediana real:
+        sorted_sizes = sorted(sizes)
+        n = len(sorted_sizes)
+        median = sorted_sizes[n // 2]
+        baseline = max(median, self.DARK_FRAME_BASELINE_FLOOR)
+
+        # Ultimas K sao as ULTIMAS posicoes da lista (mais recentes)
+        trailing = sizes[-self.DARK_FRAME_TRAILING_LOW:]
+        if len(trailing) < self.DARK_FRAME_TRAILING_LOW:
+            return
+        threshold = baseline * self.DARK_FRAME_THRESHOLD_FRACTION
+        if not all(s < threshold for s in trailing):
+            return  # nem todas as ultimas estao baixas — pode ser glitch isolado
+
+        import models
+        if not models.should_send_alert(user_id, chip_id, "cam_dark_frame",
+                                         cooldown_seconds=24 * 3600):
+            return
+
+        avg_trailing = sum(trailing) / len(trailing)
+        name = (module.get("name") if module else None) or "Camera"
+        payload = {
+            "title": "[P3] Capturas com frame anormal",
+            "body": (f"{name}: ultimas {self.DARK_FRAME_TRAILING_LOW} fotos "
+                     f"tem media de {avg_trailing/1024:.1f} KB (baseline "
+                     f"~{baseline/1024:.1f} KB). Pode indicar: lente tampada, "
+                     f"escuridao total, ou falha do sensor."),
+            "tag": f"cam-dark-{chip_id}",
+            "url": "/"
+        }
+        self._send_alert(user_id, chip_id, "cam_dark_frame", payload)
 
     def _send_alert(self, user_id, chip_id, alert_type, payload, severity=None):
         """

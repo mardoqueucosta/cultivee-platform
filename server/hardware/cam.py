@@ -130,6 +130,26 @@ def upload_capture(chip_id):
     generate_thumbnail(chip_id, filename, img_data, folder)
 
     models.mark_capture(chip_id)
+    # v4.1.59: rolling window dos ultimos 10 tamanhos pra alerta cam_dark_frame.
+    # Tamanho do JPEG e proxy de complexidade visual — frames anormalmente
+    # pequenos (lente tampada, escuridao) ficam abaixo do baseline.
+    # Le ctrl_data direto (get_capture_config nao expoe recent_capture_sizes).
+    try:
+        mod_row = models.get_module_by_chip_id(chip_id)
+        if mod_row:
+            try:
+                cd = json.loads(mod_row.get("ctrl_data") or "{}")
+            except (json.JSONDecodeError, TypeError):
+                cd = {}
+            recent = cd.get("recent_capture_sizes") if isinstance(cd.get("recent_capture_sizes"), list) else []
+            recent = (recent + [len(img_data)])[-10:]
+            models.update_ctrl_data(chip_id, {
+                "last_capture_size_bytes": len(img_data),
+                "recent_capture_sizes": recent,
+            })
+    except Exception as e:
+        log.warning(f"Erro ao trackear capture size [{chip_id[:4]}]: {e}")
+
     log.info(f"Capture push [{chip_id[:4]}]: {filename} ({len(img_data)/1024:.1f} KB)")
     return jsonify({"status": "ok"})
 

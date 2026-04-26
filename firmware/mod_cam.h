@@ -39,9 +39,14 @@ bool initCamera() {
 
   esp_err_t err = esp_camera_init(&config);
   if (err != ESP_OK) {
+    // v4.1.59: persiste codigo do erro pra reportar via register (alerta
+    // cam_init_failed). esp_err_t e int — passa direto pro JSON.
+    camInitErrorCode = (int)err;
     Serial.printf("Erro camera: 0x%x\n", err);
     return false;
   }
+  // Init OK — garante que codigo de erro esta zerado (defensivo)
+  camInitErrorCode = 0;
 
   sensor_t* s = esp_camera_sensor_get();
   s->set_vflip(s, 0);
@@ -230,13 +235,17 @@ void handleStream() {
 
 String cam_register_json() {
   // v4.1.9: reporta cam_live_mode pra persistir estado entre reloads do browser
+  // v4.1.59: + cam_init_error_code (0 = OK; != 0 = falha em esp_camera_init,
+  // alerta cam_init_failed no servidor)
   return "\"camera_ready\":" + String(cameraReady ? "true" : "false")
-       + ",\"cam_live_mode\":" + String(camLiveMode ? "true" : "false");
+       + ",\"cam_live_mode\":" + String(camLiveMode ? "true" : "false")
+       + ",\"cam_init_error_code\":" + String(camInitErrorCode);
 }
 
 String cam_status_json() {
   return ",\"camera_ready\":" + String(cameraReady ? "true" : "false")
-       + ",\"cam_live_mode\":" + String(camLiveMode ? "true" : "false");
+       + ",\"cam_live_mode\":" + String(camLiveMode ? "true" : "false")
+       + ",\"cam_init_error_code\":" + String(camInitErrorCode);
 }
 
 // ===================== DASHBOARD HTML =====================
