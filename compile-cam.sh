@@ -1,8 +1,9 @@
 #!/bin/bash
 # Compilar firmware Cultivee CAM com OTA (min_spiffs)
 # Uso: bash compile-cam.sh [upload]
-#   bash compile-cam.sh          → só compila, gera .bin em build/
-#   bash compile-cam.sh upload   → compila e grava via USB (COM7)
+#   bash compile-cam.sh                  → só compila, gera .bin em build/
+#   bash compile-cam.sh upload           → compila e grava via USB (COM7 default)
+#   PORT=COM8 bash compile-cam.sh upload → mesma coisa em outra porta
 #
 # IMPORTANTE: firmware/config.h deve estar com `#include "../products/cam.h"`
 # descomentado (e hidro.h/hidro-farm.h comentados).
@@ -11,6 +12,9 @@
 # (1.9 MB + 1.9 MB OTA). A PRIMEIRA gravacao precisa ser via USB (muda a
 # partition table). Dai em diante, atualizacoes podem ser via OTA remoto
 # (`bash ota-remote.sh <chip_id> build/firmware.ino.bin <token>`).
+#
+# v4.1.59: PORT aceitavel via env var (mesma convencao de compile.sh v4.1.34).
+# Default COM7. Pra Cam em outra porta: `PORT=COM8 bash compile-cam.sh upload`.
 
 set -e
 
@@ -18,7 +22,7 @@ ARDUINO_CLI="C:/Users/user/arduino-cli/arduino-cli.exe"
 FQBN="esp32:esp32:esp32wroverkit"
 FIRMWARE_DIR="$(cd "$(dirname "$0")" && pwd)/firmware"
 BUILD_DIR="$(cd "$(dirname "$0")" && pwd)/build"
-PORT="COM7"
+PORT="${PORT:-COM7}"
 
 echo "=== Compilando Cultivee Cam (min_spiffs, com OTA) ==="
 
