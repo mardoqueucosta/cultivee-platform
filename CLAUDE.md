@@ -1339,6 +1339,10 @@ Se precisar entender "o que mudou quando" ou "por que isso esta assim":
 
 **Regra operacional pra agentes**: ao abrir um PR / fazer release, atualize `CHANGELOG.md` **na mesma rodada** — e, se foi rodada longa, crie tambem o log de sessao. Nao deixe pra depois — depois nao existe.
 
+## Roadmap — onde estamos no plano
+
+[`docs/PLANO-EXECUCAO.md`](./docs/PLANO-EXECUCAO.md) — checklist consultavel dos 5 meses de plano (Abril → Agosto 2026). Marque `[x]` quando entregar item. Atualizado em rodadas que entregam itens do plano.
+
 ---
 
 ## Quando editar este arquivo?
