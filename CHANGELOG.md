@@ -10,6 +10,42 @@ Para contexto mais profundo de decisoes arquiteturais (por que foi feito assim, 
 
 ## [Nao lancado]
 
+## [4.1.57] - 2026-04-25
+
+### Mudado (consistencia entre os 2 historicos do app)
+- **Historico de alertas no card de notificacoes agora e POR MODULO** (era
+  global desde v4.1.41). Quando user estava no card do Hidro 7000, via
+  alertas de outros modulos (Farm, Cam) misturados — contradizia a
+  filosofia per-module recem-implementada. Agora cada card mostra so os
+  alertas DO seu modulo.
+- **Tabs 7 dias / 30 dias / 60 dias** no historico (espelha o modal
+  "Historico de conexao" v4.1.31). Default 30d, escolha persistida em
+  localStorage per-chip (`notif-history-days-<chipId>`).
+- **Stats agregados** no topo do historico: Total + breakdown por
+  severidade (P0/P1/P2/P3) + Ultimo alerta. Calculados no backend, frontend
+  renderiza pronto.
+
+### Backend
+- Novo endpoint `GET /api/modules/<chip_id>/alerts/history?days=N` em
+  `app.py`. Auth: dono do modulo OU admin. Retorna `{chip_id, days,
+  alerts[], stats: {total, by_severity, last_at}}`. days clampeado a 1..90.
+- Endpoint global `GET /api/profile/alerts/history` mantido (sem caller no
+  frontend, mas reservado pra view "todos os alertas" no menu user — futuro).
+
+### Frontend
+- `_notifHistoryCache` (singleton) -> `_notifHistoryCacheByChip[chipId]`
+  com `{ ts, days, alerts, stats }`. Cache valido sse mesmo `days` E TTL
+  60s. Trocar tab forca refetch (cache do day diferente nao serve).
+- Helpers `_getHistoryDays(chipId)` / `_setHistoryDays(chipId, days)` igual
+  padrao de `_isHistoryOpen` (localStorage com fallback default 30d).
+- `_buildHistoryHtml(alerts, stats, chipId, days, catalogList)` ganha tabs
+  + bloco de stats. Removido o `chip_id` da linha de cada item (todos sao
+  do mesmo chip agora — redundante).
+- Novo handler `changeHistoryDays(chipId, days)`: persiste localStorage +
+  dispara reload.
+- `_invalidateAndReloadAll` reescrito pra limpar os 2 caches per-chip e
+  reload usando o days persistido pra cada chip.
+
 ## [4.1.56] - 2026-04-25
 
 ### Mudado

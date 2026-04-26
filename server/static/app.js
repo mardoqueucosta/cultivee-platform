@@ -3769,7 +3769,10 @@ function renderNotificationCard(chipId, ctrlData) {
     // completo direto. Sem cache, placeholder + dispara fetch async.
     const cache = _notifCardCacheByChip[chipId];
     const cacheValid = cache && cache.catalog && (Date.now() - cache.ts) < 60000;
-    const historyCacheValid = _notifHistoryCache.alerts && (Date.now() - _notifHistoryCache.ts) < 60000;
+    const historyDays = _getHistoryDays(chipId);
+    const histCache = _notifHistoryCacheByChip[chipId];
+    const historyCacheValid = histCache && histCache.days === historyDays
+        && histCache.alerts && (Date.now() - histCache.ts) < 60000;
 
     let catalogHtml, historyHtml;
     if (cacheValid) {
@@ -3779,12 +3782,11 @@ function renderNotificationCard(chipId, ctrlData) {
         setTimeout(() => loadCardCatalog(chipId, sufx), 50);
     }
     if (historyCacheValid) {
-        // historico precisa do catalogo PRA ESSE CHIP pra mapear nome
-        const cat = cache && cache.catalog ? cache.catalog.catalog : [];
-        historyHtml = _buildHistoryHtml(_notifHistoryCache.alerts || [], cat);
+        const catalogList = cache && cache.catalog ? cache.catalog.catalog : [];
+        historyHtml = _buildHistoryHtml(histCache.alerts, histCache.stats, chipId, historyDays, catalogList);
     } else {
         historyHtml = `<div class="empty-state"><p style="font-size:0.75rem">Carregando historico...</p></div>`;
-        setTimeout(() => loadCardHistory(chipId, sufx), 50);
+        setTimeout(() => loadCardHistory(chipId, sufx, historyDays), 50);
     }
 
     return `<div class="card" style="padding:14px">
@@ -3851,13 +3853,30 @@ function _setHistoryOpen(chipId, isOpen) {
     } catch (e) { /* ignora */ }
 }
 
-// v4.1.52: cache split em 2:
-//  - _notifCardCacheByChip[chipId] — catalogo do modulo (per-chip, varia)
-//  - _notifHistoryCache — historico (continua global, pega alertas de todos
-//    os modulos do user; basta 1 fetch independente do numero de cards)
-// Ambos com TTL 60s pra evitar N requests por poll do dashboard.
+// v4.1.57: ambos os caches sao per-chip agora — historico tambem virou
+// per-module (era global em v4.1.52). Cada entry tem `days` no key porque
+// o usuario pode trocar entre 7d/30d/60d e cada janela e um fetch diferente.
+//  - _notifCardCacheByChip[chipId] = { ts, catalog }
+//  - _notifHistoryCacheByChip[chipId] = { ts, days, alerts, stats }
+// TTL 60s pra evitar N requests por poll do dashboard.
 const _notifCardCacheByChip = {};
-const _notifHistoryCache = { ts: 0, alerts: null };
+const _notifHistoryCacheByChip = {};
+
+// Helpers pra persistir o intervalo (7d/30d/60d) escolhido pelo user
+// em localStorage per-chip. Default 30d. Igual padrao de _isHistoryOpen.
+function _getHistoryDays(chipId) {
+    try {
+        const v = parseInt(localStorage.getItem(`notif-history-days-${chipId}`));
+        return [7, 30, 60].includes(v) ? v : 30;
+    } catch (e) { return 30; }
+}
+
+function _setHistoryDays(chipId, days) {
+    try {
+        if (days === 30) localStorage.removeItem(`notif-history-days-${chipId}`);
+        else localStorage.setItem(`notif-history-days-${chipId}`, String(days));
+    } catch (e) { /* ignora */ }
+}
 
 async function loadCardCatalog(chipId, sufx) {
     const now = Date.now();
@@ -3878,28 +3897,41 @@ async function loadCardCatalog(chipId, sufx) {
     }
 }
 
-async function loadCardHistory(chipId, sufx) {
+async function loadCardHistory(chipId, sufx, days) {
+    // v4.1.57: per-module + tabs days (default 30, mas pode ser 7/30/60).
+    // Cache valido se mesmo days E TTL <60s. Trocar de tab refaz fetch.
+    days = days || _getHistoryDays(chipId);
     const now = Date.now();
-    if (_notifHistoryCache.alerts && (now - _notifHistoryCache.ts) < 60000) {
+    const cache = _notifHistoryCacheByChip[chipId];
+    if (cache && cache.days === days && cache.alerts && (now - cache.ts) < 60000) {
         const cat = _notifCardCacheByChip[chipId];
         const catalogList = cat && cat.catalog ? cat.catalog.catalog : [];
-        _renderCardHistory(sufx, _notifHistoryCache.alerts, catalogList);
+        _renderCardHistory(sufx, cache.alerts, cache.stats, chipId, days, catalogList);
         return;
     }
     try {
-        const resp = await api('/api/profile/alerts/history?days=30');
-        // v4.1.54: muta propriedades — _notifHistoryCache e const, nao da
-        // pra reatribuir o objeto inteiro (TypeError em strict mode)
-        _notifHistoryCache.ts = now;
-        _notifHistoryCache.alerts = resp.alerts || [];
+        const resp = await api(`/api/modules/${encodeURIComponent(chipId)}/alerts/history?days=${days}`);
+        _notifHistoryCacheByChip[chipId] = {
+            ts: now,
+            days: days,
+            alerts: resp.alerts || [],
+            stats: resp.stats || { total: 0, by_severity: {}, last_at: null },
+        };
         const cat = _notifCardCacheByChip[chipId];
         const catalogList = cat && cat.catalog ? cat.catalog.catalog : [];
-        _renderCardHistory(sufx, _notifHistoryCache.alerts, catalogList);
+        _renderCardHistory(sufx, resp.alerts || [], resp.stats || {}, chipId, days, catalogList);
     } catch (e) {
-        console.warn('Erro ao carregar historico:', e);
+        console.warn(`Erro ao carregar historico de ${chipId}:`, e);
         const errEl = document.getElementById(`card-history-${sufx}`);
         if (errEl) errEl.innerHTML = `<p style="color:#e74c3c;font-size:0.75rem">Erro: ${escapeHtml(e.message)}</p>`;
     }
+}
+
+// Handler dos tabs 7d/30d/60d. Persiste a escolha + dispara reload.
+function changeHistoryDays(chipId, days) {
+    _setHistoryDays(chipId, days);
+    const sufx = chipId.replace(/[^a-zA-Z0-9]/g, '');
+    loadCardHistory(chipId, sufx, days);
 }
 
 // v4.1.52: _buildSilentHtml/_renderCardSilentHours removidos — janela de
@@ -3949,13 +3981,49 @@ function _renderCardCatalog(sufx, items, chipId) {
     el.innerHTML = _buildCatalogHtml(items, chipId);
 }
 
-function _buildHistoryHtml(alerts, catalog) {
-    if (alerts.length === 0) {
-        return `<p style="color:var(--text-dim);font-size:0.72rem;text-align:center;padding:10px">Sem alertas nos ultimos 30 dias.</p>`;
+function _buildHistoryHtml(alerts, stats, chipId, days, catalogList) {
+    // v4.1.57: tabs 7d/30d/60d + stats agregados (Total + por severidade
+    // + ultimo) + lista. Espelha visualmente o modal "Historico de conexao"
+    // pra consistencia entre os 2 historicos do app (uptime e alertas).
+    const safeChip = escapeAttr(chipId || '');
+    const tabs = [7, 30, 60].map(d => {
+        const active = (d === days);
+        return `<button onclick="changeHistoryDays('${safeChip}', ${d})"
+            style="padding:4px 10px;background:${active ? 'var(--primary)' : 'transparent'};
+                   color:${active ? '#fff' : 'var(--text-dim)'};
+                   border:1px solid ${active ? 'var(--primary)' : 'var(--border)'};
+                   border-radius:4px;cursor:pointer;font-size:0.7rem;font-weight:600">
+            ${d} dias
+        </button>`;
+    }).join('');
+
+    const s = stats || { total: 0, by_severity: {}, last_at: null };
+    const sevPills = Object.entries(s.by_severity || {})
+        .sort()  // P0, P1, P2, P3
+        .map(([sev, n]) => `<span style="margin-left:6px;color:var(--text-dim)">&middot; ${n} ${sev}</span>`)
+        .join('');
+    const lastTxt = s.last_at
+        ? `<span style="margin-left:6px;color:var(--text-dim)">&middot; Ultimo: ${escapeHtml(formatRelativeShort(s.last_at))}</span>`
+        : '';
+    const statsHtml = `
+        <div style="font-size:0.72rem;margin:6px 0 8px;line-height:1.4">
+            <span style="color:var(--text)">Total: <b>${s.total || 0}</b></span>
+            ${sevPills}
+            ${lastTxt}
+        </div>`;
+
+    if (!alerts || alerts.length === 0) {
+        return `
+            <div style="display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap">${tabs}</div>
+            ${statsHtml}
+            <p style="color:var(--text-dim);font-size:0.72rem;text-align:center;padding:10px">
+                Sem alertas nos ultimos ${days} dias.
+            </p>`;
     }
+
     const nameMap = {};
-    catalog.forEach(c => { nameMap[c.alert_type] = c.name; });
-    return alerts.slice(0, 20).map(a => {
+    (catalogList || []).forEach(c => { nameMap[c.alert_type] = c.name; });
+    const items = alerts.slice(0, 20).map(a => {
         const sev = a.severity || 'P1';
         const name = nameMap[a.alert_type] || a.alert_type;
         const when = formatRelativeShort(a.sent_at);
@@ -3963,47 +4031,59 @@ function _buildHistoryHtml(alerts, catalog) {
         const ackHtml = isAcked
             ? `<span style="font-size:0.65rem;color:var(--text-dim)">&#10003;</span>`
             : `<button onclick="ackCardAlert(${a.id})" style="background:transparent;color:var(--primary);border:1px solid var(--border);border-radius:3px;padding:1px 6px;font-size:0.65rem;cursor:pointer">&#10003;</button>`;
+        // chip_id sumiu da linha: agora e per-module, todos os itens sao do mesmo chip
         return `
         <div style="display:flex;justify-content:space-between;align-items:center;padding:4px 6px;background:var(--bg);border:1px solid var(--border);border-radius:4px;margin-bottom:2px;${isAcked ? 'opacity:0.55' : ''}">
             <div style="display:flex;align-items:center;gap:5px;min-width:0">
                 ${_sevBadge(sev)}
                 <div style="min-width:0">
                     <div style="font-weight:600">${escapeHtml(name)}</div>
-                    <div style="color:var(--text-dim);font-size:0.65rem">${escapeHtml(a.chip_id)} &middot; ${escapeHtml(when)}</div>
+                    <div style="color:var(--text-dim);font-size:0.65rem">${escapeHtml(when)}</div>
                 </div>
             </div>
             ${ackHtml}
         </div>`;
     }).join('');
+
+    return `
+        <div style="display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap">${tabs}</div>
+        ${statsHtml}
+        ${items}`;
 }
 
-function _renderCardHistory(sufx, alerts, catalog) {
+function _renderCardHistory(sufx, alerts, stats, chipId, days, catalogList) {
     const el = document.getElementById(`card-history-${sufx}`);
     if (!el) return;
-    el.innerHTML = _buildHistoryHtml(alerts, catalog);
+    el.innerHTML = _buildHistoryHtml(alerts, stats, chipId, days, catalogList);
 }
 
 // --- Handlers (invalida cache + reload todos os cards visiveis) ---
 
 function _invalidateAndReloadAll() {
-    // v4.1.52: limpa os 2 caches (per-chip + history global) e re-carrega
-    // todos os cards de notificacoes visiveis no DOM. Cada card sabe seu
-    // proprio chipId via reverse lookup do cache.
-    _notifHistoryCache.ts = 0;
+    // v4.1.57: limpa os 2 caches per-chip e re-carrega os cards visiveis.
+    // History agora e per-chip + per-days; reload usa o days persistido
+    // em localStorage pra cada chip.
     Object.keys(_notifCardCacheByChip).forEach(chipId => {
         _notifCardCacheByChip[chipId].ts = 0;
     });
+    Object.keys(_notifHistoryCacheByChip).forEach(chipId => {
+        _notifHistoryCacheByChip[chipId].ts = 0;
+    });
     document.querySelectorAll('[id^="card-catalog-"]').forEach(el => {
         const sufx = el.id.replace('card-catalog-', '');
-        // sufx -> chipId: percorre _notifCardCacheByChip pra achar o chip
-        // que sanitiza pro mesmo sufx. Sem cache (1a vez): nao reload —
-        // proxima renderizacao do dashboard ja vai disparar fetch.
-        const chipId = Object.keys(_notifCardCacheByChip).find(
+        // sufx -> chipId: reverse lookup. Procura primeiro no catalog cache,
+        // depois no history (caso usuario tenha aberto historico antes do
+        // catalog popular — improvavel mas defensivo).
+        const cidPool = new Set([
+            ...Object.keys(_notifCardCacheByChip),
+            ...Object.keys(_notifHistoryCacheByChip),
+        ]);
+        const chipId = [...cidPool].find(
             cid => cid.replace(/[^a-zA-Z0-9]/g, '') === sufx
         );
         if (chipId) {
             loadCardCatalog(chipId, sufx);
-            loadCardHistory(chipId, sufx);
+            loadCardHistory(chipId, sufx, _getHistoryDays(chipId));
         }
     });
 }

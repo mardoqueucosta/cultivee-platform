@@ -671,6 +671,59 @@ def module_alerts_catalog(chip_id):
     })
 
 
+@app.route("/api/modules/<chip_id>/alerts/history", methods=["GET"])
+@require_auth
+def module_alerts_history(chip_id):
+    """v4.1.57: historico de alertas filtrado POR MODULO (era global em
+    /api/profile/alerts/history). Alinha com a filosofia per-module —
+    estar no card do Hidro 7000 e ver alertas da Cam confundia.
+    Retorna alerts + stats agregados (total, por severidade, last_at)."""
+    from datetime import datetime, timedelta
+
+    module = models.get_module_by_chip_id(chip_id)
+    if not module:
+        return jsonify({"error": "Modulo nao encontrado"}), 404
+    is_admin = (_row_field(request.user, "role") == "admin")
+    is_owner = module.get("user_id") == request.user["id"]
+    if not (is_admin or is_owner):
+        return jsonify({"error": "Modulo nao encontrado"}), 404
+
+    try:
+        days = int(request.args.get("days", 30))
+    except (TypeError, ValueError):
+        days = 30
+    days = max(1, min(90, days))
+    cutoff = (datetime.now() - timedelta(days=days)).isoformat()
+
+    from models.db import get_db
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT id, chip_id, alert_type, severity, sent_at, ack_at "
+        "FROM alert_log WHERE user_id = ? AND chip_id = ? AND sent_at >= ? "
+        "ORDER BY sent_at DESC LIMIT 200",
+        (request.user["id"], chip_id, cutoff)
+    ).fetchall()
+    conn.close()
+
+    alerts = [dict(r) for r in rows]
+
+    # Stats agregados (calculados aqui, frontend renderiza pronto)
+    by_severity = {}
+    for a in alerts:
+        sev = a.get("severity") or "P1"
+        by_severity[sev] = by_severity.get(sev, 0) + 1
+    return jsonify({
+        "chip_id": chip_id,
+        "days": days,
+        "alerts": alerts,
+        "stats": {
+            "total": len(alerts),
+            "by_severity": by_severity,
+            "last_at": alerts[0]["sent_at"] if alerts else None,
+        }
+    })
+
+
 @app.route("/api/modules/<chip_id>/alert-prefs/<alert_type>", methods=["PUT"])
 @require_auth
 def module_alert_pref(chip_id, alert_type):
